@@ -104,6 +104,30 @@ mod group_action_tests {
             Some(GroupAction::GroupIconRemoved)
         ));
     }
+
+    #[test]
+    fn test_group_action_background_changed() {
+        let mut msg = Message::blank();
+        msg.item_type = 3;
+        msg.group_action_type = 4;
+
+        assert!(matches!(
+            Message::group_action(&msg),
+            Some(GroupAction::ChatBackgroundChanged)
+        ));
+    }
+
+    #[test]
+    fn test_group_action_background_removed() {
+        let mut msg = Message::blank();
+        msg.item_type = 3;
+        msg.group_action_type = 6;
+
+        assert!(matches!(
+            Message::group_action(&msg),
+            Some(GroupAction::ChatBackgroundRemoved)
+        ));
+    }
 }
 
 #[cfg(test)]

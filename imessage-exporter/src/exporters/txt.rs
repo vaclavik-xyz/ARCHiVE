@@ -640,6 +640,12 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                         GroupAction::ParticipantLeft => "left the conversation.".to_string(),
                         GroupAction::GroupIconChanged => "changed the group photo.".to_string(),
                         GroupAction::GroupIconRemoved => "removed the group photo.".to_string(),
+                        GroupAction::ChatBackgroundChanged => {
+                            "changed the chat background.".to_string()
+                        }
+                        GroupAction::ChatBackgroundRemoved => {
+                            "removed the chat background.".to_string()
+                        }
                     },
                     Announcement::AudioMessageKept => "kept an audio message.".to_string(),
                     Announcement::FullyUnsent => "unsent a message!".to_string(),
@@ -1543,6 +1549,52 @@ mod tests {
 
         let actual = exporter.format_announcement(&message);
         let expected = "May 17, 2022  5:29:42 PM You changed the group photo.\n\n";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_chat_background_removed() {
+        // Create exporter
+        let options = Options::fake_options(ExportType::Txt);
+        let mut config = Config::fake_app(options);
+        config.participants.insert(0, ME.to_string());
+
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        // May 17, 2022  8:29:42 PM
+        message.date = 674526582885055488;
+        message.group_title = Some("Hello world".to_string());
+        message.is_from_me = true;
+        message.item_type = 3;
+        message.group_action_type = 6;
+
+        let actual = exporter.format_announcement(&message);
+        let expected = "May 17, 2022  5:29:42 PM You removed the chat background.\n\n";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_chat_background_added() {
+        // Create exporter
+        let options = Options::fake_options(ExportType::Txt);
+        let mut config = Config::fake_app(options);
+        config.participants.insert(0, ME.to_string());
+
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        // May 17, 2022  8:29:42 PM
+        message.date = 674526582885055488;
+        message.group_title = Some("Hello world".to_string());
+        message.is_from_me = true;
+        message.item_type = 3;
+        message.group_action_type = 4;
+
+        let actual = exporter.format_announcement(&message);
+        let expected = "May 17, 2022  5:29:42 PM You changed the chat background.\n\n";
 
         assert_eq!(actual, expected);
     }

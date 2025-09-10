@@ -192,6 +192,10 @@ pub enum GroupAction<'a> {
     GroupIconChanged,
     /// The group icon/avatar has been removed, reverting to default
     GroupIconRemoved,
+    /// The chat background was changed
+    ChatBackgroundChanged,
+    /// The chat background was removed
+    ChatBackgroundRemoved,
 }
 
 impl<'a> GroupAction<'a> {
@@ -210,6 +214,8 @@ impl<'a> GroupAction<'a> {
             (3, 0, _, _) => Some(Self::ParticipantLeft),
             (3, 1, _, _) => Some(Self::GroupIconChanged),
             (3, 2, _, _) => Some(Self::GroupIconRemoved),
+            (3, 4, _, _) => Some(Self::ChatBackgroundChanged),
+            (3, 6, _, _) => Some(Self::ChatBackgroundRemoved),
             _ => None,
         }
     }
