@@ -348,8 +348,6 @@ pub(crate) fn parse_body_legacy(text: &Option<String>) -> Vec<BubbleComponent> {
 // MARK: TS Test
 #[cfg(test)]
 mod typedstream_tests {
-    // TODO: Fix test structure so we get flat lists again!
-
     use std::{env::current_dir, fs::File, io::Read};
 
     use crabstep::TypedStreamDeserializer;
