@@ -13,7 +13,10 @@ use crate::{
         messages::models::Service,
         table::{CHAT, Cacheable, PROPERTIES, Table},
     },
-    util::plist::{get_bool_from_dict, get_owned_string_from_dict},
+    util::plist::{
+        extract_dictionary, extract_string_key, get_bool_from_dict, get_owned_string_from_dict,
+        plist_as_dictionary,
+    },
 };
 
 // MARK: Chat Props
@@ -29,6 +32,8 @@ pub struct Properties {
     forced_sms: bool,
     /// GUID of the group photo, if it exists in the attachments table
     group_photo_guid: Option<String>,
+    /// Whether the chat has a custom background image
+    has_chat_background: bool,
 }
 
 impl Properties {
@@ -40,6 +45,10 @@ impl Properties {
             last_message_guid: get_owned_string_from_dict(plist, "lastSeenMessageGuid"),
             forced_sms: get_bool_from_dict(plist, "shouldForceToSMS").unwrap_or(false),
             group_photo_guid: get_owned_string_from_dict(plist, "groupPhotoGuid"),
+            has_chat_background: plist_as_dictionary(plist)
+                .and_then(|dict| extract_dictionary(dict, "groupPhotoGuid"))
+                .and_then(|dict| extract_string_key(dict, "refreshDate"))
+                .is_ok(),
         })
     }
 }
@@ -184,6 +193,7 @@ mod test_properties {
             last_message_guid: Some(String::from("FF0615B9-C4AF-4BD8-B9A8-1B5F9351033F")),
             forced_sms: false,
             group_photo_guid: None,
+            has_chat_background: false,
         };
         print!("Parsed properties: {expected:?}");
         assert_eq!(actual, expected);
@@ -205,6 +215,7 @@ mod test_properties {
             last_message_guid: Some(String::from("678BA15C-C309-FAAC-3678-78ACE995EB54")),
             forced_sms: false,
             group_photo_guid: None,
+            has_chat_background: false,
         };
         print!("Parsed properties: {expected:?}");
         assert_eq!(actual, expected);
@@ -226,6 +237,7 @@ mod test_properties {
             last_message_guid: Some(String::from("CEE419B6-17C7-42F7-8C2A-09A38CCA5730")),
             forced_sms: false,
             group_photo_guid: None,
+            has_chat_background: false,
         };
         print!("Parsed properties: {expected:?}");
         assert_eq!(actual, expected);
@@ -247,6 +259,73 @@ mod test_properties {
             last_message_guid: Some(String::from("87D5257D-6536-4067-A8A0-E7EF10ECBA9D")),
             forced_sms: true,
             group_photo_guid: None,
+            has_chat_background: false,
+        };
+        print!("Parsed properties: {expected:?}");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_can_parse_properties_no_background() {
+        let plist_path = current_dir()
+            .unwrap()
+            .as_path()
+            .join("test_data/chat_properties/before_background.plist");
+        let plist_data = File::open(plist_path).unwrap();
+        let plist = Value::from_reader(plist_data).unwrap();
+        println!("Parsed plist: {plist:#?}");
+
+        let actual = Properties::from_plist(&plist).unwrap();
+        let expected = Properties {
+            read_receipts_enabled: true,
+            last_message_guid: Some(String::from("49DA49E8-0000-0000-B59E-290294670E7D")),
+            forced_sms: false,
+            group_photo_guid: None,
+            has_chat_background: false,
+        };
+        print!("Parsed properties: {expected:?}");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_can_parse_properties_added_background() {
+        let plist_path = current_dir()
+            .unwrap()
+            .as_path()
+            .join("test_data/chat_properties/after_background_preset.plist");
+        let plist_data = File::open(plist_path).unwrap();
+        let plist = Value::from_reader(plist_data).unwrap();
+        println!("Parsed plist: {plist:#?}");
+
+        let actual = Properties::from_plist(&plist).unwrap();
+        let expected = Properties {
+            read_receipts_enabled: true,
+            last_message_guid: Some(String::from("49DA49E8-0000-0000-B59E-290294670E7D")),
+            forced_sms: false,
+            group_photo_guid: None,
+            has_chat_background: false,
+        };
+        print!("Parsed properties: {expected:?}");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_can_parse_properties_removed_background() {
+        let plist_path = current_dir()
+            .unwrap()
+            .as_path()
+            .join("test_data/chat_properties/after_background_removed.plist");
+        let plist_data = File::open(plist_path).unwrap();
+        let plist = Value::from_reader(plist_data).unwrap();
+        println!("Parsed plist: {plist:#?}");
+
+        let actual = Properties::from_plist(&plist).unwrap();
+        let expected = Properties {
+            read_receipts_enabled: true,
+            last_message_guid: Some(String::from("49DA49E8-0000-0000-B59E-290294670E7D")),
+            forced_sms: false,
+            group_photo_guid: None,
+            has_chat_background: false,
         };
         print!("Parsed properties: {expected:?}");
         assert_eq!(actual, expected);

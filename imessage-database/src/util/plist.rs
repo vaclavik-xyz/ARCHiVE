@@ -222,6 +222,14 @@ pub fn extract_int_key(body: &Dictionary, key: &str) -> Result<i64, PlistParseEr
         as i64)
 }
 
+/// Extract an &str from a specific key in a collection
+pub fn extract_string_key<'a>(body: &'a Dictionary, key: &str) -> Result<&'a str, PlistParseError> {
+    body.get(key)
+        .ok_or_else(|| PlistParseError::MissingKey(key.to_string()))?
+        .as_string()
+        .ok_or_else(|| PlistParseError::InvalidType(key.to_string(), "string".to_string()))
+}
+
 /// Extract a Uid from a specific index in a collection
 fn extract_uid_idx(body: &[Value], idx: usize) -> Result<usize, PlistParseError> {
     Ok(body
