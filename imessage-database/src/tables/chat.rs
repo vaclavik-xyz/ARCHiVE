@@ -46,8 +46,8 @@ impl Properties {
             forced_sms: get_bool_from_dict(plist, "shouldForceToSMS").unwrap_or(false),
             group_photo_guid: get_owned_string_from_dict(plist, "groupPhotoGuid"),
             has_chat_background: plist_as_dictionary(plist)
-                .and_then(|dict| extract_dictionary(dict, "groupPhotoGuid"))
-                .and_then(|dict| extract_string_key(dict, "refreshDate"))
+                .and_then(|dict| extract_dictionary(dict, "backgroundProperties"))
+                .and_then(|dict| extract_string_key(dict, "trabar"))
                 .is_ok(),
         })
     }
@@ -303,7 +303,7 @@ mod test_properties {
             last_message_guid: Some(String::from("49DA49E8-0000-0000-B59E-290294670E7D")),
             forced_sms: false,
             group_photo_guid: None,
-            has_chat_background: false,
+            has_chat_background: true,
         };
         print!("Parsed properties: {expected:?}");
         assert_eq!(actual, expected);
