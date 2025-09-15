@@ -14,5 +14,6 @@ pub mod placemark;
 pub mod polls;
 pub mod sticker;
 pub mod text_effects;
+pub mod translation;
 pub mod url;
 pub mod variants;
