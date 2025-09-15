@@ -101,6 +101,7 @@ This tool targets the current latest public release for Messages.app. It may wor
     - SharePlay/Facetime messages
     - Check In messages
     - Find My messages
+    - Polls and Votes
 - Handwritten Messages
   - Parses the protobuf payload to extract [handwritten](https://support.apple.com/en-my/guide/iphone/iph3d4cb79c9/ios) message data
     - Displayed as embedded `svg` in HTML exports

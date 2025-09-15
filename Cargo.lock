@@ -502,8 +502,10 @@ dependencies = [
 name = "imessage-database"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "chrono",
  "crabstep",
+ "jzon",
  "lzma-rs",
  "plist",
  "protobuf",
@@ -580,6 +582,12 @@ dependencies = [
  "once_cell",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "jzon"
+version = "0.12.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17ab85f84ca42c5ec520e6f3c9966ba1fd62909ce260f8837e248857d2560509"
 
 [[package]]
 name = "libc"

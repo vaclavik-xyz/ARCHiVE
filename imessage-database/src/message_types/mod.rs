@@ -11,6 +11,7 @@ pub mod expressives;
 pub mod handwriting;
 pub mod music;
 pub mod placemark;
+pub mod polls;
 pub mod sticker;
 pub mod text_effects;
 pub mod url;

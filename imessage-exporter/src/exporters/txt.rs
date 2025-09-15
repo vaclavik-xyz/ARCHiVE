@@ -29,6 +29,7 @@ use imessage_database::{
         handwriting::HandwrittenMessage,
         music::MusicMessage,
         placemark::PlacemarkMessage,
+        polls::Poll,
         sticker::StickerSource,
         url::URLMessage,
         variants::{
@@ -121,8 +122,8 @@ impl<'a> Exporter<'a> for TXT<'a> {
                 let announcement = self.format_announcement(&msg);
                 TXT::write_to_file(self.get_or_create_file(&msg)?, &announcement)?;
             }
-            // Message replies and tapbacks are rendered in context, so no need to render them separately
-            else if !msg.is_tapback() {
+            // Message tapbacks and poll votes are rendered in context, so no need to render them
+            else if !msg.is_tapback() && !msg.is_poll_vote() && !msg.is_poll_update() {
                 let message = self.format_message(&msg, 0)?;
                 TXT::write_to_file(self.get_or_create_file(&msg)?, &message)?;
             }
@@ -465,7 +466,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         if let Variant::App(balloon) = message.variant() {
             let mut app_bubble = String::new();
 
-            // Handwritten messages use a different payload type, so check that first
+            // Handwritten messages use a different payload type
             if message.is_handwriting()
                 && let Some(payload) = message.raw_payload_data(self.config.db())
             {
@@ -475,12 +476,22 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 };
             }
 
+            // Digital touch messages use a different payload type
             if message.is_digital_touch()
                 && let Some(payload) = message.raw_payload_data(self.config.db())
             {
                 return match digital_touch::from_payload(&payload) {
                     Some(bubble) => Ok(self.format_digital_touch(message, &bubble, indent)),
                     None => Err(PlistParseError::DigitalTouchError),
+                };
+            }
+
+            // Poll messages use a different payload type
+            if message.is_poll() {
+                let poll = message.as_poll(self.config.db())?;
+                return match poll {
+                    Some(poll) => Ok(self.format_poll(&poll, indent)),
+                    None => Err(PlistParseError::WrongMessageType),
                 };
             }
 
@@ -513,7 +524,8 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                             CustomBalloon::Slideshow => self.format_slideshow(&bubble, indent),
                             CustomBalloon::CheckIn => self.format_check_in(&bubble, indent),
                             CustomBalloon::FindMy => self.format_find_my(&bubble, indent),
-                            CustomBalloon::Handwriting
+                            CustomBalloon::Polls
+                            | CustomBalloon::Handwriting
                             | CustomBalloon::DigitalTouch
                             | CustomBalloon::URL => {
                                 unreachable!()
@@ -1053,6 +1065,25 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
 
             out_s.push_str("\nChecked in at ");
             out_s.push_str(&date_string);
+        }
+
+        out_s
+    }
+
+    fn format_poll(&self, poll: &Poll, indent: &'a str) -> String {
+        let mut out_s = String::from(indent);
+
+        for poll_option in &poll.order {
+            if let Some(option) = poll.options.get(poll_option) {
+                self.add_line(
+                    &mut out_s,
+                    &format!("- {} ({})", option.text, option.votes.len()),
+                    indent,
+                );
+                for vote in &option.votes {
+                    self.add_line(&mut out_s, &format!("  - {}", vote.voter), indent);
+                }
+            }
         }
 
         out_s
@@ -2152,20 +2183,26 @@ mod tests {
 
 #[cfg(test)]
 mod balloon_format_tests {
-    use crate::{Config, Exporter, Options, TXT, exporters::exporter::BalloonFormatter};
+    use std::collections::HashMap;
+
+    use crate::{
+        Config, Exporter, Options, TXT, app::export_type::ExportType::Txt,
+        exporters::exporter::BalloonFormatter,
+    };
     use imessage_database::message_types::{
         app::AppMessage,
         app_store::AppStoreMessage,
         collaboration::CollaborationMessage,
         music::MusicMessage,
         placemark::{Placemark, PlacemarkMessage},
+        polls::{Poll, PollOption, PollOptionID, PollVote},
         url::URLMessage,
     };
 
     #[test]
     fn can_format_txt_url() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2190,7 +2227,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_music() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2212,7 +2249,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_music_lyrics() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2234,7 +2271,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_collaboration() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2256,7 +2293,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_apple_pay() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2282,7 +2319,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_fitness() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2308,7 +2345,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_slideshow() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2334,7 +2371,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_find_my() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2360,7 +2397,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_check_in_timer() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2386,7 +2423,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_check_in_timer_late() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2412,7 +2449,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_accepted_check_in() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2438,7 +2475,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_app_store() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2460,7 +2497,7 @@ mod balloon_format_tests {
     #[test]
     fn can_format_txt_placemark() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2489,9 +2526,76 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_txt_poll() {
+        // Create exporter
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut poll_options: HashMap<PollOptionID, PollOption> = HashMap::new();
+
+        let id1: PollOptionID = "1".to_string();
+        let id2: PollOptionID = "2".to_string();
+        let id3: PollOptionID = "3".to_string();
+
+        poll_options.insert(
+            id1.clone(),
+            PollOption {
+                text: "Rust".to_string(),
+                creator: "alice".to_string(),
+                votes: vec![PollVote {
+                    voter: "carol".to_string(),
+                    option_id: id1.clone(),
+                }],
+            },
+        );
+
+        poll_options.insert(
+            id2.clone(),
+            PollOption {
+                text: "Go".to_string(),
+                creator: "bob".to_string(),
+                votes: vec![
+                    PollVote {
+                        voter: "alice".to_string(),
+                        option_id: id2.clone(),
+                    },
+                    PollVote {
+                        voter: "bob".to_string(),
+                        option_id: id2.clone(),
+                    },
+                ],
+            },
+        );
+
+        poll_options.insert(
+            id3.clone(),
+            PollOption {
+                text: "Python".to_string(),
+                creator: "carol".to_string(),
+                votes: vec![PollVote {
+                    voter: "dave".to_string(),
+                    option_id: id3.clone(),
+                }],
+            },
+        );
+
+        let poll = Poll {
+            options: poll_options,
+            order: vec![id1, id2, id3],
+        };
+
+        let expected = exporter.format_poll(&poll, "");
+        let actual =
+            "- Rust (1)\n  - carol\n- Go (2)\n  - alice\n  - bob\n- Python (1)\n  - dave\n";
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
     fn can_format_txt_generic_app() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2673,12 +2777,15 @@ mod edited_tests {
         tables::messages::models::{AttachmentMeta, BubbleComponent, TextAttributes},
     };
 
-    use crate::{Config, Exporter, Options, TXT, exporters::exporter::MessageFormatter};
+    use crate::{
+        Config, Exporter, Options, TXT, app::export_type::ExportType::Txt,
+        exporters::exporter::MessageFormatter,
+    };
 
     #[test]
     fn can_format_txt_conversion_final_unsent() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2734,7 +2841,7 @@ mod edited_tests {
     #[test]
     fn can_format_txt_conversion_no_edits() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
@@ -2769,7 +2876,7 @@ mod edited_tests {
     #[test]
     fn can_format_txt_conversion_fully_unsent() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Txt);
+        let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 

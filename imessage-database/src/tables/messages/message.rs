@@ -123,10 +123,11 @@ use plist::Value;
 use rusqlite::{CachedStatement, Connection, Error, Result, Row};
 
 use crate::{
-    error::{message::MessageError, table::TableError},
+    error::{message::MessageError, plist::PlistParseError, table::TableError},
     message_types::{
         edited::{EditStatus, EditedMessage},
         expressives::{BubbleEffect, Expressive, ScreenEffect},
+        polls::Poll,
         text_effects::TextEffect,
         variants::{Announcement, BalloonProvider, CustomBalloon, Tapback, TapbackAction, Variant},
     },
@@ -679,6 +680,24 @@ impl Message {
         matches!(self.variant(), Variant::App(CustomBalloon::DigitalTouch))
     }
 
+    /// `true` if the message is a Poll, else `false`
+    #[must_use]
+    pub fn is_poll(&self) -> bool {
+        matches!(self.variant(), Variant::App(CustomBalloon::Polls))
+    }
+
+    /// `true` if the message is a [`Poll`] vote, else `false`
+    #[must_use]
+    pub fn is_poll_vote(&self) -> bool {
+        self.associated_message_type == Some(4000)
+    }
+
+    /// `true` if the message is a [`Poll`] vote, else `false`
+    #[must_use]
+    pub fn is_poll_update(&self) -> bool {
+        matches!(self.variant(), Variant::PollUpdate)
+    }
+
     /// `true` if the message was [`Edited`](crate::message_types::edited), else `false`
     #[must_use]
     pub fn is_edited(&self) -> bool {
@@ -987,6 +1006,71 @@ impl Message {
         Ok(out_h)
     }
 
+    // MARK: Polls
+    /// Build a `Vec` of messages that vote on the parent poll
+    pub fn get_votes(&self, db: &Connection) -> Result<Vec<Self>, TableError> {
+        let mut out_v: Vec<Self> = Vec::new();
+
+        // No need to hit the DB if we know we don't have replies
+        if self.is_poll() {
+            let filters = format!("WHERE m.associated_message_guid = \"{}\"", self.guid);
+
+            // No iOS 13 and prior used here because `associated_message_guid` is not present in that schema
+            let mut statement = db
+                .prepare(&ios_16_newer_query(Some(&filters)))
+                .or_else(|_| db.prepare(&ios_14_15_query(Some(&filters))))?;
+
+            let iter = statement.query_map([], |row| Ok(Message::from_row(row)))?;
+
+            for message in iter {
+                let m = Message::extract(message)?;
+                out_v.push(m);
+            }
+        }
+
+        Ok(out_v)
+    }
+
+    /// If the message is a poll, attempt to parse and return it
+    pub fn as_poll(&self, db: &Connection) -> Result<Option<Poll>, PlistParseError> {
+        if self.is_poll()
+            && let Some(payload) = self.payload_data(db)
+        {
+            let mut poll = Poll::from_payload(&payload)?;
+
+            // Get all votes associated with this poll
+            let votes = self.get_votes(db).unwrap_or_default();
+
+            // Subsequent updates to the poll are stored as messages that reference the original poll message
+            // so we need to find the latest message in the vector of votes and determine if it is an update
+            for vote in votes.iter().rev() {
+                // The most recent non-vote message is the latest poll update
+                // and contains all of the possible options
+                if !vote.is_poll_vote()
+                    && let Some(vote_payload) = vote.payload_data(db)
+                    && let Ok(update) = Poll::from_payload(&vote_payload)
+                {
+                    poll = update;
+                    break;
+                }
+            }
+
+            // Count all votes associated with this poll, ignoring any poll update messages in the process
+            for vote in &votes {
+                if vote.is_poll_vote()
+                    && let Some(vote_payload) = vote.payload_data(db)
+                {
+                    poll.count_votes(&vote_payload)?;
+                }
+            }
+
+            // Return the final poll object
+            return Ok(Some(poll));
+        }
+
+        Ok(None)
+    }
+
     // MARK: Variant
     /// Get the variant of a message, see [`variants`](crate::message_types::variants) for detail.
     #[must_use]
@@ -1024,6 +1108,16 @@ impl Message {
                             Variant::App(CustomBalloon::CheckIn)
                         }
                         "com.apple.findmy.FindMyMessagesApp" => Variant::App(CustomBalloon::FindMy),
+                        "com.apple.messages.Polls" => match &self.associated_message_guid {
+                            Some(id) => {
+                                if id == &self.guid {
+                                    Variant::App(CustomBalloon::Polls)
+                                } else {
+                                    Variant::PollUpdate
+                                }
+                            }
+                            None => Variant::App(CustomBalloon::Polls),
+                        },
                         _ => Variant::App(CustomBalloon::Application(bundle_id)),
                     },
                 },
@@ -1102,6 +1196,8 @@ impl Message {
                     TapbackAction::Removed,
                     Tapback::Sticker,
                 ),
+                // A vote was cast on a poll
+                4000 => Variant::Vote,
 
                 // Unknown
                 x => Variant::Unknown(x),
