@@ -1607,8 +1607,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
                 // Vote bar visualization
                 out_s.push_str("<div class=\"vote-bar-container\">");
                 out_s.push_str(&format!(
-                    "<div class=\"vote-bar\" style=\"width: {}%;\"></div>",
-                    bar_width
+                    "<div class=\"vote-bar\" style=\"width: {bar_width}%;\"></div>"
                 ));
                 out_s.push_str("</div>");
 

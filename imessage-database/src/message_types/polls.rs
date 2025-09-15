@@ -103,7 +103,7 @@ impl Poll {
             PlistParseError::MissingKey("orderedPollOptions".to_string()),
         )?;
 
-        for option in ordered_options.iter() {
+        for option in ordered_options {
             let (id, poll_option) = PollOption::from_json(option);
             order.push(id.clone());
             options.insert(id, poll_option);
@@ -146,8 +146,7 @@ fn base64_url_to_json(data: &str) -> Result<JsonValue, PlistParseError> {
     // Extract the base64 part before the first "?" (if present)
     let base64_part = after_prefix
         .split_once('?')
-        .map(|(before, _)| before)
-        .unwrap_or(after_prefix);
+        .map_or(after_prefix, |(before, _)| before);
 
     // Decode the base64 part
     let bytes = String::from_utf8(
