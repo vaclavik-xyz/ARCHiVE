@@ -288,6 +288,17 @@ pub fn get_string_from_nested_dict<'a>(payload: &'a Value, key: &'a str) -> Opti
         .filter(|s| !s.is_empty())
 }
 
+/// Extract bytes from a key-value pair that looks like `{key: {key: String("value")}}`
+#[must_use]
+pub fn get_bytes_from_nested_dict<'a>(payload: &'a Value, key: &'a str) -> Option<&'a [u8]> {
+    payload
+        .as_dictionary()?
+        .get(key)?
+        .as_dictionary()?
+        .get(key)?
+        .as_data()
+}
+
 /// Extract a float from a key-value pair that looks like `{key: {key: 1.2}}`
 #[must_use]
 pub fn get_float_from_nested_dict<'a>(payload: &'a Value, key: &'a str) -> Option<f64> {

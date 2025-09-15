@@ -99,6 +99,8 @@ pub enum CustomBalloon<'a> {
     CheckIn,
     /// Find My messages
     FindMy,
+    /// Poll messages
+    Polls,
 }
 
 /// URL Message Types
@@ -164,6 +166,10 @@ pub enum Variant<'a> {
     App(CustomBalloon<'a>),
     /// A `SharePlay` message
     SharePlay,
+    /// A vote cast on a poll
+    Vote,
+    /// A new option sent to a poll
+    PollUpdate,
     /// Container for new or unknown messages
     Unknown(i32),
 }
