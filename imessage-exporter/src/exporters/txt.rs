@@ -246,8 +246,8 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                             }
 
                             if self.config.translated_messages.contains(&message.guid)
-                                && let Some(translation) =
-                                    message.get_translation(self.config.db()).unwrap()
+                                && let Ok(Some(translation)) =
+                                    message.get_translation(self.config.db())
                             {
                                 self.add_line(
                                     &mut formatted_message,

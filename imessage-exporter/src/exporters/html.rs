@@ -377,8 +377,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
 
                             // Check if the message was translated
                             if self.config.translated_messages.contains(&message.guid)
-                                && let Some(translation) =
-                                    message.get_translation(self.config.db()).unwrap()
+                                && let Ok(Some(translation)) =
+                                    message.get_translation(self.config.db())
                             {
                                 // Render the translated text as the message body
                                 self.add_line(
