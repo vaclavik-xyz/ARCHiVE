@@ -213,7 +213,7 @@ impl<'a> Exporter<'a> for HTML<'a> {
 impl<'a> MessageFormatter<'a> for HTML<'a> {
     fn format_message(&self, message: &Message, indent_size: usize) -> Result<String, TableError> {
         // Data we want to write to a file
-        let mut formatted_message = String::new();
+        let mut formatted_message = String::with_capacity(1024);
 
         // Message div
         if message.is_reply() && indent_size == 0 {
@@ -375,13 +375,27 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                                 formatted_text.push_str(&sanitize_html(text));
                             }
 
-                            // Render the message body if the message or message part was not edited
-                            // If it was edited, it was rendered already
-                            // if match &edited_parts {
-                            //     Some(edited_parts) => edited_parts.is_unedited_at(idx),
-                            //     None => !message.is_edited(),
-                            // } {
-                            if formatted_text.starts_with(FITNESS_RECEIVER) {
+                            // Check if the message was translated
+                            if self.config.translated_messages.contains(&message.guid)
+                                && let Some(translation) =
+                                    message.get_translation(self.config.db()).unwrap()
+                            {
+                                // Render the translated text as the message body
+                                self.add_line(
+                                    &mut formatted_message,
+                                    &translation.translated_text,
+                                    "<span class=\"bubble\">",
+                                    "</span>",
+                                );
+                                // Then, render the original message that the system translated
+                                self.add_line(
+                                    &mut formatted_message,
+                                    &formatted_text,
+                                    "<div class=\"translated\"><span class=\"bubble\">",
+                                    "</span></div>",
+                                );
+                            } else if formatted_text.starts_with(FITNESS_RECEIVER) {
+                                // Fitness messages have a prefix that we need to replace with the opposite if who sent the message
                                 self.add_line(
                                     &mut formatted_message,
                                     &formatted_text.replace(FITNESS_RECEIVER, YOU),

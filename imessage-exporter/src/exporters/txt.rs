@@ -172,7 +172,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
     fn format_message(&self, message: &Message, indent_size: usize) -> Result<String, TableError> {
         let indent = String::from_iter((0..indent_size).map(|_| " "));
         // Data we want to write to a file
-        let mut formatted_message = String::new();
+        let mut formatted_message = String::with_capacity(1024);
 
         // Add message date
         self.add_line(&mut formatted_message, &self.get_time(message), &indent);
@@ -227,7 +227,6 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         // Generate the message body from it's components
         for (idx, message_part) in message_parts.iter().enumerate() {
             match message_part {
-                // Fitness messages have a prefix that we need to replace with the opposite if who sent the message
                 BubbleComponent::Text(text_attrs) => {
                     if let Some(text) = &message.text {
                         // Render edited message content, if applicable
@@ -246,7 +245,19 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                                 formatted_text.push_str(text);
                             }
 
-                            if formatted_text.starts_with(FITNESS_RECEIVER) {
+                            if self.config.translated_messages.contains(&message.guid)
+                                && let Some(translation) =
+                                    message.get_translation(self.config.db()).unwrap()
+                            {
+                                self.add_line(
+                                    &mut formatted_message,
+                                    &translation.translated_text,
+                                    &indent,
+                                );
+                                self.add_line(&mut formatted_message, "Translated from:", &indent);
+                                self.add_line(&mut formatted_message, &formatted_text, &indent);
+                            } else if formatted_text.starts_with(FITNESS_RECEIVER) {
+                                // Fitness messages have a prefix that we need to replace with the opposite if who sent the message
                                 self.add_line(
                                     &mut formatted_message,
                                     &formatted_text.replace(FITNESS_RECEIVER, YOU),
