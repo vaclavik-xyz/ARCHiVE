@@ -115,7 +115,11 @@
  ```
 */
 
-use std::{collections::HashMap, fmt::Write, io::Read};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Write,
+    io::Read,
+};
 
 use chrono::{DateTime, offset::Local};
 use crabstep::TypedStreamDeserializer;
@@ -129,6 +133,7 @@ use crate::{
         expressives::{BubbleEffect, Expressive, ScreenEffect},
         polls::Poll,
         text_effects::TextEffect,
+        translation::Translation,
         variants::{Announcement, BalloonProvider, CustomBalloon, Tapback, TapbackAction, Variant},
     },
     tables::{
@@ -789,6 +794,53 @@ impl Message {
     #[must_use]
     pub fn is_deleted(&self) -> bool {
         self.deleted_from.is_some()
+    }
+
+    /// `true` if the message has was translated, else `false`
+    pub fn has_translation(&self, db: &Connection) -> bool {
+        let query = format!(
+            "SELECT ROWID FROM {MESSAGE} 
+                WHERE message_summary_info IS NOT NULL 
+                AND length(message_summary_info) > 61 
+                AND instr(message_summary_info, X'7472616E736C6174696F6E4C616E6775616765') > 0 
+                AND instr(message_summary_info, X'7472616E736C6174656454657874') > 0 
+                AND ROWID = ?"
+        );
+        if let Ok(mut statement) = db.prepare_cached(&query) {
+            let result: Result<i32, _> = statement.query_row([self.rowid], |row| row.get(0));
+            result.is_ok()
+        } else {
+            false
+        }
+    }
+
+    /// Generates the [`Translation`] for the current message
+    pub fn get_translation(&self, db: &Connection) -> Result<Option<Translation>, PlistParseError> {
+        if let Some(payload) = self.message_summary_info(db) {
+            return Ok(Some(Translation::from_payload(&payload)?));
+        }
+        Ok(None)
+    }
+
+    /// Cache all message GUIDs that contain translation data
+    pub fn cache_translations(db: &Connection) -> Result<HashSet<String>, TableError> {
+        let query = format!(
+            "SELECT guid FROM {MESSAGE} 
+                WHERE message_summary_info IS NOT NULL 
+                AND length(message_summary_info) > 61 
+                AND instr(message_summary_info, X'7472616E736C6174696F6E4C616E6775616765') > 0 
+                AND instr(message_summary_info, X'7472616E736C6174656454657874') > 0"
+        );
+
+        let mut statement = db.prepare(&query)?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+
+        let mut guids = HashSet::new();
+        for guid_result in rows {
+            guids.insert(guid_result?);
+        }
+
+        Ok(guids)
     }
 
     /// Get the group action for the current message
