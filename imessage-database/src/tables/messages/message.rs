@@ -796,7 +796,7 @@ impl Message {
         self.deleted_from.is_some()
     }
 
-    /// `true` if the message has was translated, else `false`
+    /// `true` if the message was translated, else `false`
     pub fn has_translation(&self, db: &Connection) -> bool {
         let query = format!(
             "SELECT ROWID FROM {MESSAGE} 
