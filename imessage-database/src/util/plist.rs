@@ -288,7 +288,7 @@ pub fn get_string_from_nested_dict<'a>(payload: &'a Value, key: &'a str) -> Opti
         .filter(|s| !s.is_empty())
 }
 
-/// Extract bytes from a key-value pair that looks like `{key: {key: String("value")}}`
+/// Extract bytes from a key-value pair that looks like `{key: {key: Data(bytes)}}`
 #[must_use]
 pub fn get_bytes_from_nested_dict<'a>(payload: &'a Value, key: &'a str) -> Option<&'a [u8]> {
     payload
