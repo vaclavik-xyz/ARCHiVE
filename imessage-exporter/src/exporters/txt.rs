@@ -2190,6 +2190,30 @@ mod tests {
             "May 17, 2022  5:29:42 PM\nUnknown\nhttps://www.ghacks.net/2020/01/23/lastpass-no-longer-listed-on-the-chrome-web-store/\nLastPass no longer listed on the Chrome Web Store - gHacks Tech News\nLastPass customers and new users searching for password managers on Google's Chrome Web Store may have noticed that the LastPass extension for Google Chrome is currently no longer listed on the store.\n\n"
         );
     }
+
+    #[test]
+    fn can_format_txt_translated_message() {
+        // Create exporter
+        let mut options = Options::fake_options(ExportType::Txt);
+        options.attachment_manager.mode = AttachmentManagerMode::Clone;
+
+        let mut config = Config::fake_app(options);
+        config
+            .translated_messages
+            .insert("56FE94B9-2345-4A3C-A57F-949BDDDDF9FF".to_string());
+
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        message.guid = "56FE94B9-2345-4A3C-A57F-949BDDDDF9FF".to_string();
+        message.rowid = 548216;
+        message.generate_text_legacy(config.db()).unwrap();
+
+        let actual = exporter.format_message(&message, 0).unwrap();
+        let expected = "Dec 31, 2000  4:00:00 PM\nUnknown\nOh, il a traduit ce que j'ai envoyé !\nTranslated from:\nOh it translated what I sent!\n\n";
+
+        assert_eq!(actual, expected);
+    }
 }
 
 #[cfg(test)]

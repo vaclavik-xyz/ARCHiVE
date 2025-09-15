@@ -2988,6 +2988,30 @@ mod tests {
             "<div class=\"message\">\n<div class=\"received\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=FAKEGUID-D0C8-4212-AA87-DD8AE4FD1203\">May 17, 2022  5:29:42 PM</a> </span>\n<span class=\"sender\">Unknown</span></p>\n<hr><div class=\"message_part\">\n<div class=\"app\"><a href=\"https://www.ghacks.net/2020/01/23/lastpass-no-longer-listed-on-the-chrome-web-store/\"><div class=\"app_header\"><img src=\"https://www.ghacks.net/wp-content/uploads/2020/01/lastpass-chrome-extension.png\" loading=\"lazy\", onerror=\"this.style.display='none'\"><div class=\"name\">gHacks Technology News</div></div><div class=\"app_footer\"><div class=\"caption\">LastPass no longer listed on the Chrome Web Store - gHacks Tech News</div><div class=\"subcaption\">LastPass customers and new users searching for password managers on Google&apos;s Chrome Web Store may have noticed that the LastPass extension for Google Chrome is currently no longer listed on the store.</div></div></a></div>\n</div>\n</div>\n</div>\n"
         );
     }
+
+    #[test]
+    fn can_format_html_translated_message() {
+        // Create exporter
+        let mut options = Options::fake_options(ExportType::Html);
+        options.attachment_manager.mode = AttachmentManagerMode::Clone;
+
+        let mut config = Config::fake_app(options);
+        config
+            .translated_messages
+            .insert("56FE94B9-2345-4A3C-A57F-949BDDDDF9FF".to_string());
+
+        let exporter = HTML::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        message.guid = "56FE94B9-2345-4A3C-A57F-949BDDDDF9FF".to_string();
+        message.rowid = 548216;
+        message.generate_text_legacy(config.db()).unwrap();
+
+        let actual = exporter.format_message(&message, 0).unwrap();
+        let expected = "<div class=\"message\">\n<div class=\"received\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=56FE94B9-2345-4A3C-A57F-949BDDDDF9FF\">Dec 31, 2000  4:00:00 PM</a> </span>\n<span class=\"sender\">Unknown</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Oh, il a traduit ce que j'ai envoyé !</span>\n<div class=\"translated\"><span class=\"bubble\">Oh it translated what I sent!</span></div>\n</div>\n</div>\n</div>\n";
+
+        assert_eq!(actual, expected);
+    }
 }
 
 #[cfg(test)]
