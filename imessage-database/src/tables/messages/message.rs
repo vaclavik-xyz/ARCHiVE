@@ -798,6 +798,8 @@ impl Message {
 
     /// `true` if the message was translated, else `false`
     pub fn has_translation(&self, db: &Connection) -> bool {
+        // `7472616E736C6174696F6E4C616E6775616765` -> "translationLanguage"
+        // `7472616E736C6174656454657874` -> "translatedText"
         let query = format!(
             "SELECT ROWID FROM {MESSAGE} 
                 WHERE message_summary_info IS NOT NULL 
@@ -824,6 +826,8 @@ impl Message {
 
     /// Cache all message GUIDs that contain translation data
     pub fn cache_translations(db: &Connection) -> Result<HashSet<String>, TableError> {
+        // `7472616E736C6174696F6E4C616E6775616765` -> "translationLanguage"
+        // `7472616E736C6174656454657874` -> "translatedText"
         let query = format!(
             "SELECT guid FROM {MESSAGE} 
                 WHERE message_summary_info IS NOT NULL 
