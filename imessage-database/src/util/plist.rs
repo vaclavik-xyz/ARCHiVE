@@ -75,6 +75,19 @@ pub fn parse_ns_keyed_archiver(plist: &Value) -> Result<Value, PlistParseError> 
 
 /// Recursively follows pointers in an `NSKeyedArchiver` format, promoting the values
 /// to the positions where the pointers live
+///
+/// # Parameters
+///
+/// * `objects` - The array of objects from the `$objects` key in the NSKeyedArchiver format
+/// * `root` - The index into the `objects` array to resolve the current object
+/// * `parent` - Optional reference to the parent object in the recursion chain. Used when
+///   processing dictionary values to provide context for key generation and relative references.
+///   For example, when processing a dictionary entry like `{key: uid_pointer}`, the parent
+///   would be the [`Value`] representing the key itself.
+/// * `item` - Optional reference to a specific item to process instead of looking up `root`
+///   in the `objects` array. This is used when recursing into sub-objects that are already
+///   resolved, such as when processing array elements or dictionary values that don't
+///   contain `UID` pointers.
 fn follow_uid<'a>(
     objects: &'a [Value],
     root: usize,
