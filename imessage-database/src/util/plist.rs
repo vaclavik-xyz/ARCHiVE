@@ -78,7 +78,7 @@ pub fn parse_ns_keyed_archiver(plist: &Value) -> Result<Value, PlistParseError> 
 fn follow_uid<'a>(
     objects: &'a [Value],
     root: usize,
-    parent: Option<&str>,
+    parent: Option<&'a Value>,
     item: Option<&'a Value>,
 ) -> Result<Value, PlistParseError> {
     let item = match item {
@@ -106,7 +106,7 @@ fn follow_uid<'a>(
                     && let Some(p) = &parent
                 {
                     dictionary.insert(
-                        (*p).to_string(),
+                        value_to_key_string(p),
                         follow_uid(objects, idx.get() as usize, Some(p), None)?,
                     );
                 }
@@ -127,12 +127,10 @@ fn follow_uid<'a>(
                 for idx in 0..keys.len() {
                     let key_index = extract_uid_idx(keys, idx)?;
                     let value_index = extract_uid_idx(values, idx)?;
-                    let key = extract_string_idx(objects, key_index)?;
+                    let key = follow_uid(objects, key_index, None, None)?;
+                    let value = follow_uid(objects, value_index, Some(&key), None)?;
 
-                    dictionary.insert(
-                        String::from(key),
-                        follow_uid(objects, value_index, Some(key), None)?,
-                    );
+                    dictionary.insert(value_to_key_string(&key), value);
                 }
             }
             // Handle a normal `{key: value}` style dictionary
@@ -144,15 +142,16 @@ fn follow_uid<'a>(
                     }
                     // If the value is a pointer, follow it
                     if let Some(idx) = val.as_uid() {
+                        let key_value = Value::String(key.to_string());
                         dictionary.insert(
-                            String::from(key),
-                            follow_uid(objects, idx.get() as usize, Some(key), None)?,
+                            key.to_string(),
+                            follow_uid(objects, idx.get() as usize, Some(&key_value), None)?,
                         );
                     }
                     // If the value is not a pointer, try and follow the data itself
                     else if let Some(p) = parent {
                         dictionary.insert(
-                            String::from(p),
+                            value_to_key_string(p),
                             follow_uid(objects, root, Some(p), Some(val))?,
                         );
                     }
@@ -162,6 +161,22 @@ fn follow_uid<'a>(
         }
         Value::Uid(uid) => follow_uid(objects, uid.get() as usize, None, None),
         _ => Ok(item.to_owned()),
+    }
+}
+
+/// Helper function to convert a [`Value`] to a string representation for use as dictionary key
+fn value_to_key_string(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Integer(i) => i.to_string(),
+        Value::Real(f) => f.to_string(),
+        Value::Boolean(b) => b.to_string(),
+        Value::Date(d) => format!("{d:?}"),
+        Value::Data(_) => "data".to_string(),
+        Value::Array(_) => "array".to_string(),
+        Value::Dictionary(_) => "dict".to_string(),
+        Value::Uid(u) => u.get().to_string(),
+        _ => "unknown".to_string(),
     }
 }
 
@@ -240,12 +255,12 @@ fn extract_uid_idx(body: &[Value], idx: usize) -> Result<usize, PlistParseError>
         .get() as usize)
 }
 
-/// Extract a string from a specific index in a collection
-fn extract_string_idx(body: &[Value], idx: usize) -> Result<&str, PlistParseError> {
+/// Extract a dictionary from a specific index in a collection
+pub fn extract_dict_idx(body: &[Value], idx: usize) -> Result<&Dictionary, PlistParseError> {
     body.get(idx)
         .ok_or(PlistParseError::NoValueAtIndex(idx))?
-        .as_string()
-        .ok_or_else(|| PlistParseError::InvalidTypeIndex(idx, "string".to_string()))
+        .as_dictionary()
+        .ok_or_else(|| PlistParseError::InvalidTypeIndex(idx, "dictionary".to_string()))
 }
 
 /// Extract a string from a key-value pair that looks like `{key: String("value")}`
@@ -286,17 +301,6 @@ pub fn get_string_from_nested_dict<'a>(payload: &'a Value, key: &'a str) -> Opti
         .get(key)?
         .as_string()
         .filter(|s| !s.is_empty())
-}
-
-/// Extract bytes from a key-value pair that looks like `{key: {key: Data(bytes)}}`
-#[must_use]
-pub fn get_bytes_from_nested_dict<'a>(payload: &'a Value, key: &'a str) -> Option<&'a [u8]> {
-    payload
-        .as_dictionary()?
-        .get(key)?
-        .as_dictionary()?
-        .get(key)?
-        .as_data()
 }
 
 /// Extract a float from a key-value pair that looks like `{key: {key: 1.2}}`
