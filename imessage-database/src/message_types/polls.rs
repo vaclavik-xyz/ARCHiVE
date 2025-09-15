@@ -141,7 +141,7 @@ fn base64_url_to_json(data: &str) -> Result<JsonValue, PlistParseError> {
     // Strip the fixed prefix
     let after_prefix = data
         .strip_prefix("data:,")
-        .ok_or(PlistParseError::MissingKey("URL".to_string()))?;
+        .ok_or(PlistParseError::WrongMessageType)?;
 
     // Extract the base64 part before the first "?" (if present)
     let base64_part = after_prefix
@@ -153,12 +153,12 @@ fn base64_url_to_json(data: &str) -> Result<JsonValue, PlistParseError> {
     let bytes = String::from_utf8(
         general_purpose::URL_SAFE
             .decode(base64_part)
-            .map_err(|_| PlistParseError::MissingKey("URL".to_string()))?,
+            .map_err(|_| PlistParseError::WrongMessageType)?,
     )
-    .map_err(|_| PlistParseError::MissingKey("URL".to_string()))?;
+    .map_err(|_| PlistParseError::WrongMessageType)?;
 
     // Parse the JSON
-    jzon::parse(&bytes).map_err(|_| PlistParseError::MissingKey("URL".to_string()))
+    jzon::parse(&bytes).map_err(|_| PlistParseError::WrongMessageType)
 }
 
 #[cfg(test)]
