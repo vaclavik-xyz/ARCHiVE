@@ -172,7 +172,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
     fn format_message(&self, message: &Message, indent_size: usize) -> Result<String, TableError> {
         let indent = String::from_iter((0..indent_size).map(|_| " "));
         // Data we want to write to a file
-        let mut formatted_message = String::new();
+        let mut formatted_message = String::with_capacity(1024);
 
         // Add message date
         self.add_line(&mut formatted_message, &self.get_time(message), &indent);
@@ -227,7 +227,6 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         // Generate the message body from it's components
         for (idx, message_part) in message_parts.iter().enumerate() {
             match message_part {
-                // Fitness messages have a prefix that we need to replace with the opposite if who sent the message
                 BubbleComponent::Text(text_attrs) => {
                     if let Some(text) = &message.text {
                         // Render edited message content, if applicable
@@ -246,7 +245,19 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                                 formatted_text.push_str(text);
                             }
 
-                            if formatted_text.starts_with(FITNESS_RECEIVER) {
+                            if self.config.translated_messages.contains(&message.guid)
+                                && let Ok(Some(translation)) =
+                                    message.get_translation(self.config.db())
+                            {
+                                self.add_line(
+                                    &mut formatted_message,
+                                    &translation.translated_text,
+                                    &indent,
+                                );
+                                self.add_line(&mut formatted_message, "Translated from:", &indent);
+                                self.add_line(&mut formatted_message, &formatted_text, &indent);
+                            } else if formatted_text.starts_with(FITNESS_RECEIVER) {
+                                // Fitness messages have a prefix that we need to replace with the opposite if who sent the message
                                 self.add_line(
                                     &mut formatted_message,
                                     &formatted_text.replace(FITNESS_RECEIVER, YOU),
@@ -2178,6 +2189,30 @@ mod tests {
             actual,
             "May 17, 2022  5:29:42 PM\nUnknown\nhttps://www.ghacks.net/2020/01/23/lastpass-no-longer-listed-on-the-chrome-web-store/\nLastPass no longer listed on the Chrome Web Store - gHacks Tech News\nLastPass customers and new users searching for password managers on Google's Chrome Web Store may have noticed that the LastPass extension for Google Chrome is currently no longer listed on the store.\n\n"
         );
+    }
+
+    #[test]
+    fn can_format_txt_translated_message() {
+        // Create exporter
+        let mut options = Options::fake_options(ExportType::Txt);
+        options.attachment_manager.mode = AttachmentManagerMode::Clone;
+
+        let mut config = Config::fake_app(options);
+        config
+            .translated_messages
+            .insert("56FE94B9-2345-4A3C-A57F-949BDDDDF9FF".to_string());
+
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        message.guid = "56FE94B9-2345-4A3C-A57F-949BDDDDF9FF".to_string();
+        message.rowid = 548216;
+        message.generate_text_legacy(config.db()).unwrap();
+
+        let actual = exporter.format_message(&message, 0).unwrap();
+        let expected = "Dec 31, 2000  4:00:00 PM\nUnknown\nOh, il a traduit ce que j'ai envoyé !\nTranslated from:\nOh it translated what I sent!\n\n";
+
+        assert_eq!(actual, expected);
     }
 }
 

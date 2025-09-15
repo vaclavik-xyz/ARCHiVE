@@ -61,6 +61,8 @@ pub struct Config {
     pub real_participants: HashMap<i32, i32>,
     /// Messages that are tapbacks (reactions) to other messages
     pub tapbacks: HashMap<String, HashMap<usize, Vec<Message>>>,
+    /// Translated message GUIDs
+    pub translated_messages: HashSet<String>,
     /// App configuration options
     pub options: Options,
     /// Global date offset used by the iMessage database:
@@ -244,14 +246,16 @@ impl Config {
         }
 
         eprintln!("Building cache...");
-        eprintln!("  [1/4] Caching chats...");
+        eprintln!("  [1/5] Caching chats...");
         let chatrooms = Chat::cache(&conn)?;
-        eprintln!("  [2/4] Caching chatrooms...");
+        eprintln!("  [2/5] Caching chatrooms...");
         let chatroom_participants = ChatToHandle::cache(&conn)?;
-        eprintln!("  [3/4] Caching participants...");
+        eprintln!("  [3/5] Caching participants...");
         let participants = Handle::cache(&conn)?;
-        eprintln!("  [4/4] Caching tapbacks...");
+        eprintln!("  [4/5] Caching tapbacks...");
         let tapbacks = Message::cache(&conn)?;
+        eprintln!("  [5/5] Caching translations...");
+        let translated_messages = Message::cache_translations(&conn)?;
         eprintln!("Cache built!");
 
         Ok(Config {
@@ -261,6 +265,7 @@ impl Config {
             real_participants: Handle::dedupe(&participants),
             participants,
             tapbacks,
+            translated_messages,
             options,
             offset: get_offset(),
             db: Some(conn),
@@ -531,6 +536,7 @@ impl Config {
             participants: HashMap::new(),
             real_participants: HashMap::new(),
             tapbacks: HashMap::new(),
+            translated_messages: HashSet::new(),
             options,
             offset: get_offset(),
             db: Some(connection),
