@@ -3456,13 +3456,14 @@ mod text_effect_tests {
 
     use crate::{
         Config, Exporter, HTML, Options,
+        app::export_type::ExportType::Html,
         exporters::exporter::{MessageFormatter, TextEffectFormatter},
     };
 
     #[test]
     fn can_format_html_default() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3475,7 +3476,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_mention() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3488,7 +3489,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_link() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3501,7 +3502,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_otp() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3514,7 +3515,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_style_single() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3527,7 +3528,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_style_multiple() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3540,7 +3541,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_style_all() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3561,7 +3562,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_conversion() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3574,7 +3575,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_mention_end_to_end() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3600,7 +3601,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_otp_end_to_end() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3625,7 +3626,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_link_end_to_end() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3653,7 +3654,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_conversion_end_to_end() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3679,7 +3680,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_text_effect_end_to_end() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3715,7 +3716,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_text_styles_end_to_end() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3756,7 +3757,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_text_styles_single_end_to_end() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3787,7 +3788,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_text_styles_mixed_end_to_end() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3814,7 +3815,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_text_styled_plain_link() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3846,7 +3847,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_text_styled_emoji_bold_underline() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3873,7 +3874,7 @@ mod text_effect_tests {
     #[test]
     fn can_format_html_text_styled_overlapping_ranges() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -3924,7 +3925,10 @@ mod text_effect_tests {
 mod edited_tests {
     use std::{env::current_dir, fs::File, io::Read};
 
-    use crate::{Config, Exporter, HTML, Options, exporters::exporter::MessageFormatter};
+    use crate::{
+        Config, Exporter, HTML, Options, app::export_type::ExportType::Html,
+        exporters::exporter::MessageFormatter,
+    };
     use imessage_database::{
         message_types::{
             edited::{EditStatus, EditedEvent, EditedMessage, EditedMessagePart},
@@ -3936,7 +3940,7 @@ mod edited_tests {
     #[test]
     fn can_format_html_edited_with_formatting() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -4002,7 +4006,7 @@ mod edited_tests {
     #[test]
     fn can_format_html_conversion_final_unsent() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -4058,7 +4062,7 @@ mod edited_tests {
     #[test]
     fn can_format_html_conversion_no_edits() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
@@ -4092,7 +4096,7 @@ mod edited_tests {
     #[test]
     fn can_format_html_conversion_fully_unsent() {
         // Create exporter
-        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
