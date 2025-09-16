@@ -113,7 +113,7 @@ pub fn as_nsstring<'a>(property: &'a mut Property<'a, 'a>) -> Option<&'a str> {
 }
 
 // MARK: Dict
-/// Converts a `Property` to Vec<Property> if it is a `NSDictionary`
+/// Converts a `Property` to `Vec<Property>` if it is a `NSDictionary`
 #[inline(always)]
 pub fn as_ns_dictionary<'a>(
     property: &'a mut Property<'a, 'a>,
