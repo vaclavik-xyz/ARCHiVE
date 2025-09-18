@@ -19,7 +19,7 @@ This tool targets the current latest public release for Messages.app. It may wor
   - Correctly extracts time-zone corrected timestamps
   - Detects when a message was read and calculates the time until read for both parties
     - Humanizes display of time-until-read duration
-  - Parses `typedstream` message body data
+  - Parses `typedstream` message body data using [`crabstep`](https://github.com/ReagentX/crabstep)
   - Detects the service a message was sent from
     - In HTML exports, balloons are colored correctly for the service they were sent with
     - Supports iMessage, SMS, MMS, and RCS
