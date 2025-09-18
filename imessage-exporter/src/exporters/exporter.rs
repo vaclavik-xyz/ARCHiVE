@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fs::File, io::BufWriter, marker::Sized};
 
 use imessage_database::{
-    error::{plist::PlistParseError, table::TableError},
+    error::{message::MessageError, table::TableError},
     message_types::{
         app::AppMessage,
         app_store::AppStoreMessage,
@@ -66,7 +66,7 @@ pub(super) trait MessageFormatter<'a> {
         msg: &'a Message,
         attachments: &mut Vec<Attachment>,
         indent: &str,
-    ) -> Result<String, PlistParseError>;
+    ) -> Result<String, MessageError>;
     /// Format a tapback (displayed under a message)
     fn format_tapback(&self, msg: &Message) -> Result<String, TableError>;
     /// Format an expressive message

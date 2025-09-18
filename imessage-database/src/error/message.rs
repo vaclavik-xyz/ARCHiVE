@@ -6,7 +6,7 @@ use std::fmt::{Display, Formatter, Result};
 
 use crabstep::error::TypedStreamError;
 
-use crate::error::streamtyped::StreamTypedError;
+use crate::error::{plist::PlistParseError, streamtyped::StreamTypedError};
 
 /// Errors that can happen when working with message table data
 #[derive(Debug)]
@@ -17,6 +17,8 @@ pub enum MessageError {
     StreamTypedParseError(StreamTypedError),
     /// Error occurred when deserializing a `typedstream`
     TypedStreamError(TypedStreamError),
+    /// Error occurred when parsing a property list
+    PlistParseError(PlistParseError),
     /// Timestamp value is invalid or out of range
     InvalidTimestamp(i64),
 }
@@ -40,6 +42,9 @@ impl Display for MessageError {
                     "Failed to deserialize typed stream: {typed_stream_error}"
                 )
             }
+            MessageError::PlistParseError(why) => {
+                write!(fmt, "Failed to parse property list: {why}")
+            }
         }
     }
 }
@@ -53,5 +58,11 @@ impl From<StreamTypedError> for MessageError {
 impl From<TypedStreamError> for MessageError {
     fn from(err: TypedStreamError) -> Self {
         MessageError::TypedStreamError(err)
+    }
+}
+
+impl From<PlistParseError> for MessageError {
+    fn from(err: PlistParseError) -> Self {
+        MessageError::PlistParseError(err)
     }
 }

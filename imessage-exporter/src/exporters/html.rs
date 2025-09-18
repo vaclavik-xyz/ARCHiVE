@@ -24,7 +24,7 @@ use crate::{
 };
 
 use imessage_database::{
-    error::{plist::PlistParseError, table::TableError},
+    error::{message::MessageError, plist::PlistParseError, table::TableError},
     message_types::{
         app::AppMessage,
         app_store::AppStoreMessage,
@@ -714,7 +714,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         message: &'a Message,
         attachments: &mut Vec<Attachment>,
         _: &str,
-    ) -> Result<String, PlistParseError> {
+    ) -> Result<String, MessageError> {
         if let Variant::App(balloon) = message.variant() {
             let mut app_bubble = String::new();
 
@@ -724,7 +724,9 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             {
                 return match HandwrittenMessage::from_payload(&payload) {
                     Ok(bubble) => Ok(self.format_handwriting(message, &bubble, message)),
-                    Err(why) => Err(PlistParseError::HandwritingError(why)),
+                    Err(why) => Err(MessageError::PlistParseError(
+                        PlistParseError::HandwritingError(why),
+                    )),
                 };
             }
 
@@ -733,7 +735,9 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             {
                 return match digital_touch::from_payload(&payload) {
                     Some(bubble) => Ok(self.format_digital_touch(message, &bubble, message)),
-                    None => Err(PlistParseError::DigitalTouchError),
+                    None => Err(MessageError::PlistParseError(
+                        PlistParseError::DigitalTouchError,
+                    )),
                 };
             }
 
@@ -742,7 +746,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 let poll = message.as_poll(self.config.db())?;
                 return match poll {
                     Some(poll) => Ok(self.format_poll(&poll, message)),
-                    None => Err(PlistParseError::WrongMessageType),
+                    None => Err(MessageError::PlistParseError(PlistParseError::PollError)),
                 };
             }
 
@@ -780,7 +784,9 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                                 unreachable!()
                             }
                         },
-                        Err(why) => return Err(why),
+                        Err(why) => {
+                            return Err(MessageError::PlistParseError(why));
+                        }
                     }
                 };
                 app_bubble.push_str(&res);
@@ -804,11 +810,13 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
 
                     return Ok(out_s);
                 }
-                return Err(PlistParseError::NoPayload);
+                return Err(MessageError::PlistParseError(PlistParseError::NoPayload));
             }
             Ok(app_bubble)
         } else {
-            Err(PlistParseError::WrongMessageType)
+            Err(MessageError::PlistParseError(
+                PlistParseError::WrongMessageType,
+            ))
         }
     }
 

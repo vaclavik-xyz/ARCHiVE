@@ -35,6 +35,8 @@ pub enum PlistParseError {
     HandwritingError(HandwritingError),
     /// Error parsing Digital Touch message
     DigitalTouchError,
+    /// Error parsing a poll message
+    PollError,
 }
 
 impl Display for PlistParseError {
@@ -70,6 +72,7 @@ impl Display for PlistParseError {
             PlistParseError::TypedStreamError(typed_stream_error) => {
                 write!(fmt, "TypedStream error: {typed_stream_error}")
             }
+            PlistParseError::PollError => write!(fmt, "Unable to parse Poll Message!"),
         }
     }
 }

@@ -127,7 +127,7 @@ use plist::Value;
 use rusqlite::{CachedStatement, Connection, Error, Result, Row};
 
 use crate::{
-    error::{message::MessageError, plist::PlistParseError, table::TableError},
+    error::{message::MessageError, table::TableError},
     message_types::{
         edited::{EditStatus, EditedMessage},
         expressives::{BubbleEffect, Expressive, ScreenEffect},
@@ -817,7 +817,7 @@ impl Message {
     }
 
     /// Generates the [`Translation`] for the current message
-    pub fn get_translation(&self, db: &Connection) -> Result<Option<Translation>, PlistParseError> {
+    pub fn get_translation(&self, db: &Connection) -> Result<Option<Translation>, MessageError> {
         if let Some(payload) = self.message_summary_info(db) {
             return Ok(Some(Translation::from_payload(&payload)?));
         }
@@ -1088,7 +1088,7 @@ impl Message {
     }
 
     /// If the message is a poll, attempt to parse and return it
-    pub fn as_poll(&self, db: &Connection) -> Result<Option<Poll>, PlistParseError> {
+    pub fn as_poll(&self, db: &Connection) -> Result<Option<Poll>, MessageError> {
         if self.is_poll()
             && let Some(payload) = self.payload_data(db)
         {
