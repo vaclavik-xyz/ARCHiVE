@@ -24,7 +24,7 @@ pub(crate) fn sticker_copy_convert(
     to: &mut PathBuf,
     image_converter: &ImageConverter,
     video_converter: &Option<VideoConverter>,
-    mime_type: MediaType,
+    mime_type: &MediaType,
 ) -> Option<MediaType<'static>> {
     // Determine the output type of the sticker
     let output_type: Option<ImageType> = match mime_type {
