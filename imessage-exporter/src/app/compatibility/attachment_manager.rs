@@ -204,7 +204,7 @@ impl AttachmentManager {
                                         &mut to,
                                         converter,
                                         &self.video_converter,
-                                        attachment.mime_type(),
+                                        &attachment.mime_type(),
                                     );
                                 } else {
                                     new_media_type = image_copy_convert(

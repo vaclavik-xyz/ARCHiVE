@@ -6,7 +6,6 @@ use std::{
     fmt::Write as FmtWrite,
     fs::File,
     io::{BufWriter, Write},
-    path::PathBuf,
 };
 
 use crate::{
@@ -786,7 +785,8 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         for effect in attributes {
             if prev_start == effect.start && prev_end == effect.end {
                 continue;
-            } else if let Some(message_content) = text.get(effect.start..effect.end) {
+            }
+            if let Some(message_content) = text.get(effect.start..effect.end) {
                 prev_start = effect.start;
                 prev_end = effect.end;
                 // There isn't really a way to represent formatted text in a plain text export
@@ -972,11 +972,7 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
                 .options
                 .attachment_manager
                 .handle_handwriting(msg, balloon, self.config)
-                .map(|filepath| {
-                    self.config
-                        .relative_path(PathBuf::from(&filepath))
-                        .unwrap_or(filepath.display().to_string())
-                })
+                .map(|filepath| self.config.relative_path(&filepath))
                 .map(|filepath| format!("{indent}{filepath}"))
                 .unwrap_or_else(|| {
                     balloon
