@@ -2,7 +2,7 @@
 These are [sticker messages](https://support.apple.com/guide/iphone/send-stickers-iph37b0bfe7b/ios), either from the user's sticker library or sticker apps.
 */
 
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 
 use crate::util::bundle_id::parse_balloon_bundle_id;
 
@@ -83,7 +83,7 @@ impl StickerEffect {
 }
 
 impl Display for StickerEffect {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             StickerEffect::Normal => write!(fmt, "Normal"),
             StickerEffect::Outline => write!(fmt, "Outline"),
