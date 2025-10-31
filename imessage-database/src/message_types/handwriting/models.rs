@@ -50,7 +50,7 @@ impl HandwrittenMessage {
         let strokes = parse_strokes(&msg)?;
         let (max_x, max_y, max_width) = get_max_dimension(&strokes);
         Ok(Self {
-            id: msg.ID.to_string(),
+            id: msg.ID.clone(),
             created_at: msg.CreatedAt,
             height: height + 5,
             width: width + 5,
