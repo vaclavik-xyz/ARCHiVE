@@ -558,7 +558,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 if message.is_url()
                     && let Some(text) = &message.text
                 {
-                    return Ok(text.to_string());
+                    return Ok(text.clone());
                 }
                 return Err(MessageError::PlistParseError(PlistParseError::NoPayload));
             }

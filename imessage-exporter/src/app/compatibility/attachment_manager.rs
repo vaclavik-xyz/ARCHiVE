@@ -285,8 +285,10 @@ impl AttachmentManager {
 // MARK: Mode
 /// Represents different ways the app can interact with attachment data
 #[derive(Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub enum AttachmentManagerMode {
     /// Do not copy attachments
+    #[default]
     Disabled,
     /// Copy and convert image attachments to more compatible formats using a [`Converter`]
     Basic,
@@ -296,11 +298,6 @@ pub enum AttachmentManagerMode {
     Full,
 }
 
-impl Default for AttachmentManagerMode {
-    fn default() -> Self {
-        Self::Disabled
-    }
-}
 
 impl AttachmentManagerMode {
     /// Create an instance of the enum given user input

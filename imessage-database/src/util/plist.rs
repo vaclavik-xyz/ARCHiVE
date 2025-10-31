@@ -155,9 +155,9 @@ fn follow_uid<'a>(
                     }
                     // If the value is a pointer, follow it
                     if let Some(idx) = val.as_uid() {
-                        let key_value = Value::String(key.to_string());
+                        let key_value = Value::String(key.clone());
                         dictionary.insert(
-                            key.to_string(),
+                            key.clone(),
                             follow_uid(objects, idx.get() as usize, Some(&key_value), None)?,
                         );
                     }
