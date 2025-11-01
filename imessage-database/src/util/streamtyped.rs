@@ -30,7 +30,7 @@ const END_PATTERN: [u8; 2] = [0x0086, 0x0084];
 ///
 /// ## Legacy parsing
 ///
-/// If the `typedstream` data cannot be deserialized, we fall back to athislegacy string parsing algorithm that
+/// If the `typedstream` data cannot be deserialized, we fall back to this legacy string parsing algorithm that
 /// only supports unstyled text.
 ///
 /// If the message has attachments, there will be one [`U+FFFC`](https://www.compart.com/en/unicode/U+FFFC) character
