@@ -1038,14 +1038,16 @@ impl Message {
 
         // No need to hit the DB if we know we don't have replies
         if self.has_replies() {
-            let filters = format!("WHERE m.thread_originator_guid = \"{}\"", self.guid);
+            // Use a parameterized filter so the prepared statement can be cached/reused
+            let filters = "WHERE m.thread_originator_guid = ?1";
 
             // No iOS 13 and prior used here because `thread_originator_guid` is not present in that schema
             let mut statement = db
-                .prepare(&ios_16_newer_query(Some(&filters)))
-                .or_else(|_| db.prepare(&ios_14_15_query(Some(&filters))))?;
+                .prepare_cached(&ios_16_newer_query(Some(filters)))
+                .or_else(|_| db.prepare_cached(&ios_14_15_query(Some(filters))))?;
 
-            let iter = statement.query_map([], |row| Ok(Message::from_row(row)))?;
+            let iter =
+                statement.query_map([self.guid.as_str()], |row| Ok(Message::from_row(row)))?;
 
             for message in iter {
                 let m = Message::extract(message)?;
@@ -1069,14 +1071,16 @@ impl Message {
 
         // No need to hit the DB if we know we don't have replies
         if self.is_poll() {
-            let filters = format!("WHERE m.associated_message_guid = \"{}\"", self.guid);
+            // Use a parameterized filter so the prepared statement can be cached/reused
+            let filters = "WHERE m.associated_message_guid = ?1";
 
             // No iOS 13 and prior used here because `associated_message_guid` is not present in that schema
             let mut statement = db
-                .prepare(&ios_16_newer_query(Some(&filters)))
-                .or_else(|_| db.prepare(&ios_14_15_query(Some(&filters))))?;
+                .prepare_cached(&ios_16_newer_query(Some(filters)))
+                .or_else(|_| db.prepare_cached(&ios_14_15_query(Some(filters))))?;
 
-            let iter = statement.query_map([], |row| Ok(Message::from_row(row)))?;
+            let iter =
+                statement.query_map([self.guid.as_str()], |row| Ok(Message::from_row(row)))?;
 
             for message in iter {
                 let m = Message::extract(message)?;
