@@ -58,7 +58,7 @@ No, this software just builds exports. I use [`ripgrep`](https://github.com/Burn
 
 ## Will it run on Windows/Linux?
 
-I don't pre-build binaries for Windows or Linux, but it should compile to those [targets](https://doc.rust-lang.org/nightly/rustc/platform-support.html). As long as you can point it at an iMessage database, it should work.
+Binaries are available for Windows on the releases page. I don't pre-build binaries for Linux, but it should compile to that [target](https://doc.rust-lang.org/nightly/rustc/platform-support.html). As long as you can point it at an iMessage database, it should work.
 
 ***
 
