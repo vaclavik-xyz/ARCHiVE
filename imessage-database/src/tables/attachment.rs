@@ -145,28 +145,26 @@ impl Attachment {
         let mut out_l = vec![];
         if msg.has_attachments() {
             let mut statement = db
-                .prepare(&format!(
+                .prepare_cached(&format!(
                     "
                         SELECT {COLS}
                         FROM message_attachment_join j 
                         LEFT JOIN {ATTACHMENT} a ON j.attachment_id = a.ROWID
-                        WHERE j.message_id = {}
+                        WHERE j.message_id = ?1
                     ",
-                    msg.rowid
                 ))
                 .or_else(|_| {
-                    db.prepare(&format!(
+                    db.prepare_cached(&format!(
                         "
                             SELECT *
                             FROM message_attachment_join j 
                             LEFT JOIN {ATTACHMENT} a ON j.attachment_id = a.ROWID
-                            WHERE j.message_id = {}
+                            WHERE j.message_id = ?1
                         ",
-                        msg.rowid
                     ))
                 })?;
 
-            let iter = statement.query_map([], |row| Ok(Attachment::from_row(row)))?;
+            let iter = statement.query_map([msg.rowid], |row| Ok(Attachment::from_row(row)))?;
 
             for attachment in iter {
                 let m = Attachment::extract(attachment)?;
