@@ -56,12 +56,6 @@ No, this software just builds exports. I use [`ripgrep`](https://github.com/Burn
 
 ***
 
-## Will it run on Windows/Linux?
-
-I don't pre-build binaries for Windows or Linux, but it should compile to those [targets](https://doc.rust-lang.org/nightly/rustc/platform-support.html). As long as you can point it at an iMessage database, it should work.
-
-***
-
 ## Can it export messages between a specific date range?
 
 Yes, the `--start-date` and `--end-date` arguments specify date ranges for exports.
