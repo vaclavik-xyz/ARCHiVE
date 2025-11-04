@@ -30,7 +30,7 @@ Documentation for the library is located [here](imessage-database/README.md).
 
 ### Supported Features
 
-This crate supports every iMessage feature as of macOS Tahoe 26.0.1 (25A362) and iOS 26.0.1 (23A355):
+This crate supports every iMessage feature as of macOS Tahoe 26.1 (25B78) and iOS 26.1 (23B85):
 
 - iMessage, RCS, SMS, and MMS
 - Multi-part messages
