@@ -116,12 +116,16 @@ impl<'a> Exporter<'a> for HTML<'a> {
 
         // Set up progress bar
         let mut current_message = 0;
-        let total_messages =
-            Message::get_count(self.config.db(), &self.config.options.query_context)?;
+        let total_messages = Message::get_count(
+            self.config.data_source.db(),
+            &self.config.options.query_context,
+        )?;
         self.pb.start(total_messages);
 
-        let mut statement =
-            Message::stream_rows(self.config.db(), &self.config.options.query_context)?;
+        let mut statement = Message::stream_rows(
+            self.config.data_source.db(),
+            &self.config.options.query_context,
+        )?;
 
         let messages = statement
             .query_map([], |row| Ok(Message::from_row(row)))
@@ -139,7 +143,7 @@ impl<'a> Exporter<'a> for HTML<'a> {
             current_message_row = msg.rowid;
 
             // Generate the text of the message
-            let _ = msg.generate_text(self.config.db());
+            let _ = msg.generate_text(self.config.data_source.db());
 
             // Render the announcement in-line
             if msg.is_announcement() {
@@ -304,8 +308,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         }
 
         // Useful message metadata
-        let mut attachments = Attachment::from_message(self.config.db(), message)?;
-        let mut replies = message.get_replies(self.config.db())?;
+        let mut attachments = Attachment::from_message(self.config.data_source.db(), message)?;
+        let mut replies = message.get_replies(self.config.data_source.db())?;
 
         // Index of where we are in the attachment Vector
         let mut attachment_index: usize = 0;
@@ -378,7 +382,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                             // Check if the message was translated
                             if self.config.translated_messages.contains(&message.guid)
                                 && let Ok(Some(translation)) =
-                                    message.get_translation(self.config.db())
+                                    message.get_translation(self.config.data_source.db())
                             {
                                 // Render the translated text as the message body
                                 self.add_line(
@@ -535,7 +539,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 replies
                     .iter_mut()
                     .try_for_each(|reply| -> Result<(), TableError> {
-                        let _ = reply.generate_text(self.config.db());
+                        let _ = reply.generate_text(self.config.data_source.db());
                         if !reply.is_tapback() {
                             // Set indent to 1 so we know this is a recursive call
                             self.add_line(
@@ -664,7 +668,9 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         match self.format_attachment(sticker, message, &AttachmentMeta::default()) {
             Ok(mut sticker_embed) => {
                 // Determine the source of the sticker
-                if let Some(sticker_source) = sticker.get_sticker_source(self.config.db()) {
+                if let Some(sticker_source) =
+                    sticker.get_sticker_source(self.config.data_source.db())
+                {
                     match sticker_source {
                         StickerSource::Genmoji => {
                             // Add sticker prompt
@@ -693,7 +699,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                         StickerSource::App(bundle_id) => {
                             // Add the application name used to generate/send the sticker
                             let app_name = sticker
-                                .get_sticker_source_application_name(self.config.db())
+                                .get_sticker_source_application_name(self.config.data_source.db())
                                 .unwrap_or(bundle_id);
                             let _ = write!(
                                 sticker_embed,
@@ -720,7 +726,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
 
             // Handwritten messages use a different payload type, so check that first
             if message.is_handwriting()
-                && let Some(payload) = message.raw_payload_data(self.config.db())
+                && let Some(payload) = message.raw_payload_data(self.config.data_source.db())
             {
                 return match HandwrittenMessage::from_payload(&payload) {
                     Ok(bubble) => Ok(self.format_handwriting(message, &bubble, message)),
@@ -731,7 +737,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             }
 
             if message.is_digital_touch()
-                && let Some(payload) = message.raw_payload_data(self.config.db())
+                && let Some(payload) = message.raw_payload_data(self.config.data_source.db())
             {
                 return match digital_touch::from_payload(&payload) {
                     Some(bubble) => Ok(self.format_digital_touch(message, &bubble, message)),
@@ -743,14 +749,14 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
 
             // Poll messages use a different payload type
             if message.is_poll() {
-                let poll = message.as_poll(self.config.db())?;
+                let poll = message.as_poll(self.config.data_source.db())?;
                 return match poll {
                     Some(poll) => Ok(self.format_poll(&poll, message)),
                     None => Err(MessageError::PlistParseError(PlistParseError::PollError)),
                 };
             }
 
-            if let Some(payload) = message.payload_data(self.config.db()) {
+            if let Some(payload) = message.payload_data(self.config.data_source.db()) {
                 let parsed = parse_ns_keyed_archiver(&payload)?;
 
                 let res = if message.is_url() {
@@ -828,7 +834,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 }
                 match tapback {
                     Tapback::Sticker => {
-                        let mut paths = Attachment::from_message(self.config.db(), msg)?;
+                        let mut paths =
+                            Attachment::from_message(self.config.data_source.db(), msg)?;
                         let who = self.config.who(
                             msg.handle_id,
                             msg.is_from_me(),
@@ -2025,7 +2032,9 @@ mod tests {
         message.text = Some("Hello world".to_string());
         message.is_from_me = true;
         message.chat_id = Some(0);
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "<div class=\"message\">\n<div class=\"sent iMessage\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a> </span>\n<span class=\"sender\">Me</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Hello world</span>\n</div>\n</div>\n</div>\n";
@@ -2046,7 +2055,9 @@ mod tests {
         message.text = Some("<table></table>".to_string());
         message.is_from_me = true;
         message.chat_id = Some(0);
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "<div class=\"message\">\n<div class=\"sent iMessage\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a> </span>\n<span class=\"sender\">Me</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">&lt;table&gt;&lt;/table&gt;</span>\n</div>\n</div>\n</div>\n";
@@ -2067,7 +2078,9 @@ mod tests {
         message.date = 674526582885055488;
         message.is_from_me = true;
         message.deleted_from = Some(0);
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "<div class=\"message\">\n<div class=\"sent iMessage\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a> </span>\n<span class=\"sender\">Me</span></p>\n<span class=\"deleted\">This message was deleted from the conversation!</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Hello world</span>\n</div>\n</div>\n</div>\n";
@@ -2089,7 +2102,9 @@ mod tests {
         // May 17, 2022  9:30:31 PM
         message.date_delivered = 674530231992568192;
         message.is_from_me = true;
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "<div class=\"message\">\n<div class=\"sent iMessage\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a> (Read by them after 1 hour, 49 seconds)</span>\n<span class=\"sender\">Me</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Hello world</span>\n</div>\n</div>\n</div>\n";
@@ -2112,7 +2127,9 @@ mod tests {
         message.date = 674526582885055488;
         message.text = Some("Hello world".to_string());
         message.handle_id = Some(999999);
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "<div class=\"message\">\n<div class=\"received\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a> </span>\n<span class=\"sender\">Sample Contact</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Hello world</span>\n</div>\n</div>\n</div>\n";
@@ -2139,7 +2156,9 @@ mod tests {
         message.date_delivered = 674526582885055488;
         // May 17, 2022  9:30:31 PM
         message.date_read = 674530231992568192;
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "<div class=\"message\">\n<div class=\"received\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a> (Read by you after 1 hour, 49 seconds)</span>\n<span class=\"sender\">Sample Contact</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Hello world</span>\n</div>\n</div>\n</div>\n";
@@ -2167,7 +2186,9 @@ mod tests {
         message.date_delivered = 674526582885055488;
         // May 17, 2022  9:30:31 PM
         message.date_read = 674530231992568192;
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "<div class=\"message\">\n<div class=\"received\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a> (Read by Name after 1 hour, 49 seconds)</span>\n<span class=\"sender\">Sample Contact</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Hello world</span>\n</div>\n</div>\n</div>\n";
@@ -2987,7 +3008,7 @@ mod tests {
                     ]
                 ),
             ]),];
-        let _ = message.generate_text(config.db());
+        let _ = message.generate_text(config.data_source.db());
 
         let actual = exporter.format_message(&message, 0).unwrap();
 
@@ -3013,7 +3034,9 @@ mod tests {
         let mut message = Config::fake_message();
         message.guid = "56FE94B9-2345-4A3C-A57F-949BDDDDF9FF".to_string();
         message.rowid = 548216;
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "<div class=\"message\">\n<div class=\"received\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=56FE94B9-2345-4A3C-A57F-949BDDDDF9FF\">Dec 31, 2000  4:00:00 PM</a> </span>\n<span class=\"sender\">Unknown</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Oh, il a traduit ce que j'ai envoyé !</span>\n<div class=\"translated\"><span class=\"bubble\">Oh it translated what I sent!</span></div>\n</div>\n</div>\n</div>\n";

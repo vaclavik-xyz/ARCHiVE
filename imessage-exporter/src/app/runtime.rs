@@ -5,25 +5,18 @@
 use std::{
     cmp::min,
     collections::{BTreeSet, HashMap, HashSet},
-    fs::{create_dir_all, remove_file},
+    fs::create_dir_all,
     path::{Path, PathBuf},
 };
 
-use crabapple::Backup;
 use fdlimit::raise_fd_limit;
 use fs2::available_space;
-use rusqlite::Connection;
 
 use crate::{
     Exporter, HTML, TXT,
     app::{
-        compatibility::{
-            attachment_manager::AttachmentManagerMode,
-            backup::{decrypt_backup, get_decrypted_message_database},
-        },
-        error::RuntimeError,
-        export_type::ExportType,
-        options::{OPTION_CLEARTEXT_PASSWORD, Options},
+        compatibility::attachment_manager::AttachmentManagerMode, data_source::DataSource,
+        error::RuntimeError, export_type::ExportType, options::Options,
         sanitizers::sanitize_filename,
     },
     exporters::exporter::ATTACHMENT_NO_FILENAME,
@@ -37,11 +30,10 @@ use imessage_database::{
         handle::Handle,
         messages::Message,
         table::{
-            ATTACHMENTS_DIR, Cacheable, Deduplicate, Diagnostic, ME, ORPHANED, UNKNOWN,
-            get_connection, get_db_size,
+            ATTACHMENTS_DIR, Cacheable, Deduplicate, Diagnostic, ME, ORPHANED, UNKNOWN, get_db_size,
         },
     },
-    util::{dates::get_offset, platform::Platform, size::format_file_size},
+    util::{dates::get_offset, size::format_file_size},
 };
 
 const MAX_LENGTH: usize = 235;
@@ -67,10 +59,8 @@ pub struct Config {
     pub options: Options,
     /// Global date offset used by the iMessage database:
     pub offset: i64,
-    /// The connection we use to query the database
-    pub db: Option<Connection>,
-    /// An optional encrypted iOS backup
-    pub backup: Option<Backup>,
+    /// Data source for the application
+    pub data_source: DataSource,
 }
 
 impl Config {
@@ -152,12 +142,13 @@ impl Config {
         let mut filename = match &chatroom.display_name() {
             // If there is a display name, use that
             Some(name) => {
-                // Get the deduplicated chat ID
-                let deduplicated_chat_id = self.real_chatrooms.get(&chatroom.rowid);
                 format!(
                     "{} - {}",
                     &name[..min(MAX_LENGTH, name.len())],
-                    deduplicated_chat_id.unwrap_or(&chatroom.rowid)
+                    // Get the deduplicated chat ID
+                    self.real_chatrooms
+                        .get(&chatroom.rowid)
+                        .unwrap_or(&chatroom.rowid)
                 )
             }
             // Fallback if there is no name set
@@ -231,40 +222,33 @@ impl Config {
     /// let app = Config::new(options).unwrap();
     /// ```
     pub fn new(options: Options) -> Result<Config, RuntimeError> {
-        let backup = decrypt_backup(&options)?;
-        let conn = match &backup {
-            Some(b) => get_connection(&get_decrypted_message_database(b)?),
-            None => get_connection(&options.get_db_path()),
-        }?;
-
-        // Check if the backup is encrypted and a password was not provided
-        if matches!(options.platform, Platform::iOS)
-            && backup.is_none()
-            && conn.query_row("SELECT 1", [], |_| Ok(())).is_err()
-        {
-            return Err(RuntimeError::InvalidOptions(format!(
-                "The provided iOS backup is encrypted, but no password was provided. Please provide a password using the --{OPTION_CLEARTEXT_PASSWORD} option."
-            )));
-        }
+        let data_source = DataSource::from(&options)?;
 
         eprintln!("Building cache...");
         eprintln!("  [1/5] Caching chats...");
-        let chatrooms = Chat::cache(&conn)?;
+        let chatrooms = Chat::cache(data_source.db())?;
+
         eprintln!("  [2/5] Caching chatrooms...");
-        let chatroom_participants = ChatToHandle::cache(&conn)?;
+        let chatroom_participants = ChatToHandle::cache(data_source.db())?;
+
         eprintln!("  [3/5] Caching participants...");
-        let participants = Handle::cache(&conn)?;
-        let chat_handle_lookup = ChatToHandle::get_chat_lookup_map(&conn)?;
+        let mut participants = Handle::cache(data_source.db())?;
+        if let Some(contacts_index) = &data_source.contacts_index {
+            contacts_index.mutate_participants(&mut participants);
+        }
+        let chat_handle_lookup = ChatToHandle::get_chat_lookup_map(data_source.db())?;
+        let real_chatrooms = ChatToHandle::dedupe(&chatroom_participants, &chat_handle_lookup)?;
 
         eprintln!("  [4/5] Caching tapbacks...");
-        let tapbacks = Message::cache(&conn)?;
+        let tapbacks = Message::cache(data_source.db())?;
+
         eprintln!("  [5/5] Caching translations...");
-        let translated_messages = Message::cache_translations(&conn)?;
+        let translated_messages = Message::cache_translations(data_source.db())?;
         eprintln!("Cache built!");
 
         Ok(Config {
             chatrooms,
-            real_chatrooms: ChatToHandle::dedupe(&chatroom_participants, &chat_handle_lookup)?,
+            real_chatrooms,
             chatroom_participants,
             real_participants: Handle::dedupe(&participants),
             participants,
@@ -272,23 +256,8 @@ impl Config {
             translated_messages,
             options,
             offset: get_offset(),
-            db: Some(conn),
-            backup,
+            data_source,
         })
-    }
-
-    /// Get the current database connection, if it is alive
-    ///
-    /// # Panics
-    ///
-    /// Panics if the database connection is closed.
-    pub(crate) fn db(&self) -> &Connection {
-        match self.db.as_ref() {
-            Some(db) => db,
-            None => {
-                panic!("Database connection is closed!");
-            }
-        }
     }
 
     // MARK: Filters
@@ -304,6 +273,8 @@ impl Config {
             let mut included_handles: BTreeSet<i32> = BTreeSet::new();
 
             // First: Scan the list of participants for included handle IDs
+            // The contacts index has already mutated `self.participants` to include resolved names
+            // so this pass allows filtering on resolved names
             self.participants
                 .iter()
                 .for_each(|(handle_id, handle_name)| {
@@ -314,7 +285,20 @@ impl Config {
                     }
                 });
 
-            // Second, scan the list of chatrooms for IDs that contain the selected participants
+            // The above filters against data mutated by the contacts index; should we also check against a fresh copy
+            // that only uses the raw handle values (phone numbers, emails) from the database
+            Handle::cache(self.data_source.db())
+                .unwrap_or_default()
+                .iter()
+                .for_each(|(handle_id, handle_name)| {
+                    for included_name in &parsed_handle_filter {
+                        if handle_name.contains(included_name) {
+                            included_handles.insert(*handle_id);
+                        }
+                    }
+                });
+
+            // Second: scan the list of chatrooms for IDs that contain the selected participants
             self.chatroom_participants
                 .iter()
                 .for_each(|(chat_id, participants)| {
@@ -368,10 +352,14 @@ impl Config {
 
     /// Ensure there is available disk space for the requested export
     fn ensure_free_space(&self) -> Result<(), RuntimeError> {
-        // Export size is usually about 6% the size of the db; we divide by 10 to over-estimate about 10% of the total size
+        // Export size is usually about 6% the size of the db;
+        // we divide by 10 to over-estimate about 10% of the total size
         // for some safe headroom
         let total_db_size = get_db_size(Path::new(
-            self.db().path().ok_or(RuntimeError::FileNameError)?,
+            self.data_source
+                .db()
+                .path()
+                .ok_or(RuntimeError::FileNameError)?,
         ))?;
         let mut estimated_export_size = total_db_size / 10;
 
@@ -386,8 +374,10 @@ impl Config {
                 ));
             }
         } else {
-            let total_attachment_size =
-                Attachment::get_total_attachment_bytes(self.db(), &self.options.query_context)?;
+            let total_attachment_size = Attachment::get_total_attachment_bytes(
+                self.data_source.db(),
+                &self.options.query_context,
+            )?;
             estimated_export_size += total_attachment_size;
             if estimated_export_size >= free_space_at_location {
                 return Err(RuntimeError::NotEnoughAvailableSpace(
@@ -405,23 +395,53 @@ impl Config {
         Ok(())
     }
 
+    // MARK: Diagnostic
     /// Handles diagnostic tests for database
     fn run_diagnostic(&self) -> Result<(), RuntimeError> {
         println!("\niMessage Database Diagnostics\n");
-        Handle::run_diagnostic(self.db())?;
-        Message::run_diagnostic(self.db())?;
-        Attachment::run_diagnostic(self.db(), &self.options.db_path, &self.options.platform)?;
-        ChatToHandle::run_diagnostic(self.db())?;
+        Handle::run_diagnostic(self.data_source.db())?;
+        Message::run_diagnostic(self.data_source.db())?;
+        Attachment::run_diagnostic(
+            self.data_source.db(),
+            &self.options.db_path,
+            &self.options.platform,
+        )?;
+        ChatToHandle::run_diagnostic(self.data_source.db())?;
 
         // Global Diagnostics
         println!("Global diagnostic data:");
 
         let total_db_size = get_db_size(Path::new(
-            self.db().path().ok_or(RuntimeError::FileNameError)?,
+            self.data_source
+                .db()
+                .path()
+                .ok_or(RuntimeError::FileNameError)?,
         ))?;
         println!(
             "    Total database size: {}",
             format_file_size(total_db_size)
+        );
+
+        // Get a fresh copy of the participants list
+        let participants = Handle::cache(self.data_source.db())?;
+        // For each handle in the participants list, count how many have matches in the contacts index
+        let mut total_matched = 0;
+        if let Some(contacts_index) = &self.data_source.contacts_index {
+            for (_, handle_name) in participants.iter() {
+                for part in handle_name.split(' ') {
+                    // If any part of the handle name matches, count it as a resolved name
+                    if contacts_index.lookup(part).is_some() {
+                        total_matched += 1;
+                        break;
+                    }
+                }
+            }
+        }
+        println!(
+            "    Handles with resolved names: {}/{} ({}%)",
+            total_matched,
+            participants.len(),
+            (total_matched as f32 / participants.len() as f32 * 100.0).round()
         );
 
         let unique_handles: HashSet<i32> =
@@ -443,7 +463,7 @@ impl Config {
         Ok(())
     }
 
-    // MARK: Entry Point
+    // MARK: Startup
     /// Start the app given the provided set of options. This will either run
     /// diagnostic tests on the database or export data to the specified file type.
     ///
@@ -532,6 +552,8 @@ impl Config {
 #[cfg(test)]
 impl Config {
     pub fn fake_app(options: Options) -> Config {
+        use imessage_database::tables::table::get_connection;
+
         let connection = get_connection(&options.db_path).unwrap();
         Config {
             chatrooms: HashMap::new(),
@@ -543,8 +565,7 @@ impl Config {
             translated_messages: HashSet::new(),
             options,
             offset: get_offset(),
-            db: Some(connection),
-            backup: None,
+            data_source: DataSource::fake_data_source(connection),
         }
     }
 
@@ -597,27 +618,6 @@ impl Config {
             hide_attachment: 0,
             emoji_description: None,
             copied_path: None,
-        }
-    }
-}
-
-impl Drop for Config {
-    fn drop(&mut self) {
-        if let Some(backup) = &self.backup {
-            // Remove the temporary `sms.db` file if it was created
-            if backup.manifest_db.is_temporary
-                && let Some(conn) = self.db.take()
-            {
-                let path = conn.path().unwrap().to_string();
-                conn.close().ok();
-
-                // Remove the file, ignoring errors if any
-                if let Err(e) = remove_file(&path) {
-                    eprintln!(
-                        "warning: failed to remove temporary messages database at {path}: {e}"
-                    );
-                }
-            }
         }
     }
 }
