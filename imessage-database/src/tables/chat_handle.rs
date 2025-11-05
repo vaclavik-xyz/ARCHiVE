@@ -63,14 +63,63 @@ impl Cacheable for ChatToHandle {
         let mut rows = ChatToHandle::get(db)?;
         let mappings = rows.query_map([], |row| Ok(ChatToHandle::from_row(row)))?;
 
+        // Query `chat_lookup`, if it exists, to merge chat IDs split across services
+        let mut stmt = db.prepare(
+            "
+WITH RECURSIVE
+  adj AS (
+    SELECT DISTINCT a.chat AS u, b.chat AS v
+    FROM chat_lookup a
+    JOIN chat_lookup b
+      ON a.identifier = b.identifier
+  ),
+  reach(root, chat) AS (
+    SELECT u AS root, v AS chat FROM adj
+    UNION
+    SELECT r.root, a.v
+    FROM reach r
+    JOIN adj a ON a.u = r.chat
+  ),
+  canon AS (
+    SELECT chat, MAX(root) AS canonical_chat
+    FROM reach
+    GROUP BY chat
+  )
+SELECT chat, canonical_chat
+FROM canon
+ORDER BY chat;
+        ",
+        )?;
+        let chat_lookup_rows = stmt.query_map([], |row| {
+            let chat: i32 = row.get(0)?;
+            let canonical: i32 = row.get(1)?;
+            Ok((chat, canonical))
+        });
+        let mut chat_lookup_map: HashMap<i32, i32> = HashMap::new();
+
+        if let Ok(chat_lookup_rows) = chat_lookup_rows {
+            for row in chat_lookup_rows {
+                let (chat_id, canonical_chat) = row?;
+                chat_lookup_map.insert(chat_id, canonical_chat);
+            }
+        }
+
         for mapping in mappings {
             let joiner = ChatToHandle::extract(mapping)?;
-            if let Some(handles) = cache.get_mut(&joiner.chat_id) {
+
+            // If `chat_lookup` exists, map to canonical chat ID
+            let chat_id = if let Some(canonical_chat) = chat_lookup_map.get(&joiner.chat_id) {
+                *canonical_chat
+            } else {
+                joiner.chat_id
+            };
+
+            if let Some(handles) = cache.get_mut(&chat_id) {
                 handles.insert(joiner.handle_id);
             } else {
                 let mut data_to_cache = BTreeSet::new();
                 data_to_cache.insert(joiner.handle_id);
-                cache.insert(joiner.chat_id, data_to_cache);
+                cache.insert(chat_id, data_to_cache);
             }
         }
 
