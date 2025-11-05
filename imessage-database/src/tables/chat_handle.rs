@@ -252,15 +252,17 @@ ORDER BY chat;
 
                 // Check if the mapped ID has already been seen
                 if let Some(id) = deduplicated_chats.get(mapped_id) {
+                    // Map to the existing unique chat ID
                     deduplicated_chats.insert(*chat_id, id.to_owned());
-                    continue;
-                }
+                } else {
+                    // New set of participants, assign a new unique chat ID
+                    participants_to_unique_chat_id
+                        .insert(participants.to_owned(), unique_chat_identifier);
 
-                // New set of participants, assign a new unique chat ID
-                participants_to_unique_chat_id
-                    .insert(participants.to_owned(), unique_chat_identifier);
-                deduplicated_chats.insert(chat_id.to_owned(), unique_chat_identifier);
-                unique_chat_identifier += 1;
+                    // Map chat ID to unique chat ID
+                    deduplicated_chats.insert(chat_id.to_owned(), unique_chat_identifier);
+                    unique_chat_identifier += 1;
+                }
             }
         }
         Ok(deduplicated_chats)
@@ -350,5 +352,74 @@ mod tests {
         assert_eq!(output_1, output_2);
         assert_eq!(output_1, output_3);
         assert_eq!(output_2, output_3);
+    }
+
+    #[test]
+    fn can_dedupe_with_chat_lookup_map() {
+        let mut input: HashMap<i32, BTreeSet<i32>> = HashMap::new();
+        input.insert(0, BTreeSet::from([1])); // Canonical 0
+        input.insert(1, BTreeSet::from([1])); // Maps to 0
+        input.insert(2, BTreeSet::from([3])); // Maps to 5
+        input.insert(4, BTreeSet::from([2])); // Maps to 0
+        input.insert(5, BTreeSet::from([1])); // Canonical 5
+
+        let mut chat_lookup_map: HashMap<i32, i32> = HashMap::new();
+        chat_lookup_map.insert(2, 5);
+        chat_lookup_map.insert(4, 0);
+
+        let output = ChatToHandle::dedupe(&input, &chat_lookup_map).unwrap();
+
+        // Chats 0,1,4 map to 0, so same deduplicated ID
+        assert_eq!(output.get(&0), output.get(&1));
+        assert_eq!(output.get(&0), output.get(&4));
+        // Chat 2 maps to 5, different
+        assert_ne!(output.get(&2), output.get(&1));
+    }
+
+    #[test]
+    fn can_dedupe_with_lookup_map_overriding_participants() {
+        let mut input: HashMap<i32, BTreeSet<i32>> = HashMap::new();
+        input.insert(0, BTreeSet::from([1, 2])); // Canonical 0
+        input.insert(1, BTreeSet::from([1, 2])); // Maps to 0
+        input.insert(2, BTreeSet::from([3, 4])); // Maps to 0
+        input.insert(3, BTreeSet::from([1, 2])); // No mapping
+
+        let mut chat_lookup_map: HashMap<i32, i32> = HashMap::new();
+        chat_lookup_map.insert(1, 0);
+        chat_lookup_map.insert(2, 0);
+
+        let output = ChatToHandle::dedupe(&input, &chat_lookup_map).unwrap();
+
+        // Chats 0,1,2 all map to 0, so same deduplicated ID
+        assert_eq!(output.get(&0), output.get(&1));
+        assert_eq!(output.get(&0), output.get(&2));
+        // Chat 3 no mapping, same participants as 0 and 1, so same
+        assert_eq!(output.get(&3), output.get(&0));
+    }
+
+    #[test]
+    fn can_dedupe_mixed_lookup_and_participants() {
+        let mut input: HashMap<i32, BTreeSet<i32>> = HashMap::new();
+        input.insert(0, BTreeSet::from([1])); // Canonical 0
+        input.insert(1, BTreeSet::from([1])); // Maps to 0
+        input.insert(2, BTreeSet::from([3])); // No mapping
+        input.insert(3, BTreeSet::from([2])); // Maps to 0
+        input.insert(4, BTreeSet::from([3])); // No mapping
+
+        let mut chat_lookup_map: HashMap<i32, i32> = HashMap::new();
+        chat_lookup_map.insert(1, 0);
+        chat_lookup_map.insert(3, 0);
+
+        let output = ChatToHandle::dedupe(&input, &chat_lookup_map).unwrap();
+
+        // Chats 0,1,3 map to 0, same ID
+        assert_eq!(output.get(&0), output.get(&1));
+        assert_eq!(output.get(&0), output.get(&3));
+        // Chat 2 no mapping, different from 1
+        assert_ne!(output.get(&2), output.get(&1));
+        // Chat 4 same participants as 2, same as 2
+        assert_eq!(output.get(&4), output.get(&2));
+        // 3 and 4 different
+        assert_ne!(output.get(&3), output.get(&4));
     }
 }
