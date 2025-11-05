@@ -6,9 +6,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::{
     error::table::TableError,
-    tables::table::{
-        CHAT_HANDLE_JOIN, CHAT_MESSAGE_JOIN, Cacheable, Deduplicate, Diagnostic, Table,
-    },
+    tables::table::{CHAT_HANDLE_JOIN, CHAT_MESSAGE_JOIN, Cacheable, Diagnostic, Table},
     util::output::{done_processing, processing},
 };
 use rusqlite::{CachedStatement, Connection, Error, Result, Row};
@@ -63,114 +61,18 @@ impl Cacheable for ChatToHandle {
         let mut rows = ChatToHandle::get(db)?;
         let mappings = rows.query_map([], |row| Ok(ChatToHandle::from_row(row)))?;
 
-        // Query `chat_lookup`, if it exists, to merge chat IDs split across services
-        let mut stmt = db.prepare(
-            "
-WITH RECURSIVE
-  adj AS (
-    SELECT DISTINCT a.chat AS u, b.chat AS v
-    FROM chat_lookup a
-    JOIN chat_lookup b
-      ON a.identifier = b.identifier
-  ),
-  reach(root, chat) AS (
-    SELECT u AS root, v AS chat FROM adj
-    UNION
-    SELECT r.root, a.v
-    FROM reach r
-    JOIN adj a ON a.u = r.chat
-  ),
-  canon AS (
-    SELECT chat, MAX(root) AS canonical_chat
-    FROM reach
-    GROUP BY chat
-  )
-SELECT chat, canonical_chat
-FROM canon
-ORDER BY chat;
-        ",
-        )?;
-        let chat_lookup_rows = stmt.query_map([], |row| {
-            let chat: i32 = row.get(0)?;
-            let canonical: i32 = row.get(1)?;
-            Ok((chat, canonical))
-        });
-        let mut chat_lookup_map: HashMap<i32, i32> = HashMap::new();
-
-        if let Ok(chat_lookup_rows) = chat_lookup_rows {
-            for row in chat_lookup_rows {
-                let (chat_id, canonical_chat) = row?;
-                chat_lookup_map.insert(chat_id, canonical_chat);
-            }
-        }
-
         for mapping in mappings {
             let joiner = ChatToHandle::extract(mapping)?;
-
-            // If `chat_lookup` exists, map to canonical chat ID
-            let chat_id = if let Some(canonical_chat) = chat_lookup_map.get(&joiner.chat_id) {
-                *canonical_chat
-            } else {
-                joiner.chat_id
-            };
-
-            if let Some(handles) = cache.get_mut(&chat_id) {
+            if let Some(handles) = cache.get_mut(&joiner.chat_id) {
                 handles.insert(joiner.handle_id);
             } else {
                 let mut data_to_cache = BTreeSet::new();
                 data_to_cache.insert(joiner.handle_id);
-                cache.insert(chat_id, data_to_cache);
+                cache.insert(joiner.chat_id, data_to_cache);
             }
         }
 
         Ok(cache)
-    }
-}
-
-impl Deduplicate for ChatToHandle {
-    type T = BTreeSet<i32>;
-
-    /// Given the initial set of duplicated chats, deduplicate them based on the participants
-    ///
-    /// This returns a new hashmap that maps the real chat ID to a new deduplicated unique chat ID
-    /// that represents a single chat for all of the same participants, even if they have multiple handles.
-    ///
-    /// Assuming no new chat-handle relationships have been written to the database, deduplicated data is deterministic across runs.
-    ///
-    /// # Example:
-    ///
-    /// ```
-    /// use imessage_database::util::dirs::default_db_path;
-    /// use imessage_database::tables::table::{Cacheable, Deduplicate, get_connection};
-    /// use imessage_database::tables::chat_handle::ChatToHandle;
-    ///
-    /// let db_path = default_db_path();
-    /// let conn = get_connection(&db_path).unwrap();
-    /// let chatrooms = ChatToHandle::cache(&conn).unwrap();
-    /// let deduped_chatrooms = ChatToHandle::dedupe(&chatrooms);
-    /// ```
-    fn dedupe(duplicated_data: &HashMap<i32, Self::T>) -> HashMap<i32, i32> {
-        let mut deduplicated_chats: HashMap<i32, i32> = HashMap::new();
-        let mut participants_to_unique_chat_id: HashMap<Self::T, i32> = HashMap::new();
-
-        // Build cache of each unique set of participants to a new identifier
-        let mut unique_chat_identifier = 0;
-
-        // Iterate over the values in a deterministic order
-        let mut sorted_dupes: Vec<(&i32, &Self::T)> = duplicated_data.iter().collect();
-        sorted_dupes.sort_by(|(a, _), (b, _)| a.cmp(b));
-
-        for (chat_id, participants) in sorted_dupes {
-            if let Some(id) = participants_to_unique_chat_id.get(participants) {
-                deduplicated_chats.insert(chat_id.to_owned(), id.to_owned());
-            } else {
-                participants_to_unique_chat_id
-                    .insert(participants.to_owned(), unique_chat_identifier);
-                deduplicated_chats.insert(chat_id.to_owned(), unique_chat_identifier);
-                unique_chat_identifier += 1;
-            }
-        }
-        deduplicated_chats
     }
 }
 
@@ -180,6 +82,7 @@ impl Diagnostic for ChatToHandle {
     ///
     /// Get the number of chats referenced in the messages table
     /// that do not exist in this join table:
+    ///
     /// # Example:
     ///
     /// ```
@@ -233,10 +136,141 @@ impl Diagnostic for ChatToHandle {
     }
 }
 
+impl ChatToHandle {
+    /// Get the chat lookup map from the database, if it exists
+    ///
+    /// This is used to map chat IDs that are split across services to a canonical chat ID
+    /// for deduplication purposes.
+    ///
+    /// # Example:
+    ///
+    /// ```
+    /// use imessage_database::util::dirs::default_db_path;
+    /// use imessage_database::tables::table::{Diagnostic, get_connection};
+    /// use imessage_database::tables::chat_handle::ChatToHandle;
+    ///
+    /// let db_path = default_db_path();
+    /// let conn = get_connection(&db_path).unwrap();
+    /// ChatToHandle::get_chat_lookup_map(&conn);
+    /// ```
+    pub fn get_chat_lookup_map(conn: &Connection) -> Result<HashMap<i32, i32>, TableError> {
+        // Query `chat_lookup`, if it exists, to merge chat IDs split across services
+        let mut stmt = conn.prepare(
+            "
+WITH RECURSIVE
+  adj AS (
+    SELECT DISTINCT a.chat AS u, b.chat AS v
+    FROM chat_lookup a
+    JOIN chat_lookup b
+      ON a.identifier = b.identifier
+  ),
+  reach(root, chat) AS (
+    SELECT u AS root, v AS chat FROM adj
+    UNION
+    SELECT r.root, a.v
+    FROM reach r
+    JOIN adj a ON a.u = r.chat
+  ),
+  canon AS (
+    SELECT chat, MAX(root) AS canonical_chat
+    FROM reach
+    GROUP BY chat
+  )
+SELECT chat, canonical_chat
+FROM canon
+ORDER BY chat;
+        ",
+        );
+        let mut chat_lookup_map: HashMap<i32, i32> = HashMap::new();
+
+        if let Ok(statement) = stmt.as_mut() {
+            // Build chat lookup map
+            let chat_lookup_rows = statement.query_map([], |row| {
+                let chat: i32 = row.get(0)?;
+                let canonical: i32 = row.get(1)?;
+                Ok((chat, canonical))
+            });
+
+            // Populate chat lookup map
+            if let Ok(chat_lookup_rows) = chat_lookup_rows {
+                for row in chat_lookup_rows {
+                    let (chat_id, canonical_chat) = row?;
+                    chat_lookup_map.insert(chat_id, canonical_chat);
+                }
+            }
+        }
+        Ok(chat_lookup_map)
+    }
+
+    /// Given the initial set of duplicated chats, deduplicate them based on the participants
+    ///
+    /// This returns a new hashmap that maps the real chat ID to a new deduplicated unique chat ID
+    /// that represents a single chat for all of the same participants, even if they have multiple handles.
+    ///
+    /// Assuming no new chat-handle relationships have been written to the database, deduplicated data is deterministic across runs.
+    ///
+    /// # Example:
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// use imessage_database::util::dirs::default_db_path;
+    /// use imessage_database::tables::table::{Cacheable, Deduplicate, get_connection};
+    /// use imessage_database::tables::chat_handle::ChatToHandle;
+    ///
+    /// let db_path = default_db_path();
+    /// let conn = get_connection(&db_path).unwrap();
+    /// let chatrooms = ChatToHandle::cache(&conn).unwrap();
+    /// let deduped_chatrooms = ChatToHandle::dedupe(&chatrooms, &HashMap::new());
+    /// ```
+    pub fn dedupe(
+        duplicated_data: &HashMap<i32, BTreeSet<i32>>,
+        chat_lookup_map: &HashMap<i32, i32>,
+    ) -> Result<HashMap<i32, i32>, TableError> {
+        let mut deduplicated_chats: HashMap<i32, i32> = HashMap::new();
+        let mut participants_to_unique_chat_id: HashMap<BTreeSet<i32>, i32> = HashMap::new();
+
+        // Build cache of each unique set of participants to a new identifier
+        let mut unique_chat_identifier = 0;
+
+        // Iterate over the values in a deterministic order
+        let mut sorted_dupes: Vec<(&i32, &BTreeSet<i32>)> = duplicated_data.iter().collect();
+        sorted_dupes.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+        // Map each chat ID to the deduplicated unique chat ID
+        for (chat_id, participants) in sorted_dupes {
+            // If this set of participants has already been seen, map to the existing unique chat ID
+            if let Some(id) = participants_to_unique_chat_id.get(participants) {
+                deduplicated_chats.insert(chat_id.to_owned(), id.to_owned());
+            } else {
+                // If `chat_lookup` exists, map to canonical chat ID
+                let mapped_id = if let Some(canonical_chat) = chat_lookup_map.get(chat_id) {
+                    canonical_chat
+                } else {
+                    chat_id
+                };
+
+                // Check if the mapped ID has already been seen
+                if let Some(id) = deduplicated_chats.get(mapped_id) {
+                    deduplicated_chats.insert(*chat_id, id.to_owned());
+                    continue;
+                }
+
+                // New set of participants, assign a new unique chat ID
+                participants_to_unique_chat_id
+                    .insert(participants.to_owned(), unique_chat_identifier);
+                deduplicated_chats.insert(chat_id.to_owned(), unique_chat_identifier);
+                unique_chat_identifier += 1;
+            }
+        }
+        Ok(deduplicated_chats)
+    }
+}
+
 // MARK: Tests
 #[cfg(test)]
 mod tests {
-    use crate::tables::{chat_handle::ChatToHandle, table::Deduplicate};
+    use crate::tables::chat_handle::ChatToHandle;
     use std::collections::{BTreeSet, HashMap, HashSet};
 
     #[test]
@@ -249,8 +283,8 @@ mod tests {
         input.insert(5, BTreeSet::from([2])); // 1
         input.insert(6, BTreeSet::from([3])); // 2
 
-        let output = ChatToHandle::dedupe(&input);
-        let expected_deduped_ids: HashSet<i32> = output.values().copied().collect();
+        let output = ChatToHandle::dedupe(&input, &HashMap::new());
+        let expected_deduped_ids: HashSet<i32> = output.unwrap().values().copied().collect();
         assert_eq!(expected_deduped_ids.len(), 3);
     }
 
@@ -264,8 +298,8 @@ mod tests {
         input.insert(5, BTreeSet::from([2, 3])); // 2
         input.insert(6, BTreeSet::from([3])); // 3
 
-        let output = ChatToHandle::dedupe(&input);
-        let expected_deduped_ids: HashSet<i32> = output.values().copied().collect();
+        let output = ChatToHandle::dedupe(&input, &HashMap::new());
+        let expected_deduped_ids: HashSet<i32> = output.unwrap().values().copied().collect();
         assert_eq!(expected_deduped_ids.len(), 4);
     }
 
@@ -296,13 +330,16 @@ mod tests {
         input_3.insert(5, BTreeSet::from([2]));
         input_3.insert(6, BTreeSet::from([3]));
 
-        let mut output_1 = ChatToHandle::dedupe(&input_1)
+        let mut output_1 = ChatToHandle::dedupe(&input_1, &HashMap::new())
+            .unwrap()
             .into_iter()
             .collect::<Vec<(i32, i32)>>();
-        let mut output_2 = ChatToHandle::dedupe(&input_2)
+        let mut output_2 = ChatToHandle::dedupe(&input_2, &HashMap::new())
+            .unwrap()
             .into_iter()
             .collect::<Vec<(i32, i32)>>();
-        let mut output_3 = ChatToHandle::dedupe(&input_3)
+        let mut output_3 = ChatToHandle::dedupe(&input_3, &HashMap::new())
+            .unwrap()
             .into_iter()
             .collect::<Vec<(i32, i32)>>();
 

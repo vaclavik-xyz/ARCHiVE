@@ -152,10 +152,12 @@ impl Config {
         let mut filename = match &chatroom.display_name() {
             // If there is a display name, use that
             Some(name) => {
+                // Get the deduplicated chat ID
+                let deduplicated_chat_id = self.real_chatrooms.get(&chatroom.rowid);
                 format!(
                     "{} - {}",
                     &name[..min(MAX_LENGTH, name.len())],
-                    chatroom.rowid
+                    deduplicated_chat_id.unwrap_or(&chatroom.rowid)
                 )
             }
             // Fallback if there is no name set
@@ -251,7 +253,9 @@ impl Config {
         eprintln!("  [2/5] Caching chatrooms...");
         let chatroom_participants = ChatToHandle::cache(&conn)?;
         eprintln!("  [3/5] Caching participants...");
-        let participants = Handle::cache(&conn)?;
+        let chat_handle_lookup =
+            ChatToHandle::get_chat_lookup_map(&data_source.messages_connection)?;
+
         eprintln!("  [4/5] Caching tapbacks...");
         let tapbacks = Message::cache(&conn)?;
         eprintln!("  [5/5] Caching translations...");
@@ -260,7 +264,7 @@ impl Config {
 
         Ok(Config {
             chatrooms,
-            real_chatrooms: ChatToHandle::dedupe(&chatroom_participants),
+            real_chatrooms: ChatToHandle::dedupe(&chatroom_participants, &chat_handle_lookup)?,
             chatroom_participants,
             real_participants: Handle::dedupe(&participants),
             participants,
