@@ -11,7 +11,7 @@ This tool targets the current latest public release for Messages.app. It may wor
 - Local macOS messages
 - Encrypted or unencrypted local iOS backups
   - Unencrypted backups are resolved normally
-  - Uses [crabapple](https://github.com/ReagentX/crabapple) to decrypt data from encrypted iOS backups
+  - Encrypted backups are resolved with [crabapple](https://github.com/ReagentX/crabapple)
 
 ## Supported Message Features
 
