@@ -60,3 +60,9 @@ impl From<IoError> for RuntimeError {
         RuntimeError::DiskError(err)
     }
 }
+
+impl From<rusqlite::Error> for RuntimeError {
+    fn from(err: rusqlite::Error) -> Self {
+        RuntimeError::DatabaseError(TableError::from(err))
+    }
+}
