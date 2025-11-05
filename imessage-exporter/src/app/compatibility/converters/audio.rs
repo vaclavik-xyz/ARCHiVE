@@ -19,7 +19,7 @@ pub(crate) fn audio_copy_convert(
     from: &Path,
     to: &mut PathBuf,
     converter: &AudioConverter,
-    mime_type: MediaType,
+    mime_type: &MediaType,
 ) -> Option<MediaType<'static>> {
     if matches!(
         mime_type,
@@ -36,7 +36,7 @@ pub(crate) fn audio_copy_convert(
             *to = converted_path;
             return Some(MediaType::Audio(output_type.to_str()));
         }
-        eprintln!("Unable to convert {from:?}");
+        eprintln!("Unable to convert {}", from.display());
     }
 
     // Fallback

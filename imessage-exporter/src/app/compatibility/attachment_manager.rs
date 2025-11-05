@@ -107,12 +107,12 @@ impl AttachmentManager {
                 && !folder.exists()
                 && let Err(why) = create_dir_all(folder)
             {
-                eprintln!("Unable to create {folder:?}: {why}");
+                eprintln!("Unable to create {}: {why}", folder.display());
             }
 
             // Attempt the svg render
             if let Err(why) = write(to.to_str()?, handwriting.render_svg()) {
-                eprintln!("Unable to write to {to:?}: {why}");
+                eprintln!("Unable to write to {}: {why}", to.display());
             }
 
             // Update file metadata
@@ -145,7 +145,7 @@ impl AttachmentManager {
             let mut from = PathBuf::from(&attachment_path);
 
             // Handle encrypted files from iOS backups
-            if let Some(backup) = &config.backup {
+            if let Some(backup) = &config.data_source.backup {
                 // We shouldn't get here without an encrypted backup, but just in case, validate it
                 if backup.is_encrypted() {
                     match decrypt_file(backup, &from) {
@@ -156,7 +156,7 @@ impl AttachmentManager {
                             is_temp = true;
                         }
                         Err(why) => {
-                            eprintln!("Unable to decrypt {from:?}: {why}");
+                            eprintln!("Unable to decrypt {}: {why}", from.display());
                             return None;
                         }
                     }
@@ -165,7 +165,7 @@ impl AttachmentManager {
 
             // Ensure the file exists at the specified location
             if !from.exists() {
-                eprintln!("Attachment not found at specified path: {from:?}");
+                eprintln!("Attachment not found at specified path: {}", from.display());
                 return None;
             }
 
@@ -193,7 +193,8 @@ impl AttachmentManager {
             // If we convert the attachment, we need to update the media type
             let mut new_media_type: Option<MediaType> = None;
 
-            match attachment.mime_type() {
+            let mime_type = attachment.mime_type();
+            match mime_type {
                 MediaType::Image(_) => match self.mode {
                     AttachmentManagerMode::Basic | AttachmentManagerMode::Full => {
                         match &self.image_converter {
@@ -203,16 +204,12 @@ impl AttachmentManager {
                                         &from,
                                         &mut to,
                                         converter,
-                                        &self.video_converter,
-                                        &attachment.mime_type(),
+                                        self.video_converter.as_ref(),
+                                        &mime_type,
                                     );
                                 } else {
-                                    new_media_type = image_copy_convert(
-                                        &from,
-                                        &mut to,
-                                        converter,
-                                        attachment.mime_type(),
-                                    );
+                                    new_media_type =
+                                        image_copy_convert(&from, &mut to, converter, &mime_type);
                                 }
                             }
                             None => copy_raw(&from, &to),
@@ -229,7 +226,7 @@ impl AttachmentManager {
                                 &mut to,
                                 converter,
                                 &self.hardware_encoder,
-                                attachment.mime_type(),
+                                &mime_type,
                             );
                         }
                         None => copy_raw(&from, &to),
@@ -242,12 +239,8 @@ impl AttachmentManager {
                 MediaType::Audio(_) => match self.mode {
                     AttachmentManagerMode::Full => match &self.audio_converter {
                         Some(converter) => {
-                            new_media_type = audio_copy_convert(
-                                &from,
-                                &mut to,
-                                converter,
-                                attachment.mime_type(),
-                            );
+                            new_media_type =
+                                audio_copy_convert(&from, &mut to, converter, &mime_type);
                         }
                         None => copy_raw(&from, &to),
                     },
@@ -274,7 +267,7 @@ impl AttachmentManager {
 
             // Remove the temporary file used for decryption, if it exists
             if is_temp && let Err(why) = remove_file(&from) {
-                eprintln!("Unable to remove encrypted file {from:?}: {why}");
+                eprintln!("Unable to remove encrypted file {}: {why}", from.display());
             }
         }
 
@@ -284,8 +277,7 @@ impl AttachmentManager {
 
 // MARK: Mode
 /// Represents different ways the app can interact with attachment data
-#[derive(Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub enum AttachmentManagerMode {
     /// Do not copy attachments
     #[default]
@@ -297,7 +289,6 @@ pub enum AttachmentManagerMode {
     /// Copy and convert all attachments to more compatible formats using a [`Converter`]
     Full,
 }
-
 
 impl AttachmentManagerMode {
     /// Create an instance of the enum given user input
