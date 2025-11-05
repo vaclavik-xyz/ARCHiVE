@@ -285,8 +285,9 @@ impl Config {
                     }
                 });
 
-            // The above filters against data mutated by the contacts index; should we also check against a fresh copy
-            // that only uses the raw handle values (phone numbers, emails) from the database
+            // The above filters against data mutated by the contacts index; we also must check against a fresh copy
+            // that only uses the raw handle values (phone numbers, emails) from the database so we can filter on numbers/emails
+            // as well as contact names
             Handle::cache(self.data_source.db())
                 .unwrap_or_default()
                 .iter()

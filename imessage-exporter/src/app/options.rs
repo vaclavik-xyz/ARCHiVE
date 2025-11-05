@@ -41,7 +41,7 @@ pub const OPTION_BYPASS_FREE_SPACE_CHECK: &str = "ignore-disk-warning";
 pub const OPTION_USE_CALLER_ID: &str = "use-caller-id";
 pub const OPTION_CONVERSATION_FILTER: &str = "conversation-filter";
 pub const OPTION_CLEARTEXT_PASSWORD: &str = "cleartext-password";
-pub const OPTION_CUSTOM_ATTACHMENT_DB_PATH: &str = "contacts-path";
+pub const OPTION_CUSTOM_CONTACTS_DB_PATH: &str = "contacts-path";
 
 // Other CLI Text
 pub const SUPPORTED_FILE_TYPES: &str = "txt, html";
@@ -106,7 +106,7 @@ impl Options {
         let ignore_disk_space = args.get_flag(OPTION_BYPASS_FREE_SPACE_CHECK);
         let conversation_filter: Option<&String> = args.get_one(OPTION_CONVERSATION_FILTER);
         let cleartext_password: Option<&String> = args.get_one(OPTION_CLEARTEXT_PASSWORD);
-        let contacts_path: Option<&String> = args.get_one(OPTION_CUSTOM_ATTACHMENT_DB_PATH);
+        let contacts_path: Option<&String> = args.get_one(OPTION_CUSTOM_CONTACTS_DB_PATH);
 
         // Build the export type
         let export_type: Option<ExportType> = match export_file_type {
@@ -225,15 +225,15 @@ impl Options {
             let custom_contacts_path = PathBuf::from(path);
             if !custom_contacts_path.exists() {
                 return Err(RuntimeError::InvalidOptions(format!(
-                    "Supplied --{OPTION_CUSTOM_ATTACHMENT_DB_PATH} `{path}` does not exist!"
+                    "Supplied --{OPTION_CUSTOM_CONTACTS_DB_PATH} `{path}` does not exist!"
                 )));
             }
         }
 
-        // Warn the user that custom attachment roots have no effect on iOS backups
+        // Warn the user that custom contacts database path have no effect on iOS backups
         if contacts_path.is_some() && platform == Platform::iOS {
             eprintln!(
-                "Option --{OPTION_CUSTOM_ATTACHMENT_DB_PATH} is enabled, but the platform is {}, so the path will have no effect!",
+                "Option --{OPTION_CUSTOM_CONTACTS_DB_PATH} is enabled, but the platform is {}, so the path will have no effect!",
                 Platform::iOS
             );
         }
@@ -456,9 +456,9 @@ fn get_command() -> Command {
                 .value_name("password"),
         )
         .arg(
-            Arg::new(OPTION_CUSTOM_ATTACHMENT_DB_PATH)
+            Arg::new(OPTION_CUSTOM_CONTACTS_DB_PATH)
                 .short('n')
-                .long(OPTION_CUSTOM_ATTACHMENT_DB_PATH)
+                .long(OPTION_CUSTOM_CONTACTS_DB_PATH)
                 .help("Optional custom path for a macOS or iOS contacts database file\nThis should be resolved automatically, but can be manually provided\nHandles from the messages table will be mapped to names in the provided database\nGenerally, one of `AddressBook-v22.abcddb` or `AddressBook.sqlitedb`\n")
                 .display_order(15)
                 .value_name("path"),
