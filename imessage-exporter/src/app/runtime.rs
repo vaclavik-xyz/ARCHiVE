@@ -253,8 +253,8 @@ impl Config {
         eprintln!("  [2/5] Caching chatrooms...");
         let chatroom_participants = ChatToHandle::cache(&conn)?;
         eprintln!("  [3/5] Caching participants...");
-        let chat_handle_lookup =
-            ChatToHandle::get_chat_lookup_map(&data_source.messages_connection)?;
+        let participants = Handle::cache(&conn)?;
+        let chat_handle_lookup = ChatToHandle::get_chat_lookup_map(&conn)?;
 
         eprintln!("  [4/5] Caching tapbacks...");
         let tapbacks = Message::cache(&conn)?;
