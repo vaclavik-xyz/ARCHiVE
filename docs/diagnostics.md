@@ -22,6 +22,7 @@ Thread diagnostic data:
     Chats with no handles: 2
 Global diagnostic data:
     Total database size: 339.88 MB
+    Handles with resolved names: 231/552 (42%)
     Duplicated contacts: 78
     Duplicated chats: 16
 
@@ -90,6 +91,10 @@ Emits the count of chats that contain no chat participants.
 ### Total database size
 
 The total size of the database file on the disk.
+
+### Handles with resolved names
+
+The number of handles in the database that were successfully matched to contact names from the contacts index, out of the total number of handles found. This is followed by the match ratio as a percentage.
 
 ### Duplicated contacts
 
