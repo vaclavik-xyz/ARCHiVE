@@ -41,6 +41,7 @@ pub const OPTION_BYPASS_FREE_SPACE_CHECK: &str = "ignore-disk-warning";
 pub const OPTION_USE_CALLER_ID: &str = "use-caller-id";
 pub const OPTION_CONVERSATION_FILTER: &str = "conversation-filter";
 pub const OPTION_CLEARTEXT_PASSWORD: &str = "cleartext-password";
+pub const OPTION_CUSTOM_ATTACHMENT_DB_PATH: &str = "contacts-path";
 
 // Other CLI Text
 pub const SUPPORTED_FILE_TYPES: &str = "txt, html";
@@ -83,6 +84,8 @@ pub struct Options {
     pub conversation_filter: Option<String>,
     /// An optional password for encrypted backups
     pub cleartext_password: Option<String>,
+    /// An optional path to a custom contacts database
+    pub contacts_path: Option<PathBuf>,
 }
 
 // MARK: Validation
@@ -103,6 +106,7 @@ impl Options {
         let ignore_disk_space = args.get_flag(OPTION_BYPASS_FREE_SPACE_CHECK);
         let conversation_filter: Option<&String> = args.get_one(OPTION_CONVERSATION_FILTER);
         let cleartext_password: Option<&String> = args.get_one(OPTION_CLEARTEXT_PASSWORD);
+        let contacts_path: Option<&String> = args.get_one(OPTION_CUSTOM_ATTACHMENT_DB_PATH);
 
         // Build the export type
         let export_type: Option<ExportType> = match export_file_type {
@@ -203,7 +207,7 @@ impl Options {
             let custom_attachment_path = PathBuf::from(path);
             if !custom_attachment_path.exists() {
                 return Err(RuntimeError::InvalidOptions(format!(
-                    "Supplied {OPTION_ATTACHMENT_ROOT} `{path}` does not exist!"
+                    "Supplied --{OPTION_ATTACHMENT_ROOT} `{path}` does not exist!"
                 )));
             }
         }
@@ -211,7 +215,25 @@ impl Options {
         // Warn the user that custom attachment roots have no effect on iOS backups
         if attachment_root.is_some() && platform == Platform::iOS {
             eprintln!(
-                "Option {OPTION_ATTACHMENT_ROOT} is enabled, but the platform is {}, so the root will have no effect!",
+                "Option --{OPTION_ATTACHMENT_ROOT} is enabled, but the platform is {}, so the root will have no effect!",
+                Platform::iOS
+            );
+        }
+
+        // Validate that the custom contacts database path exists, if provided
+        if let Some(path) = contacts_path {
+            let custom_contacts_path = PathBuf::from(path);
+            if !custom_contacts_path.exists() {
+                return Err(RuntimeError::InvalidOptions(format!(
+                    "Supplied --{OPTION_CUSTOM_ATTACHMENT_DB_PATH} `{path}` does not exist!"
+                )));
+            }
+        }
+
+        // Warn the user that custom attachment roots have no effect on iOS backups
+        if contacts_path.is_some() && platform == Platform::iOS {
+            eprintln!(
+                "Option --{OPTION_CUSTOM_ATTACHMENT_DB_PATH} is enabled, but the platform is {}, so the path will have no effect!",
                 Platform::iOS
             );
         }
@@ -227,7 +249,7 @@ impl Options {
         };
 
         // Validate the provided export path
-        let export_path = validate_path(user_export_path, &export_type.as_ref())?;
+        let export_path = validate_path(user_export_path, export_type.as_ref())?;
 
         Ok(Options {
             db_path,
@@ -244,6 +266,7 @@ impl Options {
             ignore_disk_space,
             conversation_filter: conversation_filter.cloned(),
             cleartext_password: cleartext_password.cloned(),
+            contacts_path: contacts_path.cloned().map(PathBuf::from),
         })
     }
 
@@ -261,7 +284,7 @@ impl Options {
 /// We have to allocate a `PathBuf` here because it can be created from data owned by this function in the default state
 fn validate_path(
     export_path: Option<&String>,
-    export_type: &Option<&ExportType>,
+    export_type: Option<&ExportType>,
 ) -> Result<PathBuf, RuntimeError> {
     // Build a path from the user-provided data or the default location
     let resolved_path =
@@ -288,14 +311,16 @@ fn validate_path(
                         .is_some_and(|s| s.to_str().unwrap_or("") == export_type_extension)
                     {
                         return Err(RuntimeError::InvalidOptions(format!(
-                            "{path_word} export path {resolved_path:?} contains existing \"{export_type}\" export data!"
+                            "{path_word} export path {} contains existing \"{export_type}\" export data!",
+                            resolved_path.display()
                         )));
                     }
                 }
             }
             Err(why) => {
                 return Err(RuntimeError::InvalidOptions(format!(
-                    "{path_word} export path {resolved_path:?} is not a valid directory: {why}"
+                    "{path_word} export path {} is not a valid directory: {why}",
+                    resolved_path.display()
                 )));
             }
         }
@@ -418,7 +443,7 @@ fn get_command() -> Command {
             Arg::new(OPTION_CONVERSATION_FILTER)
                 .short('t')
                 .long(OPTION_CONVERSATION_FILTER)
-                .help("Filter exported conversations by contact numbers or emails\nTo provide multiple filter criteria, use a comma-separated string\nAll conversations with the specified participants are exported, including group conversations\nExample: `-t steve@apple.com,5558675309`\n")
+                .help("Filter exported conversations by contact names, numbers, or emails\nTo provide multiple filter criteria, use a comma-separated string\nAll conversations with the specified participants are exported, including group conversations\nExample: `-t steve@apple.com,5558675309`\n")
                 .display_order(13)
                 .value_name("filter"),
         )
@@ -429,6 +454,14 @@ fn get_command() -> Command {
                 .help("Optional password for encrypted iOS backups\nThis is only used when the source is an encrypted iOS backup directory\n")
                 .display_order(14)
                 .value_name("password"),
+        )
+        .arg(
+            Arg::new(OPTION_CUSTOM_ATTACHMENT_DB_PATH)
+                .short('n')
+                .long(OPTION_CUSTOM_ATTACHMENT_DB_PATH)
+                .help("Optional custom path for a macOS or iOS contacts database file\nThis should be resolved automatically, but can be manually provided\nHandles from the messages table will be mapped to names in the provided database\nGenerally, one of `AddressBook-v22.abcddb` or `AddressBook.sqlitedb`\n")
+                .display_order(15)
+                .value_name("path"),
         )
 }
 
@@ -454,6 +487,7 @@ impl Options {
             ignore_disk_space: false,
             conversation_filter: None,
             cleartext_password: None,
+            contacts_path: None,
         }
     }
 }
@@ -493,7 +527,7 @@ mod arg_tests {
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Disabled),
             diagnostic: true,
             export_type: None,
-            export_path: validate_path(None, &None).unwrap(),
+            export_path: validate_path(None, None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: None,
@@ -502,6 +536,7 @@ mod arg_tests {
             ignore_disk_space: false,
             conversation_filter: None,
             cleartext_password: None,
+            contacts_path: None,
         };
 
         assert_eq!(actual, expected);
@@ -575,7 +610,7 @@ mod arg_tests {
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Disabled),
             diagnostic: false,
             export_type: Some(ExportType::Html),
-            export_path: validate_path(Some(&tmp_dir), &None).unwrap(),
+            export_path: validate_path(Some(&tmp_dir), None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: None,
@@ -584,6 +619,7 @@ mod arg_tests {
             ignore_disk_space: false,
             conversation_filter: None,
             cleartext_password: None,
+            contacts_path: None,
         };
 
         assert_eq!(actual, expected);
@@ -608,7 +644,7 @@ mod arg_tests {
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Disabled),
             diagnostic: false,
             export_type: Some(ExportType::Txt),
-            export_path: validate_path(None, &None).unwrap(),
+            export_path: validate_path(None, None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: true,
             custom_name: None,
@@ -617,6 +653,7 @@ mod arg_tests {
             ignore_disk_space: false,
             conversation_filter: None,
             cleartext_password: None,
+            contacts_path: None,
         };
 
         assert_eq!(actual, expected);
@@ -687,7 +724,7 @@ mod arg_tests {
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Disabled),
             diagnostic: false,
             export_type: Some(ExportType::Txt),
-            export_path: validate_path(None, &None).unwrap(),
+            export_path: validate_path(None, None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: None,
@@ -696,6 +733,7 @@ mod arg_tests {
             ignore_disk_space: false,
             conversation_filter: None,
             cleartext_password: None,
+            contacts_path: None,
         };
 
         assert_eq!(actual, expected);
@@ -725,7 +763,7 @@ mod arg_tests {
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Disabled),
             diagnostic: false,
             export_type: Some(ExportType::Txt),
-            export_path: validate_path(None, &None).unwrap(),
+            export_path: validate_path(None, None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: None,
@@ -734,6 +772,7 @@ mod arg_tests {
             ignore_disk_space: false,
             conversation_filter: None,
             cleartext_password: Some("password".to_string()),
+            contacts_path: None,
         };
 
         assert_eq!(actual, expected);
@@ -779,7 +818,7 @@ mod arg_tests {
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Disabled),
             diagnostic: false,
             export_type: Some(ExportType::Txt),
-            export_path: validate_path(None, &None).unwrap(),
+            export_path: validate_path(None, None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: Some("Name".to_string()),
@@ -788,6 +827,7 @@ mod arg_tests {
             ignore_disk_space: false,
             conversation_filter: None,
             cleartext_password: None,
+            contacts_path: None,
         };
 
         assert_eq!(actual, expected);
@@ -809,7 +849,7 @@ mod arg_tests {
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Disabled),
             diagnostic: false,
             export_type: Some(ExportType::Txt),
-            export_path: validate_path(None, &None).unwrap(),
+            export_path: validate_path(None, None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: None,
@@ -818,6 +858,7 @@ mod arg_tests {
             ignore_disk_space: false,
             conversation_filter: None,
             cleartext_password: None,
+            contacts_path: None,
         };
 
         assert_eq!(actual, expected);
@@ -840,7 +881,7 @@ mod arg_tests {
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Disabled),
             diagnostic: false,
             export_type: Some(ExportType::Txt),
-            export_path: validate_path(None, &None).unwrap(),
+            export_path: validate_path(None, None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: None,
@@ -849,6 +890,7 @@ mod arg_tests {
             ignore_disk_space: false,
             conversation_filter: Some(String::from("steve@apple.com")),
             cleartext_password: None,
+            contacts_path: None,
         };
 
         assert_eq!(actual, expected);
@@ -870,7 +912,7 @@ mod arg_tests {
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Full),
             diagnostic: false,
             export_type: Some(ExportType::Txt),
-            export_path: validate_path(None, &None).unwrap(),
+            export_path: validate_path(None, None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: None,
@@ -879,6 +921,7 @@ mod arg_tests {
             ignore_disk_space: false,
             conversation_filter: None,
             cleartext_password: None,
+            contacts_path: None,
         };
 
         assert_eq!(actual, expected);
@@ -900,7 +943,7 @@ mod arg_tests {
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Clone),
             diagnostic: false,
             export_type: Some(ExportType::Txt),
-            export_path: validate_path(None, &None).unwrap(),
+            export_path: validate_path(None, None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: None,
@@ -909,6 +952,7 @@ mod arg_tests {
             ignore_disk_space: false,
             conversation_filter: None,
             cleartext_password: None,
+            contacts_path: None,
         };
 
         assert_eq!(actual, expected);
@@ -972,7 +1016,7 @@ mod arg_tests {
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Disabled),
             diagnostic: false,
             export_type: Some(ExportType::Txt),
-            export_path: validate_path(None, &None).unwrap(),
+            export_path: validate_path(None, None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: None,
@@ -981,6 +1025,7 @@ mod arg_tests {
             ignore_disk_space: true,
             conversation_filter: None,
             cleartext_password: None,
+            contacts_path: None,
         };
 
         assert_eq!(actual, expected);
@@ -989,6 +1034,12 @@ mod arg_tests {
     #[test]
     fn cant_build_option_invalid_attachment_root() {
         let args = get_command().get_matches_from(["imessage-exporter", "-r", "/does/not/exist"]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn cant_build_option_invalid_contacts_path() {
+        let args = get_command().get_matches_from(["imessage-exporter", "-n", "/does/not/exist"]);
         assert!(Options::from_args(&args).is_err());
     }
 }
@@ -1014,7 +1065,7 @@ mod path_tests {
         let export_path = Some(&tmp);
         let export_type = Some(ExportType::Txt);
 
-        let result = validate_path(export_path, &export_type.as_ref());
+        let result = validate_path(export_path, export_type.as_ref());
 
         assert_eq!(result.unwrap(), PathBuf::from("/tmp"));
     }
@@ -1028,7 +1079,7 @@ mod path_tests {
         let export_path = Some(&tmp);
         let export_type = Some(ExportType::Txt);
 
-        let result = validate_path(export_path, &export_type.as_ref());
+        let result = validate_path(export_path, export_type.as_ref());
 
         let mut tmp = PathBuf::from("/tmp");
         tmp.push("fake1.html");
@@ -1048,7 +1099,7 @@ mod path_tests {
         let export_path = Some(&tmp);
         let export_type = Some(ExportType::Txt);
 
-        let result = validate_path(export_path, &export_type.as_ref());
+        let result = validate_path(export_path, export_type.as_ref());
 
         let mut tmp = PathBuf::from("/tmp");
         tmp.push("fake2.txt");
@@ -1064,7 +1115,7 @@ mod path_tests {
         let export_path = None;
         let export_type = None;
 
-        let result = validate_path(export_path, &export_type);
+        let result = validate_path(export_path, export_type);
 
         assert_eq!(
             result.unwrap(),
