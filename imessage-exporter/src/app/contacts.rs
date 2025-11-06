@@ -269,7 +269,7 @@ fn phone_keys(raw: &str) -> Vec<String> {
     let mut keys = vec![digits.clone(), format!("+{digits}")];
 
     // If the original was 12 chars starting with +1, add a variant without the `+1` (USA) country code
-    if raw.len() == 12 && raw.starts_with("+1") {
+    if digits.len() == 11 && raw.starts_with("+1") {
         let last_10 = &digits[digits.len() - 10..];
         keys.push(last_10.to_string());
         keys.push(format!("+{last_10}"));
