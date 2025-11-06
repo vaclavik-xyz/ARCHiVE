@@ -88,6 +88,7 @@ impl ContactsIndex {
         })
     }
 
+    // MARK: macOS
     /// Build contacts index from macOS Contacts database
     fn build_from_macos(conn: &Connection) -> Result<Self> {
         let mut by_phone = HashMap::new();
@@ -126,6 +127,7 @@ impl ContactsIndex {
         Ok(Self { by_phone, by_email })
     }
 
+    // MARK: iOS
     /// Build contacts index from iOS backup database
     fn build_from_ios(conn: &Connection) -> Result<Self> {
         // iOS backup contacts: ABPersonFullTextSearch_content with columns:

@@ -1,4 +1,7 @@
-use std::{fs::remove_file, path::PathBuf};
+use std::{
+    fs::remove_file,
+    path::{Path, PathBuf},
+};
 
 use crabapple::Backup;
 use imessage_database::{tables::table::get_connection, util::platform::Platform};
@@ -35,7 +38,7 @@ impl DataSource {
             Platform::macOS => {
                 let messages_path = options.get_db_path();
 
-                let contacts_index = ContactsIndex::build(options.contacts_path.as_deref()).ok();
+                let contacts_index = Self::contacts_index(options.contacts_path.as_deref());
 
                 Ok(Self {
                     messages_connection: Some(get_connection(&messages_path)?),
@@ -57,7 +60,7 @@ impl DataSource {
                     );
 
                     // Build contacts index
-                    let contacts_index = ContactsIndex::build(Some(&contacts_path)).ok();
+                    let contacts_index = Self::contacts_index(Some(&contacts_path));
 
                     // Clean up decrypted contacts database file
                     if let Err(e) = remove_file(&contacts_path) {
@@ -89,7 +92,7 @@ impl DataSource {
 
                     // Build contacts index
                     let contacts_path = PathBuf::from(DEFAULT_PATH_IOS);
-                    let contacts_index = ContactsIndex::build(Some(&contacts_path)).ok();
+                    let contacts_index = Self::contacts_index(Some(&contacts_path));
 
                     Ok(Self {
                         messages_connection: Some(conn),
@@ -97,6 +100,19 @@ impl DataSource {
                         backup: None,
                     })
                 }
+            }
+        }
+    }
+
+    /// Construct a `ContactsIndex`, if possible, logging a warning if the construction fails
+    fn contacts_index(path: Option<&Path>) -> Option<ContactsIndex> {
+        match ContactsIndex::build(path) {
+            Ok(index) => Some(index),
+            Err(e) => {
+                eprintln!(
+                    "Unable to build contacts index: {e}\nContinuing without contact names..."
+                );
+                None
             }
         }
     }
