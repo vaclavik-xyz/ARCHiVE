@@ -11,6 +11,7 @@ use rusqlite::{Connection, Result};
 
 pub const DEFAULT_PATH_IOS: &str = "31/31bb7ba8914766d4ba40d6dfb6113c8b614be442";
 
+// MARK: Name
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// Simple first/last name struct
 pub struct Name {
@@ -35,11 +36,12 @@ impl Name {
     }
 
     /// Simple scoring: 1 point for first name, 1 point for last name
-    fn score(&self) -> usize {
-        usize::from(!self.first.is_empty()) + usize::from(!self.last.is_empty())
+    fn score(&self) -> u8 {
+        u8::from(!self.first.is_empty()) + u8::from(!self.last.is_empty())
     }
 }
 
+// MARK: Index
 #[derive(Debug, Default)]
 /// Contacts index for looking up names by phone/email
 pub struct ContactsIndex {
