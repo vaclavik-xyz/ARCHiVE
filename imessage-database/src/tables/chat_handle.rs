@@ -121,17 +121,37 @@ impl Diagnostic for ChatToHandle {
             }
         });
 
+        // Cache all chats
+        let all_chats = Self::cache(db)?;
+
+        // Cache chatroom participants
+        let chatroom_participants = ChatToHandle::cache(db)?;
+        let chat_handle_lookup = ChatToHandle::get_chat_lookup_map(db)?;
+
+        // Deduplicate chatroom participants
+        let real_chatrooms = ChatToHandle::dedupe(&chatroom_participants, &chat_handle_lookup)?;
+
+        // Calculate total deduplicated chats
+        let total_dupes =
+            all_chats.len() - HashSet::<&i32>::from_iter(real_chatrooms.values()).len();
+
         done_processing();
 
         // Find the set difference and emit
         let chats_with_no_handles = unique_chats_from_messages
             .difference(&unique_chats_from_handles)
             .count();
-        if chats_with_no_handles > 0 {
-            println!("Thread diagnostic data:");
-            println!("    Chats with no handles: {chats_with_no_handles:?}");
+
+        println!("Thread diagnostic data:");
+        println!("    Total chats: {}", all_chats.len());
+
+        if total_dupes > 0 {
+            println!("    Total deduplicated chats: {total_dupes}");
         }
 
+        if chats_with_no_handles > 0 {
+            println!("    Chats with no handles: {chats_with_no_handles:?}");
+        }
         Ok(())
     }
 }
