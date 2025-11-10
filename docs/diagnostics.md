@@ -8,7 +8,7 @@ iMessage Database Diagnostics
 Handle diagnostic data:
     Total handles: 552
     Handles with more than one ID: 2
-    Total deduplicated handles: 100
+    Total duplicated handles: 100
 Message diagnostic data:
     Total messages: 183453
     Messages not associated with a chat: 43210

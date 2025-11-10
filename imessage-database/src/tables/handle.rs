@@ -197,7 +197,7 @@ impl Diagnostic for Handle {
                     println!("    Handles with more than one ID: {handles_with_identical_ids}");
                 }
                 if total_dupes > 0 {
-                    println!("    Total deduplicated handles: {total_dupes}");
+                    println!("    Total duplicated handles: {total_dupes}");
                 }
             }
         }
