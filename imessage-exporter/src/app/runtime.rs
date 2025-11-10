@@ -184,17 +184,16 @@ impl Config {
         let mut added = 0;
         let mut out_s = String::with_capacity(MAX_LENGTH);
         for participant_id in participants {
-            let participant = self.resolve_participant(*participant_id);
-            let participant_name = match participant {
+            let participant_details = match self.resolve_participant(*participant_id) {
                 Some(name) => name.details.as_str(),
                 None => UNKNOWN,
             };
 
-            if participant_name.len() + out_s.len() < MAX_LENGTH {
+            if participant_details.len() + out_s.len() < MAX_LENGTH {
                 if !out_s.is_empty() {
                     out_s.push_str(", ");
                 }
-                out_s.push_str(participant_name);
+                out_s.push_str(participant_details);
                 added += 1;
             } else {
                 let extra = format!(", and {} others", participants.len() - added);
@@ -202,7 +201,7 @@ impl Config {
                 if space_remaining >= MAX_LENGTH {
                     out_s.replace_range((MAX_LENGTH - extra.len()).., &extra);
                 } else if out_s.is_empty() {
-                    out_s.push_str(&participant_name[..MAX_LENGTH]);
+                    out_s.push_str(&participant_details[..MAX_LENGTH]);
                 } else {
                     out_s.push_str(&extra);
                 }
@@ -280,8 +279,6 @@ impl Config {
             let mut included_handles: BTreeSet<i32> = BTreeSet::new();
 
             // First: Scan the list of participants for included handle IDs
-            // The contacts index has already mutated `self.participants` to include resolved names
-            // so this pass allows filtering on resolved names
             self.participants
                 .iter()
                 .for_each(|(handle_id, handle_name)| {
