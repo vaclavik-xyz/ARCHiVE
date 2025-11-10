@@ -26,7 +26,7 @@ Thread diagnostic data:
     Chats with no handles: 2
 Global diagnostic data:
     Total database size: 339.88 MB
-    Handles with resolved names: 231/552 (42%)
+    Handles with resolved names: 231/452 (51%)
 
 Environment Diagnostics
 
