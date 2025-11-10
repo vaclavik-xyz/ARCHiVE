@@ -265,7 +265,7 @@ fn table_exists(conn: &Connection, name: &str) -> bool {
     .is_ok()
 }
 
-/// Upsert a Name into the map if it has a better score than existing
+/// Upsert a [`Name`] into the map if it has a better [`Name::score`] than existing
 fn upsert_best(map: &mut HashMap<String, Name>, key: String, incoming: &Name) {
     match map.get_mut(&key) {
         Some(existing) => {
@@ -311,6 +311,10 @@ fn parse_email_list(raw: &str) -> Vec<String> {
 
 // MARK: Phone
 /// Generate possible phone number keys from a raw phone number
+///
+/// - If the number contains "urn:", returns an empty vector
+/// - Returns keys with and without '+' prefix
+/// - For US numbers starting with +1 and 11 digits, also adds variants without the `+1` country code
 fn phone_keys(raw: &str) -> Vec<String> {
     // Skip iMessage business accounts
     if raw.contains("urn:") {
@@ -349,7 +353,8 @@ fn to_phone_digits(raw: &str) -> String {
 }
 
 // MARK: macOS Dirs
-/// Find all `AddressBook` databases under the macOS Contacts Sources directory
+/// Scans the macOS Contacts Sources directory (`~/Library/Application Support/AddressBook/Sources`)
+/// for AddressBook-v22.abcddb database files.
 fn find_macos_addressbook_db_paths() -> Vec<PathBuf> {
     let mut results = Vec::new();
     if let Ok(entries) = fs::read_dir(macos_sources_dir()) {
