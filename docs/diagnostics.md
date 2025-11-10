@@ -22,12 +22,11 @@ Attachment diagnostic data:
         No file located: 108
 Thread diagnostic data:
     Total chats: 432
-    Total deduplicated chats: 11
+    Total duplicated chats: 11
     Chats with no handles: 2
 Global diagnostic data:
     Total database size: 339.88 MB
     Handles with resolved names: 231/552 (42%)
-    Duplicated chats: 16
 
 Environment Diagnostics
 
@@ -99,7 +98,7 @@ This means there was a path provided, but there was no file at the specified loc
 
 The total number of chats present in the table.
 
-### Total deduplicated chats
+### Total duplicated chats
 
 The number of split group chats that have been coalesced together.
 

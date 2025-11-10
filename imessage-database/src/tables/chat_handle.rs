@@ -131,7 +131,7 @@ impl Diagnostic for ChatToHandle {
         // Deduplicate chatroom participants
         let real_chatrooms = ChatToHandle::dedupe(&chatroom_participants, &chat_handle_lookup)?;
 
-        // Calculate total deduplicated chats
+        // Calculate total duplicated chats
         let total_dupes =
             all_chats.len() - HashSet::<&i32>::from_iter(real_chatrooms.values()).len();
 
@@ -146,7 +146,7 @@ impl Diagnostic for ChatToHandle {
         println!("    Total chats: {}", all_chats.len());
 
         if total_dupes > 0 {
-            println!("    Total deduplicated chats: {total_dupes}");
+            println!("    Total duplicated chats: {total_dupes}");
         }
 
         if chats_with_no_handles > 0 {
