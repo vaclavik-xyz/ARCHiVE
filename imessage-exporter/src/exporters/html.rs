@@ -1910,9 +1910,13 @@ mod tests {
 
     use crate::{
         Config, Exporter, HTML, Options,
-        app::{compatibility::attachment_manager::AttachmentManagerMode, export_type::ExportType},
+        app::{
+            compatibility::attachment_manager::AttachmentManagerMode, contacts::Name,
+            export_type::ExportType,
+        },
         exporters::exporter::MessageFormatter,
     };
+
     use imessage_database::{
         message_types::text_effects::TextEffect,
         tables::{
@@ -2119,7 +2123,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = HTML::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -2144,7 +2149,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = HTML::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -2174,7 +2180,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = HTML::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -2201,7 +2208,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2221,7 +2229,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2244,7 +2253,8 @@ mod tests {
         let mut options = Options::fake_options(ExportType::Html);
         options.custom_name = Some("Name".to_string());
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2265,8 +2275,10 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
-        config.participants.insert(1, "Other".to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.participants.insert(1, Name::fake_name("Other"));
+        config.real_participants.insert(0, 0);
+        config.real_participants.insert(1, 1);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2290,8 +2302,10 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
-        config.participants.insert(1, "Other".to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.participants.insert(1, Name::fake_name("Other"));
+        config.real_participants.insert(0, 0);
+        config.real_participants.insert(1, 1);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2315,7 +2329,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2337,7 +2352,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2360,7 +2376,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2383,7 +2400,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2406,7 +2424,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2429,7 +2448,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2450,7 +2470,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = HTML::new(&config).unwrap();
 
@@ -2473,7 +2494,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = HTML::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -2496,7 +2518,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = HTML::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -2521,7 +2544,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = HTML::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -2545,7 +2569,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = HTML::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -2570,7 +2595,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = HTML::new(&config).unwrap();
 
         let mut message = Config::fake_message();
