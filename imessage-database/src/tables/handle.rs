@@ -184,7 +184,7 @@ impl Diagnostic for Handle {
             // Deduplicate handles
             let unique_handles = Self::dedupe(&all_handles);
 
-            // Calculate total deduplicated handles
+            // Calculate total duplicated handles
             let total_dupes =
                 all_handles.len() - HashSet::<&i32>::from_iter(unique_handles.values()).len();
 
