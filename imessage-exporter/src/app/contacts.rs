@@ -219,16 +219,19 @@ impl ContactsIndex {
 
     /// Returns first/last name if found
     pub fn lookup(&self, id: &str) -> Option<Name> {
-        if looks_like_email(id) {
-            normalize_email(id).and_then(|k| self.index.get(&k).cloned())
-        } else {
-            for k in phone_keys(id) {
-                if let Some(n) = self.index.get(&k) {
-                    return Some(n.clone());
+        // Handle details can be space-separated list of emails/phones from the iMessage database
+        for id_part in id.split(" ") {
+            if looks_like_email(id_part) {
+                return normalize_email(id_part).and_then(|k| self.index.get(&k).cloned());
+            } else {
+                for k in phone_keys(id_part) {
+                    if let Some(n) = self.index.get(&k) {
+                        return Some(n.clone());
+                    }
                 }
             }
-            None
         }
+        None
     }
 
     /// Given a `HashMap<i32, String>` representing the participant details, return a `HashMap<i32, Name>` with names looked up
