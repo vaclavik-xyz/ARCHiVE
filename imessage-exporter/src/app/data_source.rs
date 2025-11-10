@@ -1,7 +1,4 @@
-use std::{
-    fs::remove_file,
-    path::{Path, PathBuf},
-};
+use std::{fs::remove_file, path::Path};
 
 use crabapple::Backup;
 use imessage_database::{tables::table::get_connection, util::platform::Platform};
@@ -22,8 +19,10 @@ pub struct DataSource {
     /// This is wrapped in `Option` to allow for taking/dropping it when cleaning up temporary files,
     /// but should always be `Some` during normal operation.
     messages_connection: Option<Connection>,
-    /// Index of contacts
-    pub contacts_index: Option<ContactsIndex>,
+    /// Index of contacts, mapping emails and phone numbers to name data
+    ///
+    /// If construction fails, this will be an empty index, and a warning will be logged.
+    pub contacts_index: ContactsIndex,
     /// An optional encrypted iOS backup
     pub backup: Option<Backup>,
 }
@@ -38,7 +37,8 @@ impl DataSource {
             Platform::macOS => {
                 let messages_path = options.get_db_path();
 
-                let contacts_index = Self::contacts_index(options.contacts_path.as_deref());
+                let contacts_index =
+                    Self::get_contacts_index(options.contacts_path.as_deref()).unwrap_or_default();
 
                 Ok(Self {
                     messages_connection: Some(get_connection(&messages_path)?),
@@ -60,7 +60,8 @@ impl DataSource {
                     );
 
                     // Build contacts index
-                    let contacts_index = Self::contacts_index(Some(&contacts_path));
+                    let contacts_index =
+                        Self::get_contacts_index(Some(&contacts_path)).unwrap_or_default();
 
                     // Clean up decrypted contacts database file
                     if let Err(e) = remove_file(&contacts_path) {
@@ -91,8 +92,9 @@ impl DataSource {
                     }
 
                     // Build contacts index
-                    let contacts_path = PathBuf::from(DEFAULT_PATH_IOS);
-                    let contacts_index = Self::contacts_index(Some(&contacts_path));
+                    let contacts_index =
+                        Self::get_contacts_index(Some(Path::new(DEFAULT_PATH_IOS)))
+                            .unwrap_or_default();
 
                     Ok(Self {
                         messages_connection: Some(conn),
@@ -105,7 +107,7 @@ impl DataSource {
     }
 
     /// Construct a `ContactsIndex`, if possible, logging a warning if the construction fails
-    fn contacts_index(path: Option<&Path>) -> Option<ContactsIndex> {
+    fn get_contacts_index(path: Option<&Path>) -> Option<ContactsIndex> {
         match ContactsIndex::build(path) {
             Ok(index) => Some(index),
             Err(e) => {
@@ -160,7 +162,7 @@ impl DataSource {
     pub fn fake_data_source(conn: Connection) -> Self {
         Self {
             messages_connection: Some(conn),
-            contacts_index: None,
+            contacts_index: ContactsIndex::default(),
             backup: None,
         }
     }
@@ -168,6 +170,8 @@ impl DataSource {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use crate::app::{export_type::ExportType, options::Options};
     use imessage_database::util::platform::Platform;
