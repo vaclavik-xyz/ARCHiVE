@@ -220,7 +220,7 @@ impl ContactsIndex {
     /// Returns first/last name if found
     pub fn lookup(&self, id: &str) -> Option<Name> {
         // Handle details can be space-separated list of emails/phones from the iMessage database
-        for id_part in id.split(" ") {
+        for id_part in id.split_whitespace() {
             if looks_like_email(id_part) {
                 return normalize_email(id_part).and_then(|k| self.index.get(&k).cloned());
             } else {
@@ -234,8 +234,11 @@ impl ContactsIndex {
         None
     }
 
-    /// Given a `HashMap<i32, String>` representing the participant details, return a `HashMap<i32, Name>` with names looked up
-    /// using the provided deduplicated handle IDs as the primary keys
+    /// Build a map of participant handle IDs to Names
+    ///
+    /// - `participants`: map of handle ID to handle details
+    /// - `deduped_handles`: map of handle ID to deduplicated handle ID
+    /// - Returns: map of deduplicated handle ID to Name
     pub fn build_participants_map(
         &self,
         participants: &HashMap<i32, String>,
@@ -249,6 +252,7 @@ impl ContactsIndex {
                     .lookup(details)
                     .unwrap_or_else(|| Name::from_details(details.clone()));
 
+                // Update details field for the resolved Name
                 name.details = details.clone();
                 result.insert(*deduped_id, name);
             }
