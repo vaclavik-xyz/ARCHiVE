@@ -68,10 +68,10 @@ impl Name {
 
     /// Get the contact's full name, falling back to details if full name is empty
     pub fn get_display_name(&self) -> &str {
-        if !self.full.is_empty() {
-            &self.full
-        } else {
+        if self.full.is_empty() {
             &self.details
+        } else {
+            &self.full
         }
     }
 
@@ -231,7 +231,7 @@ impl ContactsIndex {
         }
     }
 
-    /// Given a HashMap<i32, String> representing the participant details, return a HashMap<i32, Name> with names looked up
+    /// Given a `HashMap<i32, String>` representing the participant details, return a `HashMap<i32, Name>` with names looked up
     /// using the provided deduplicated handle IDs as the primary keys
     pub fn build_participants_map(
         &self,
