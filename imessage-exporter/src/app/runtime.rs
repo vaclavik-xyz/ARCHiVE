@@ -11,17 +11,6 @@ use std::{
 
 use fdlimit::raise_fd_limit;
 use fs2::available_space;
-
-use crate::{
-    Exporter, HTML, TXT,
-    app::{
-        compatibility::attachment_manager::AttachmentManagerMode, data_source::DataSource,
-        error::RuntimeError, export_type::ExportType, options::Options,
-        sanitizers::sanitize_filename,
-    },
-    exporters::exporter::ATTACHMENT_NO_FILENAME,
-};
-
 use imessage_database::{
     tables::{
         attachment::Attachment,
@@ -36,20 +25,31 @@ use imessage_database::{
     util::{dates::get_offset, size::format_file_size},
 };
 
+use crate::{
+    Exporter, HTML, TXT,
+    app::{
+        compatibility::attachment_manager::AttachmentManagerMode, contacts::Name,
+        data_source::DataSource, error::RuntimeError, export_type::ExportType, options::Options,
+        sanitizers::sanitize_filename,
+    },
+    exporters::exporter::ATTACHMENT_NO_FILENAME,
+};
+
+// Maximum length for filenames
 const MAX_LENGTH: usize = 235;
 
 // MARK: Config
 /// Stores the application state and handles application lifecycle
 pub struct Config {
-    /// Map of chatroom ID to chatroom information
+    /// Map of iMessage database chatroom ID to chatroom information
     pub chatrooms: HashMap<i32, Chat>,
-    /// Map of chatroom ID to an internal unique chatroom ID
+    /// Map of iMessage database chatroom ID to an internal unique chatroom ID
     pub real_chatrooms: HashMap<i32, i32>,
-    /// Map of chatroom ID to chatroom participants
+    /// Map of iMessage database chatroom ID to chatroom participant iMessage database handle IDs
     pub chatroom_participants: HashMap<i32, BTreeSet<i32>>,
-    /// Map of participant ID to contact info
-    pub participants: HashMap<i32, String>,
-    /// Map of participant ID to an internal unique participant ID
+    /// Map of deduplicated internal participant ID to contact info
+    pub participants: HashMap<i32, Name>,
+    /// Map of iMessage database handle ID to an internal unique participant ID, used to generate `participants`
     pub real_participants: HashMap<i32, i32>,
     /// Messages that are tapbacks (reactions) to other messages
     pub tapbacks: HashMap<String, HashMap<usize, Vec<Message>>>,
@@ -133,6 +133,7 @@ impl Config {
         path.display().to_string()
     }
 
+    // MARK: Filenames
     /// Get a filename for a chat, possibly using cached data.
     ///
     /// If the chat has an assigned name, use that, truncating if necessary.
@@ -145,7 +146,7 @@ impl Config {
                 format!(
                     "{} - {}",
                     &name[..min(MAX_LENGTH, name.len())],
-                    // Get the deduplicated chat ID
+                    // Get the deduplicated chat ID to ensure the filename is unique, even if the group name is not
                     self.real_chatrooms
                         .get(&chatroom.rowid)
                         .unwrap_or(&chatroom.rowid)
@@ -183,12 +184,17 @@ impl Config {
         let mut added = 0;
         let mut out_s = String::with_capacity(MAX_LENGTH);
         for participant_id in participants {
-            let participant = self.who(Some(*participant_id), false, &None);
-            if participant.len() + out_s.len() < MAX_LENGTH {
+            let participant = self.resolve_participant(*participant_id);
+            let participant_name = match participant {
+                Some(name) => name.details.as_str(),
+                None => UNKNOWN,
+            };
+
+            if participant_name.len() + out_s.len() < MAX_LENGTH {
                 if !out_s.is_empty() {
                     out_s.push_str(", ");
                 }
-                out_s.push_str(participant);
+                out_s.push_str(participant_name);
                 added += 1;
             } else {
                 let extra = format!(", and {} others", participants.len() - added);
@@ -196,7 +202,7 @@ impl Config {
                 if space_remaining >= MAX_LENGTH {
                     out_s.replace_range((MAX_LENGTH - extra.len()).., &extra);
                 } else if out_s.is_empty() {
-                    out_s.push_str(&participant[..MAX_LENGTH]);
+                    out_s.push_str(&participant_name[..MAX_LENGTH]);
                 } else {
                     out_s.push_str(&extra);
                 }
@@ -230,14 +236,15 @@ impl Config {
 
         eprintln!("  [2/5] Caching chatrooms...");
         let chatroom_participants = ChatToHandle::cache(data_source.db())?;
-
-        eprintln!("  [3/5] Caching participants...");
-        let mut participants = Handle::cache(data_source.db())?;
-        if let Some(contacts_index) = &data_source.contacts_index {
-            contacts_index.mutate_participants(&mut participants);
-        }
         let chat_handle_lookup = ChatToHandle::get_chat_lookup_map(data_source.db())?;
         let real_chatrooms = ChatToHandle::dedupe(&chatroom_participants, &chat_handle_lookup)?;
+
+        eprintln!("  [3/5] Caching participants...");
+        let participants = Handle::cache(data_source.db())?;
+        let real_participants = Handle::dedupe(&participants);
+        let participants_map = data_source
+            .contacts_index
+            .build_participants_map(&participants, &real_participants);
 
         eprintln!("  [4/5] Caching tapbacks...");
         let tapbacks = Message::cache(data_source.db())?;
@@ -250,8 +257,8 @@ impl Config {
             chatrooms,
             real_chatrooms,
             chatroom_participants,
-            real_participants: Handle::dedupe(&participants),
-            participants,
+            real_participants,
+            participants: participants_map,
             tapbacks,
             translated_messages,
             options,
@@ -276,20 +283,6 @@ impl Config {
             // The contacts index has already mutated `self.participants` to include resolved names
             // so this pass allows filtering on resolved names
             self.participants
-                .iter()
-                .for_each(|(handle_id, handle_name)| {
-                    for included_name in &parsed_handle_filter {
-                        if handle_name.contains(included_name) {
-                            included_handles.insert(*handle_id);
-                        }
-                    }
-                });
-
-            // The above filters against data mutated by the contacts index; we also must check against a fresh copy
-            // that only uses the raw handle values (phone numbers, emails) from the database so we can filter on numbers/emails
-            // as well as contact names
-            Handle::cache(self.data_source.db())
-                .unwrap_or_default()
                 .iter()
                 .for_each(|(handle_id, handle_name)| {
                     for included_name in &parsed_handle_filter {
@@ -423,40 +416,21 @@ impl Config {
             format_file_size(total_db_size)
         );
 
-        // Get a fresh copy of the participants list
-        let participants = Handle::cache(self.data_source.db())?;
         // For each handle in the participants list, count how many have matches in the contacts index
-        let mut total_matched = 0;
-        if let Some(contacts_index) = &self.data_source.contacts_index {
-            for (_, handle_name) in participants.iter() {
-                for part in handle_name.split(' ') {
-                    // If any part of the handle name matches, count it as a resolved name
-                    if contacts_index.lookup(part).is_some() {
-                        total_matched += 1;
-                        break;
-                    }
-                }
-            }
-        }
+        let total_resolved =
+            self.participants.iter().fold(
+                0,
+                |acc, (_, name)| {
+                    if name.full.is_empty() { acc } else { acc + 1 }
+                },
+            );
+
         println!(
             "    Handles with resolved names: {}/{} ({}%)",
-            total_matched,
-            participants.len(),
-            (total_matched as f32 / participants.len() as f32 * 100.0).round()
+            total_resolved,
+            self.participants.len(),
+            (total_resolved as f32 / self.participants.len() as f32 * 100.0).round()
         );
-
-        let unique_handles: HashSet<i32> =
-            HashSet::from_iter(self.real_participants.values().copied());
-        let duplicated_handles = self.participants.len() - unique_handles.len();
-        if duplicated_handles > 0 {
-            println!("    Duplicated contacts: {duplicated_handles}");
-        }
-
-        let unique_chats: HashSet<i32> = HashSet::from_iter(self.real_chatrooms.values().copied());
-        let duplicated_chats = self.chatrooms.len() - unique_chats.len();
-        if duplicated_chats > 0 {
-            println!("    Duplicated chats: {duplicated_chats}");
-        }
 
         println!("\nEnvironment Diagnostics\n");
         self.options.attachment_manager.diagnostic();
@@ -540,12 +514,20 @@ impl Config {
             }
             return self.options.custom_name.as_deref().unwrap_or(ME);
         } else if let Some(handle_id) = handle_id {
-            return match self.participants.get(&handle_id) {
-                Some(contact) => contact,
+            return match self.resolve_participant(handle_id) {
+                Some(contact) => contact.get_display_name(),
                 None => UNKNOWN,
             };
         }
         UNKNOWN
+    }
+
+    /// Resolve a participant name from a handle ID
+    fn resolve_participant(&self, handle_id: i32) -> Option<&Name> {
+        if let Some(internal_id) = self.real_participants.get(&handle_id) {
+            return self.participants.get(internal_id);
+        }
+        None
     }
 }
 
@@ -626,13 +608,16 @@ impl Config {
 // MARK: Tests
 #[cfg(test)]
 mod filename_tests {
-    use crate::{Config, Options, app::runtime::MAX_LENGTH};
+    use crate::{
+        Config, Options,
+        app::{contacts::Name, runtime::MAX_LENGTH},
+    };
 
     use imessage_database::tables::chat::Chat;
 
     use std::collections::BTreeSet;
 
-    fn fake_chat() -> Chat {
+    pub fn fake_chat() -> Chat {
         Chat {
             rowid: 0,
             chat_identifier: "Default".to_string(),
@@ -656,8 +641,10 @@ mod filename_tests {
         let mut app = Config::fake_app(options);
 
         // Create participant data
-        app.participants.insert(10, "Person 10".to_string());
-        app.participants.insert(11, "Person 11".to_string());
+        app.participants.insert(10, Name::fake_name("Person 10"));
+        app.participants.insert(11, Name::fake_name("Person 11"));
+        app.real_participants.insert(10, 10);
+        app.real_participants.insert(11, 11);
 
         // Add participants
         let mut people = BTreeSet::new();
@@ -678,36 +665,44 @@ mod filename_tests {
         // Create participant data
         app.participants.insert(
             10,
-            "Person With An Extremely and Excessively Long Name 10".to_string(),
+            Name::fake_name("Person With An Extremely and Excessively Long Name 10"),
         );
         app.participants.insert(
             11,
-            "Person With An Extremely and Excessively Long Name 11".to_string(),
+            Name::fake_name("Person With An Extremely and Excessively Long Name 11"),
         );
         app.participants.insert(
             12,
-            "Person With An Extremely and Excessively Long Name 12".to_string(),
+            Name::fake_name("Person With An Extremely and Excessively Long Name 12"),
         );
         app.participants.insert(
             13,
-            "Person With An Extremely and Excessively Long Name 13".to_string(),
+            Name::fake_name("Person With An Extremely and Excessively Long Name 13"),
         );
         app.participants.insert(
             14,
-            "Person With An Extremely and Excessively Long Name 14".to_string(),
+            Name::fake_name("Person With An Extremely and Excessively Long Name 14"),
         );
         app.participants.insert(
             15,
-            "Person With An Extremely and Excessively Long Name 15".to_string(),
+            Name::fake_name("Person With An Extremely and Excessively Long Name 15"),
         );
         app.participants.insert(
             16,
-            "Person With An Extremely and Excessively Long Name 16".to_string(),
+            Name::fake_name("Person With An Extremely and Excessively Long Name 16"),
         );
         app.participants.insert(
             17,
-            "Person With An Extremely and Excessively Long Name 17".to_string(),
+            Name::fake_name("Person With An Extremely and Excessively Long Name 17"),
         );
+        app.real_participants.insert(10, 10);
+        app.real_participants.insert(11, 11);
+        app.real_participants.insert(12, 12);
+        app.real_participants.insert(13, 13);
+        app.real_participants.insert(14, 14);
+        app.real_participants.insert(15, 15);
+        app.real_participants.insert(16, 16);
+        app.real_participants.insert(17, 17);
 
         // Add participants
         let mut people = BTreeSet::new();
@@ -732,7 +727,8 @@ mod filename_tests {
         let mut app = Config::fake_app(options);
 
         // Create participant data
-        app.participants.insert(10, "He slipped his key into the lock, and we all very quietly entered the cell. The sleeper half turned, and then settled down once more into a deep slumber. Holmes stooped to the water-jug, moistened his sponge, and then rubbed it twice vigorously across and down the prisoner's face.".to_string());
+        app.participants.insert(10, Name::fake_name("He slipped his key into the lock, and we all very quietly entered the cell. The sleeper half turned, and then settled down once more into a deep slumber. Holmes stooped to the water-jug, moistened his sponge, and then rubbed it twice vigorously across and down the prisoner's face."));
+        app.real_participants.insert(10, 10);
 
         // Add 1 person
         let mut people = BTreeSet::new();
@@ -798,8 +794,10 @@ mod filename_tests {
         let chat = fake_chat();
 
         // Create participant data
-        app.participants.insert(10, "Person 10".to_string());
-        app.participants.insert(11, "Person 11".to_string());
+        app.participants.insert(10, Name::fake_name("Person 10"));
+        app.participants.insert(11, Name::fake_name("Person 11"));
+        app.real_participants.insert(10, 10);
+        app.real_participants.insert(11, 11);
 
         // Add participants
         let mut people = BTreeSet::new();
@@ -828,17 +826,10 @@ mod filename_tests {
 
 #[cfg(test)]
 mod who_tests {
-    use crate::{Config, Options};
-    use imessage_database::tables::chat::Chat;
-
-    fn fake_chat() -> Chat {
-        Chat {
-            rowid: 0,
-            chat_identifier: "Default".to_string(),
-            service_name: Some(String::new()),
-            display_name: None,
-        }
-    }
+    use crate::{
+        Config, Options,
+        app::{contacts::Name, runtime::filename_tests::fake_chat},
+    };
 
     #[test]
     fn can_get_who_them() {
@@ -846,7 +837,8 @@ mod who_tests {
         let mut app = Config::fake_app(options);
 
         // Create participant data
-        app.participants.insert(10, "Person 10".to_string());
+        app.participants.insert(10, Name::fake_name("Person 10"));
+        app.real_participants.insert(10, 10);
 
         // Get participant name
         let who = app.who(Some(10), false, &None);
@@ -1105,7 +1097,10 @@ mod directory_tests {
 mod chat_filter_tests {
     use std::collections::BTreeSet;
 
-    use crate::{Config, Options, app::export_type::ExportType};
+    use crate::{
+        Config, Options,
+        app::{contacts::Name, export_type::ExportType},
+    };
 
     #[test]
     fn can_generate_filter_string_multiple() {
@@ -1115,10 +1110,10 @@ mod chat_filter_tests {
         let mut app = Config::fake_app(options);
 
         // Add some test data
-        app.participants.insert(10, "Person 10".to_string()); // Included
-        app.participants.insert(11, "Person 11".to_string()); // Included
-        app.participants.insert(12, "Person 12".to_string()); // Included
-        app.participants.insert(13, "Person 13".to_string()); // Excluded
+        app.participants.insert(10, Name::fake_name("Person 10")); // Included
+        app.participants.insert(11, Name::fake_name("Person 11")); // Included
+        app.participants.insert(12, Name::fake_name("Person 12")); // Included
+        app.participants.insert(13, Name::fake_name("Person 13")); // Excluded
 
         // Chatroom 1: Included
         let mut chatroom_1 = BTreeSet::new();
@@ -1173,10 +1168,10 @@ mod chat_filter_tests {
         let mut app = Config::fake_app(options);
 
         // Add some test data
-        app.participants.insert(10, "Person 10".to_string()); // Excluded
-        app.participants.insert(11, "Person 11".to_string()); // Excluded
-        app.participants.insert(12, "Person 12".to_string()); // Excluded
-        app.participants.insert(13, "Person 13".to_string()); // Included
+        app.participants.insert(10, Name::fake_name("Person 10")); // Excluded
+        app.participants.insert(11, Name::fake_name("Person 11")); // Excluded
+        app.participants.insert(12, Name::fake_name("Person 12")); // Excluded
+        app.participants.insert(13, Name::fake_name("Person 13")); // Included
 
         // Chatroom 1: Excluded
         let mut chatroom_1 = BTreeSet::new();
