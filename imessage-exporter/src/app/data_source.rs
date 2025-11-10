@@ -82,10 +82,7 @@ impl DataSource {
                     let conn = get_connection(&messages_path)?;
 
                     // Check if the backup is encrypted and a password was not provided
-                    if matches!(options.platform, Platform::iOS)
-                        && backup.is_none()
-                        && conn.query_row("SELECT 1", [], |_| Ok(())).is_err()
-                    {
+                    if backup.is_none() && conn.query_row("SELECT 1", [], |_| Ok(())).is_err() {
                         return Err(RuntimeError::InvalidOptions(format!(
                             "The provided iOS backup is encrypted, but no password was provided. Please provide a password using the --{OPTION_CLEARTEXT_PASSWORD} option."
                         )));
