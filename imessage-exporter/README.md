@@ -104,7 +104,7 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
         By default, exports will not run if there is not enough free disk space
         
 -t, --conversation-filter <filter>
-        Filter exported conversations by contact numbers or emails
+        Filter exported conversations by contact names, numbers, or emails
         To provide multiple filter criteria, use a comma-separated string
         All conversations with the specified participants are exported, including group conversations
         Example: `-t steve@apple.com,5558675309`
@@ -112,6 +112,12 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
 -x, --cleartext-password <password>
         Optional password for encrypted iOS backups
         This is only used when the source is an encrypted iOS backup directory
+        
+-n, --contacts-path <path>
+        Optional custom path for a macOS or iOS contacts database file
+        This should be resolved automatically, but can be manually provided
+        Handles from the messages table will be mapped to names in the provided database
+        Generally, one of `AddressBook-v22.abcddb` or `AddressBook.sqlitedb`
         
 -h, --help
         Print help
@@ -163,6 +169,12 @@ Export messages from a specific participant as `html` and copy attachments in th
 imessage-exporter -f html -c clone -t "5558675309"
 ```
 
+Export messages from a specific participant's name as `txt` and without attachments from the default iMessage Database location to your home directory:
+
+```zsh
+imessage-exporter -f txt -t "Steve Jobs"
+```
+
 Export messages from multiple specific participants as `html` without attachments from the default iMessage Database location to your home directory:
 
 ```zsh
@@ -192,6 +204,10 @@ imessage-exporter -f html -t "@"
 [ImageMagick](https://imagemagick.org/index.php) is required to make exported images more compatible on non-macOS platforms.
 
 [ffmpeg](https://ffmpeg.org) is required to make exported audio more compatible on non-macOS platforms and exported video more compatible on all platforms.
+
+### Contacts
+
+`imessage-exporter` will automatically attempt to resolve handle details (email addresses and phone numbers) against contacts found either in the provided iOS backup or on the local macOS Address Book. Users can optionally pass in a path to an Address Book database, but this should generally not be necessary.
 
 ### HTML Exports
 

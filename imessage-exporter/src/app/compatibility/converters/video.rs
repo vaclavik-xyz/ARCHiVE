@@ -20,7 +20,7 @@ pub(crate) fn video_copy_convert(
     to: &mut PathBuf,
     converter: &VideoConverter,
     hardware_encoder: &Option<HardwareEncoder>,
-    mime_type: MediaType,
+    mime_type: &MediaType,
 ) -> Option<MediaType<'static>> {
     if matches!(mime_type, MediaType::Video("mov" | "MOV" | "quicktime")) {
         let output_type = VideoType::Mp4;
@@ -29,7 +29,7 @@ pub(crate) fn video_copy_convert(
         let mut converted_path = to.clone();
         converted_path.set_extension(output_type.to_str());
 
-        if convert_mov(from, &converted_path, converter, hardware_encoder).is_some() {
+        if convert_mov(from, &converted_path, converter, hardware_encoder.as_ref()).is_some() {
             *to = converted_path;
             return Some(MediaType::Video(output_type.to_str()));
         }
@@ -75,7 +75,7 @@ fn convert_mov(
     from: &Path,
     to: &Path,
     converter: &VideoConverter,
-    hardware_encoder: &Option<HardwareEncoder>,
+    hardware_encoder: Option<&HardwareEncoder>,
 ) -> Option<()> {
     let (from_path, to_path) = ensure_paths(from, to)?;
 
@@ -86,7 +86,7 @@ fn convert_mov(
     }
 
     // Remux failed; fallback to re-encoding
-    let encode_args = build_encode_args(from_path, to_path, hardware_encoder.as_ref());
+    let encode_args = build_encode_args(from_path, to_path, hardware_encoder);
     run_command(converter.name(), encode_args)
 }
 

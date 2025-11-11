@@ -48,7 +48,7 @@ pub(super) fn ensure_paths<'a>(from: &'a Path, to: &'a Path) -> Option<(&'a str,
         && !folder.exists()
         && let Err(why) = create_dir_all(folder)
     {
-        eprintln!("Unable to create {folder:?}: {why}");
+        eprintln!("Unable to create {}: {why}", folder.display());
         return None;
     }
     Some((from_path, to_path))
@@ -59,7 +59,7 @@ pub(crate) fn copy_raw(from: &Path, to: &Path) {
     if from.is_dir() {
         // Ensure the directory tree exists
         if let Err(why) = create_dir_all(to) {
-            eprintln!("Unable to create directory {to:?}: {why}");
+            eprintln!("Unable to create directory {}: {why}", to.display());
             return;
         }
 
@@ -74,13 +74,13 @@ pub(crate) fn copy_raw(from: &Path, to: &Path) {
                             copy_raw(&from_path, &to_path);
                         }
                         Err(why) => {
-                            eprintln!("Failed to read item in {from:?}: {why}");
+                            eprintln!("Failed to read item in {}: {why}", from.display());
                         }
                     }
                 }
             }
             Err(why) => {
-                eprintln!("Failed to read directory {from:?}: {why}");
+                eprintln!("Failed to read directory {}: {why}", from.display());
             }
         }
     } else {
@@ -89,12 +89,16 @@ pub(crate) fn copy_raw(from: &Path, to: &Path) {
             && !folder.exists()
             && let Err(why) = create_dir_all(folder)
         {
-            eprintln!("Unable to create {folder:?}: {why}");
+            eprintln!("Unable to create {}: {why}", folder.display());
             return;
         }
 
         if let Err(why) = copy(from, to) {
-            eprintln!("Unable to copy {from:?} to {to:?}: {why}");
+            eprintln!(
+                "Unable to copy {} to {}: {why}",
+                from.display(),
+                to.display()
+            );
         }
     }
 }
@@ -113,7 +117,7 @@ pub(crate) fn update_file_metadata(from: &Path, to: &Path, message: &Message, co
         let atime = FileTime::from_last_access_time(&metadata);
 
         if let Err(why) = set_file_times(to, atime, mtime) {
-            eprintln!("Unable to update {to:?} metadata: {why}");
+            eprintln!("Unable to update {} metadata: {why}", to.display());
         }
     }
 }

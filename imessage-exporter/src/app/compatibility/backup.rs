@@ -8,7 +8,7 @@ use std::{
 use crabapple::{Authentication, Backup};
 use imessage_database::{tables::table::DEFAULT_PATH_IOS, util::platform::Platform};
 
-use crate::app::{error::RuntimeError, options::Options};
+use crate::app::{contacts, error::RuntimeError, options::Options};
 
 const MAX_IN_MEMORY_DECRYPT: u64 = 25 * 1024 * 1024;
 
@@ -19,16 +19,19 @@ pub fn decrypt_backup(options: &Options) -> Result<Option<Backup>, RuntimeError>
     };
 
     eprintln!("Decrypting iOS backup...");
-    eprintln!("  [1/3] Deriving backup keys...");
+    eprintln!("  [1/5] Deriving backup keys...");
     let auth = Authentication::Password(pw.clone());
     let backup = Backup::open(options.db_path.clone(), &auth)?;
 
     Ok(Some(backup))
 }
 
+/// Get the decrypted messages database from the iOS backup
+///
+/// The real name is `Library/SMS/sms.db`
 pub fn get_decrypted_message_database(backup: &Backup) -> Result<PathBuf, RuntimeError> {
     let (_, file_id) = DEFAULT_PATH_IOS.split_at(3);
-    eprintln!("  [2/3] Resolving messages database...");
+    eprintln!("  [2/5] Resolving messages database...");
     let file = backup.get_file(file_id)?;
     let mut decrypted_chat_db = backup.decrypt_entry_stream(&file)?;
 
@@ -37,14 +40,28 @@ pub fn get_decrypted_message_database(backup: &Backup) -> Result<PathBuf, Runtim
     let mut file = File::create(&tmp_path)?;
 
     // Stream-decrypt directly into the temp file
-    eprintln!("  [3/3] Decrypting messages database...");
+    eprintln!("  [3/5] Decrypting messages database...");
     copy(&mut decrypted_chat_db, &mut file)?;
+    Ok(tmp_path)
+}
 
-    eprintln!(
-        "Decrypted iOS backup: {} (version {})\n",
-        backup.lockdown().device_name,
-        backup.lockdown().product_version,
-    );
+/// Get the decrypted contacts database from the iOS backup
+///
+/// The real name is `Library/AddressBook/AddressBook.sqlitedb`
+pub fn get_decrypted_contacts_database(backup: &Backup) -> Result<PathBuf, RuntimeError> {
+    let (_, file_id) = contacts::DEFAULT_PATH_IOS.split_at(3);
+    eprintln!("  [4/5] Resolving contacts database...");
+    let file = backup.get_file(file_id)?;
+    let mut decrypted_contacts_db = backup.decrypt_entry_stream(&file)?;
+
+    // Write decrypted contacts.db into a platform-specific temporary directory
+    let tmp_path = temp_dir().join("crabapple-contacts.db");
+    let mut file = File::create(&tmp_path)?;
+
+    // Stream-decrypt directly into the temp file
+    eprintln!("  [5/5] Decrypting contacts database...");
+    copy(&mut decrypted_contacts_db, &mut file)?;
+
     Ok(tmp_path)
 }
 

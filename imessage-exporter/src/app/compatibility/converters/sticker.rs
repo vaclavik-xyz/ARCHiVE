@@ -23,7 +23,7 @@ pub(crate) fn sticker_copy_convert(
     from: &Path,
     to: &mut PathBuf,
     image_converter: &ImageConverter,
-    video_converter: &Option<VideoConverter>,
+    video_converter: Option<&VideoConverter>,
     mime_type: &MediaType,
 ) -> Option<MediaType<'static>> {
     // Determine the output type of the sticker
@@ -48,7 +48,7 @@ pub(crate) fn sticker_copy_convert(
                 *to = converted_path;
                 return Some(MediaType::Image(output_type.to_str()));
             }
-            eprintln!("Unable to convert {from:?}");
+            eprintln!("Unable to convert {}", from.display());
         }
 
         // Standard `HEIC` converter fallback
@@ -56,7 +56,7 @@ pub(crate) fn sticker_copy_convert(
             *to = converted_path;
             return Some(MediaType::Image(output_type.to_str()));
         }
-        eprintln!("Unable to convert {from:?}");
+        eprintln!("Unable to convert {}", from.display());
     }
 
     // Fallback
@@ -120,7 +120,7 @@ fn convert_heics(from: &Path, to: &Path, video_converter: &VideoConverter) -> Op
     if !tmp_path.exists()
         && let Err(why) = create_dir_all(&tmp_path)
     {
-        eprintln!("Unable to create {tmp_path:?}: {why}");
+        eprintln!("Unable to create {}: {why}", tmp_path.display());
         return None;
     }
     let tmp = tmp_path.to_str()?;

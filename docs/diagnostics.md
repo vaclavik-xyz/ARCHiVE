@@ -6,7 +6,9 @@ Diagnostic output from `imessage-exporter` looks like:
 iMessage Database Diagnostics
 
 Handle diagnostic data:
-    Contacts with more than one ID: 2
+    Total handles: 552
+    Handles with more than one ID: 2
+    Total duplicated handles: 100
 Message diagnostic data:
     Total messages: 183453
     Messages not associated with a chat: 43210
@@ -19,11 +21,12 @@ Attachment diagnostic data:
         No path provided: 14929
         No file located: 108
 Thread diagnostic data:
+    Total chats: 432
+    Total duplicated chats: 11
     Chats with no handles: 2
 Global diagnostic data:
     Total database size: 339.88 MB
-    Duplicated contacts: 78
-    Duplicated chats: 16
+    Handles with resolved names: 231/452 (51%)
 
 Environment Diagnostics
 
@@ -35,9 +38,17 @@ Detected converters:
 
 ## Handle diagnostic data
 
-### Contacts with more than one ID
+### Total handles
 
-The number of contacts that have multiple entries in the `handle` table, deduplicated by matching their `person_centric_id` across rows. The `person_centric_id` is a field used by Apple to disambiguate contacts. Further deduplication also happens, as noted below.
+The total number of handles present in the provided iMessage database.
+
+### Handles with more than one ID
+
+The number of contacts that have multiple entries in the `handle` table, deduplicated by matching their `person_centric_id` across rows. The `person_centric_id` is a field used by Apple to disambiguate contacts. Further deduplication also happens, as noted in the next line.
+
+### Total duplicated handles
+
+In addition to the foregoing `person_centric_id`, other deduplication steps map identical handles across services, number formats, and email formats to the same handle ID. The value reflects the number of handles that had multiple entries in the iMessage database coalesed into a single handle.
 
 ## Message diagnostic data
 
@@ -83,6 +94,16 @@ This means there was a path provided, but there was no file at the specified loc
 
 ## Thread diagnostic data
 
+### Total chats
+
+The total number of chats present in the table.
+
+### Total duplicated chats
+
+The number of split group chats that have been coalesced together.
+
+### Chats with no handles
+
 Emits the count of chats that contain no chat participants.
 
 ## Global diagnostic data
@@ -90,6 +111,10 @@ Emits the count of chats that contain no chat participants.
 ### Total database size
 
 The total size of the database file on the disk.
+
+### Handles with resolved names
+
+The number of handles in the database that were successfully matched to contact names from the contacts index, out of the total number of handles found. This is followed by the match ratio as a percentage.
 
 ### Duplicated contacts
 

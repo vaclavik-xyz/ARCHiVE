@@ -91,12 +91,16 @@ impl<'a> Exporter<'a> for TXT<'a> {
 
         // Set up progress bar
         let mut current_message = 0;
-        let total_messages =
-            Message::get_count(self.config.db(), &self.config.options.query_context)?;
+        let total_messages = Message::get_count(
+            self.config.data_source.db(),
+            &self.config.options.query_context,
+        )?;
         self.pb.start(total_messages);
 
-        let mut statement =
-            Message::stream_rows(self.config.db(), &self.config.options.query_context)?;
+        let mut statement = Message::stream_rows(
+            self.config.data_source.db(),
+            &self.config.options.query_context,
+        )?;
 
         let messages = statement
             .query_map([], |row| Ok(Message::from_row(row)))
@@ -114,7 +118,7 @@ impl<'a> Exporter<'a> for TXT<'a> {
             current_message_row = msg.rowid;
 
             // Generate the text of the message
-            let _ = msg.generate_text(self.config.db());
+            let _ = msg.generate_text(self.config.data_source.db());
 
             // Render the announcement in-line
             if msg.is_announcement() {
@@ -169,7 +173,7 @@ impl<'a> Exporter<'a> for TXT<'a> {
 // MARK: Writer
 impl<'a> MessageFormatter<'a> for TXT<'a> {
     fn format_message(&self, message: &Message, indent_size: usize) -> Result<String, TableError> {
-        let indent = String::from_iter((0..indent_size).map(|_| " "));
+        let indent = (0..indent_size).map(|_| " ").collect::<String>();
         // Data we want to write to a file
         let mut formatted_message = String::with_capacity(1024);
 
@@ -198,8 +202,8 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
 
         // Useful message metadata
         let message_parts = &message.components;
-        let mut attachments = Attachment::from_message(self.config.db(), message)?;
-        let mut replies = message.get_replies(self.config.db())?;
+        let mut attachments = Attachment::from_message(self.config.data_source.db(), message)?;
+        let mut replies = message.get_replies(self.config.data_source.db())?;
 
         // Index of where we are in the attachment Vector
         let mut attachment_index: usize = 0;
@@ -246,7 +250,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
 
                             if self.config.translated_messages.contains(&message.guid)
                                 && let Ok(Some(translation)) =
-                                    message.get_translation(self.config.db())
+                                    message.get_translation(self.config.data_source.db())
                             {
                                 self.add_line(
                                     &mut formatted_message,
@@ -350,7 +354,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 replies
                     .iter_mut()
                     .try_for_each(|reply| -> Result<(), TableError> {
-                        let _ = reply.generate_text(self.config.db());
+                        let _ = reply.generate_text(self.config.data_source.db());
                         if !reply.is_tapback() {
                             self.add_line(
                                 &mut formatted_message,
@@ -432,7 +436,9 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 let mut out_s = format!("Sticker from {who}: {path_to_sticker}");
 
                 // Determine the source of the sticker
-                if let Some(sticker_source) = sticker.get_sticker_source(self.config.db()) {
+                if let Some(sticker_source) =
+                    sticker.get_sticker_source(self.config.data_source.db())
+                {
                     match sticker_source {
                         StickerSource::Genmoji => {
                             // Add sticker prompt
@@ -454,7 +460,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                         StickerSource::App(bundle_id) => {
                             // Add the application name used to generate/send the sticker
                             let app_name = sticker
-                                .get_sticker_source_application_name(self.config.db())
+                                .get_sticker_source_application_name(self.config.data_source.db())
                                 .unwrap_or(bundle_id);
                             let _ = write!(out_s, " (App: {app_name})");
                         }
@@ -478,7 +484,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
 
             // Handwritten messages use a different payload type
             if message.is_handwriting()
-                && let Some(payload) = message.raw_payload_data(self.config.db())
+                && let Some(payload) = message.raw_payload_data(self.config.data_source.db())
             {
                 return match HandwrittenMessage::from_payload(&payload) {
                     Ok(bubble) => Ok(self.format_handwriting(message, &bubble, indent)),
@@ -490,7 +496,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
 
             // Digital touch messages use a different payload type
             if message.is_digital_touch()
-                && let Some(payload) = message.raw_payload_data(self.config.db())
+                && let Some(payload) = message.raw_payload_data(self.config.data_source.db())
             {
                 return match digital_touch::from_payload(&payload) {
                     Some(bubble) => Ok(self.format_digital_touch(message, &bubble, indent)),
@@ -502,7 +508,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
 
             // Poll messages use a different payload type
             if message.is_poll() {
-                let poll = message.as_poll(self.config.db())?;
+                let poll = message.as_poll(self.config.data_source.db())?;
                 return match poll {
                     Some(poll) => Ok(self.format_poll(&poll, indent)),
                     None => Err(MessageError::PlistParseError(
@@ -511,7 +517,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 };
             }
 
-            if let Some(payload) = message.payload_data(self.config.db()) {
+            if let Some(payload) = message.payload_data(self.config.data_source.db()) {
                 // Handle URL messages separately since they are a special case
                 let parsed = parse_ns_keyed_archiver(&payload)?;
                 let res = if message.is_url() {
@@ -579,7 +585,8 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
 
                 match tapback {
                     Tapback::Sticker => {
-                        let mut paths = Attachment::from_message(self.config.db(), msg)?;
+                        let mut paths =
+                            Attachment::from_message(self.config.data_source.db(), msg)?;
                         let who = self.config.who(
                             msg.handle_id,
                             msg.is_from_me(),
@@ -1188,7 +1195,10 @@ mod tests {
 
     use crate::{
         Config, Exporter, Options, TXT,
-        app::{compatibility::attachment_manager::AttachmentManagerMode, export_type::ExportType},
+        app::{
+            compatibility::attachment_manager::AttachmentManagerMode, contacts::Name,
+            export_type::ExportType,
+        },
         exporters::exporter::MessageFormatter,
     };
     use imessage_database::{
@@ -1289,7 +1299,9 @@ mod tests {
         message.text = Some("Hello world".to_string());
         message.is_from_me = true;
         message.chat_id = Some(0);
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nHello world\n\n";
@@ -1310,7 +1322,9 @@ mod tests {
         message.date = 674526582885055488;
         message.is_from_me = true;
         message.deleted_from = Some(0);
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nThis message was deleted from the conversation!\nHello world\n\n";
@@ -1332,7 +1346,9 @@ mod tests {
         // May 17, 2022  9:30:31 PM
         message.date_delivered = 674530231992568192;
         message.is_from_me = true;
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected =
@@ -1348,7 +1364,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = TXT::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -1356,7 +1373,9 @@ mod tests {
         message.date = 674526582885055488;
         message.text = Some("Hello world".to_string());
         message.handle_id = Some(999999);
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nSample Contact\nHello world\n\n";
@@ -1371,7 +1390,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = TXT::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -1383,7 +1403,9 @@ mod tests {
         message.date_delivered = 674526582885055488;
         // May 17, 2022  9:30:31 PM
         message.date_read = 674530231992568192;
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "May 17, 2022  5:29:42 PM (Read by you after 1 hour, 49 seconds)\nSample Contact\nHello world\n\n";
@@ -1399,7 +1421,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = TXT::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -1411,7 +1434,9 @@ mod tests {
         message.date_delivered = 674526582885055488;
         // May 17, 2022  9:30:31 PM
         message.date_read = 674530231992568192;
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "May 17, 2022  5:29:42 PM (Read by Name after 1 hour, 49 seconds)\nSample Contact\nHello world\n\n";
@@ -1424,7 +1449,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1444,7 +1470,7 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1467,7 +1493,8 @@ mod tests {
         let mut options = Options::fake_options(ExportType::Txt);
         options.custom_name = Some("Name".to_string());
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1488,8 +1515,10 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
-        config.participants.insert(1, "Other".to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.participants.insert(1, Name::fake_name("Other"));
+        config.real_participants.insert(0, 0);
+        config.real_participants.insert(1, 1);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1513,8 +1542,10 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
-        config.participants.insert(1, "Other".to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.participants.insert(1, Name::fake_name("Other"));
+        config.real_participants.insert(0, 0);
+        config.real_participants.insert(1, 1);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1538,7 +1569,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1560,7 +1592,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1583,7 +1616,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1606,7 +1640,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1629,7 +1664,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1652,7 +1688,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1673,7 +1710,8 @@ mod tests {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -1696,7 +1734,9 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
+
         let exporter = TXT::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -1719,7 +1759,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = TXT::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -1743,7 +1784,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = TXT::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -1767,7 +1809,9 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
+
         let exporter = TXT::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -1792,7 +1836,8 @@ mod tests {
         let mut config = Config::fake_app(options);
         config
             .participants
-            .insert(999999, "Sample Contact".to_string());
+            .insert(999999, Name::fake_name("Sample Contact"));
+        config.real_participants.insert(999999, 999999);
         let exporter = TXT::new(&config).unwrap();
 
         let mut message = Config::fake_message();
@@ -2020,7 +2065,8 @@ mod tests {
         options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
 
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -2060,7 +2106,8 @@ mod tests {
         options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
 
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -2101,7 +2148,8 @@ mod tests {
         options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
 
         let mut config = Config::fake_app(options);
-        config.participants.insert(0, ME.to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
 
         let exporter = TXT::new(&config).unwrap();
 
@@ -2187,7 +2235,7 @@ mod tests {
                     ]
                 ),
             ]),];
-        let _ = message.generate_text(config.db());
+        let _ = message.generate_text(config.data_source.db());
 
         let actual = exporter.format_message(&message, 0).unwrap();
 
@@ -2213,7 +2261,9 @@ mod tests {
         let mut message = Config::fake_message();
         message.guid = "56FE94B9-2345-4A3C-A57F-949BDDDDF9FF".to_string();
         message.rowid = 548216;
-        message.generate_text_legacy(config.db()).unwrap();
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
         let expected = "Dec 31, 2000  4:00:00 PM\nUnknown\nOh, il a traduit ce que j'ai envoyé !\nTranslated from:\nOh it translated what I sent!\n\n";

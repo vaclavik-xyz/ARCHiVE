@@ -3,7 +3,7 @@
 */
 
 use rusqlite::{CachedStatement, Connection, Error, Result, Row};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::{
     error::table::TableError,
@@ -175,15 +175,30 @@ impl Diagnostic for Handle {
         if let Ok(mut rows) = db.prepare(query) {
             processing();
 
-            let count_dupes: Option<i32> = rows.query_row([], |r| r.get(0))?;
+            // Get number of handles with identical person_centric_ids
+            let handles_with_identical_ids: i32 = rows.query_row([], |r| r.get(0)).unwrap_or(0);
+
+            // Cache all handles
+            let all_handles = Self::cache(db)?;
+
+            // Deduplicate handles
+            let unique_handles = Self::dedupe(&all_handles);
+
+            // Calculate total duplicated handles
+            let total_dupes =
+                all_handles.len() - HashSet::<&i32>::from_iter(unique_handles.values()).len();
 
             done_processing();
 
-            if let Some(dupes) = count_dupes
-                && dupes > 0
-            {
-                println!("Handle diagnostic data:");
-                println!("    Contacts with more than one ID: {dupes}");
+            println!("Handle diagnostic data:");
+            println!("    Total handles: {}", all_handles.len());
+            if handles_with_identical_ids > 0 || total_dupes > 0 {
+                if handles_with_identical_ids > 0 {
+                    println!("    Handles with more than one ID: {handles_with_identical_ids}");
+                }
+                if total_dupes > 0 {
+                    println!("    Total duplicated handles: {total_dupes}");
+                }
             }
         }
 
