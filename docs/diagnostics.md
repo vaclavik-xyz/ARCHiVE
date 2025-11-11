@@ -116,14 +116,6 @@ The total size of the database file on the disk.
 
 The number of handles in the database that were successfully matched to contact names from the contacts index, out of the total number of handles found. This is followed by the match ratio as a percentage.
 
-### Duplicated contacts
-
-Duplicated contacts occur when a single contact has multiple valid phone numbers or iMessage email addresses. The iMessage database stores handles as rows, and multiple rows can match to the same contact.
-
-### Duplicated chats
-
-The number of separate chats that contain the same participants. See the [duplicates](/docs/tables/duplicates.md) for a detailed explanation of the logic used to determine this number.
-
 ## Detected converters
 
 `imessage-exporter` uses third-party tools to convert images when using `--copy-method basic` or `--copy-method full`. This section shows what programs are detected on the current system.
