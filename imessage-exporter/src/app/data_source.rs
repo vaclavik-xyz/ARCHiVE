@@ -154,18 +154,6 @@ impl Drop for DataSource {
 }
 
 #[cfg(test)]
-impl DataSource {
-    /// Create a fake `DataSource` for testing
-    pub fn fake_data_source(conn: Connection) -> Self {
-        Self {
-            messages_connection: Some(conn),
-            contacts_index: ContactsIndex::default(),
-            backup: None,
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 

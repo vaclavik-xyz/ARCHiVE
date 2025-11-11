@@ -532,9 +532,8 @@ impl Config {
 #[cfg(test)]
 impl Config {
     pub fn fake_app(options: Options) -> Config {
-        use imessage_database::tables::table::get_connection;
+        let data_source = DataSource::from(&options).unwrap();
 
-        let connection = get_connection(&options.db_path).unwrap();
         Config {
             chatrooms: HashMap::new(),
             real_chatrooms: HashMap::new(),
@@ -545,7 +544,7 @@ impl Config {
             translated_messages: HashSet::new(),
             options,
             offset: get_offset(),
-            data_source: DataSource::fake_data_source(connection),
+            data_source,
         }
     }
 
