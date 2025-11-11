@@ -1069,7 +1069,7 @@ impl Message {
     pub fn get_votes(&self, db: &Connection) -> Result<Vec<Self>, TableError> {
         let mut out_v: Vec<Self> = Vec::new();
 
-        // No need to hit the DB if we know we don't have replies
+        // No need to hit the DB if we know we don't have a poll
         if self.is_poll() {
             // Use a parameterized filter so the prepared statement can be cached/reused
             let filters = "WHERE m.associated_message_guid = ?1";
