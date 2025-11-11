@@ -380,14 +380,13 @@ fn find_macos_addressbook_db_paths() -> Vec<PathBuf> {
 
 /// Resolve the standard macOS Contacts Sources directory: `~/Library/Application Support/AddressBook/Sources`
 fn macos_sources_dir() -> PathBuf {
-    let home = home();
-    let p: PathBuf = Path::new(&home)
+    PathBuf::from(&home())
         .join("Library")
         .join("Application Support")
         .join("AddressBook")
-        .join("Sources");
-    p
+        .join("Sources")
 }
+
 // MARK: Tests
 #[cfg(test)]
 mod tests {
