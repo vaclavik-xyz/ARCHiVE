@@ -279,15 +279,13 @@ impl Config {
             let mut included_handles: BTreeSet<i32> = BTreeSet::new();
 
             // First: Scan the list of participants for included handle IDs
-            self.participants
-                .iter()
-                .for_each(|(handle_id, handle_name)| {
-                    for included_name in &parsed_handle_filter {
-                        if handle_name.contains(included_name) {
-                            included_handles.insert(*handle_id);
-                        }
+            self.participants.iter().for_each(|(_, handle_name)| {
+                for included_name in &parsed_handle_filter {
+                    if handle_name.contains(included_name) {
+                        included_handles.extend(&handle_name.handle_ids);
                     }
-                });
+                }
+            });
 
             // Second: scan the list of chatrooms for IDs that contain the selected participants
             self.chatroom_participants
@@ -1111,6 +1109,11 @@ mod chat_filter_tests {
         app.participants.insert(12, Name::fake_name("Person 12")); // Included
         app.participants.insert(13, Name::fake_name("Person 13")); // Excluded
 
+        // Set the chatroom participant IDs
+        for (id, participant) in app.participants.iter_mut() {
+            participant.handle_ids.insert(*id);
+        }
+
         // Chatroom 1: Included
         let mut chatroom_1 = BTreeSet::new();
         chatroom_1.insert(10);
@@ -1168,6 +1171,11 @@ mod chat_filter_tests {
         app.participants.insert(11, Name::fake_name("Person 11")); // Excluded
         app.participants.insert(12, Name::fake_name("Person 12")); // Excluded
         app.participants.insert(13, Name::fake_name("Person 13")); // Included
+
+        // Set the chatroom participant IDs
+        for (id, participant) in app.participants.iter_mut() {
+            participant.handle_ids.insert(*id);
+        }
 
         // Chatroom 1: Excluded
         let mut chatroom_1 = BTreeSet::new();
