@@ -623,10 +623,10 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             MediaType::Audio(media_type) => {
                 if let Some(transcription) = &metadata.transcription {
                     return Ok(format!(
-                        "<div><audio controls src=\"{embed_path}\" type=\"{media_type}\" </audio></div> <hr><span class=\"transcription\">Transcription: {transcription}</span>"
+                        "<div><audio controls src=\"{embed_path}\" type=\"{media_type}\"> </audio></div> <hr><span class=\"transcription\">Transcription: {transcription}</span>"
                     ));
                 }
-                format!("<audio controls src=\"{embed_path}\" type=\"{media_type}\" </audio>")
+                format!("<audio controls src=\"{embed_path}\" type=\"{media_type}\"> </audio>")
             }
             MediaType::Text(_) => {
                 format!(
@@ -1214,7 +1214,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         if let Some(preview) = balloon.preview {
             out_s.push_str("<audio controls src=\"");
             out_s.push_str(preview);
-            out_s.push_str("\" </audio>");
+            out_s.push_str("\"> </audio>");
         }
 
         // Add lyrics, if any
@@ -3005,7 +3005,7 @@ mod tests {
 
         assert_eq!(
             actual,
-            "<div><audio controls src=\"Audio Message.caf\" type=\"x-caf; codecs=opus\" </audio></div> <hr><span class=\"transcription\">Transcription: Test</span>"
+            "<div><audio controls src=\"Audio Message.caf\" type=\"x-caf; codecs=opus\"> </audio></div> <hr><span class=\"transcription\">Transcription: Test</span>"
         );
     }
 
@@ -3159,7 +3159,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_music(&balloon, &Config::fake_message());
-        let actual = "<div class=\"app_header\"><div class=\"name\">track_name</div><audio controls src=\"preview\" </audio></div><a href=\"url\"><div class=\"app_footer\"><div class=\"caption\">artist</div><div class=\"subcaption\">album</div></div></a>";
+        let actual = "<div class=\"app_header\"><div class=\"name\">track_name</div><audio controls src=\"preview\"> </audio></div><a href=\"url\"><div class=\"app_footer\"><div class=\"caption\">artist</div><div class=\"subcaption\">album</div></div></a>";
 
         assert_eq!(expected, actual);
     }
