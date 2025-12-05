@@ -224,7 +224,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             // Add an ID for any top-level message so we can link to them in threads
             self.add_line(
                 &mut formatted_message,
-                &format!("<div class=\"message\", id=\"r-{}\">", message.guid),
+                &format!("<div class=\"message\" id=\"r-{}\">", message.guid),
                 "",
                 "",
             );
@@ -623,10 +623,10 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             MediaType::Audio(media_type) => {
                 if let Some(transcription) = &metadata.transcription {
                     return Ok(format!(
-                        "<div><audio controls src=\"{embed_path}\" type=\"{media_type}\" </audio></div> <hr><span class=\"transcription\">Transcription: {transcription}</span>"
+                        "<div><audio controls src=\"{embed_path}\" type=\"{media_type}\"> </audio></div> <hr><span class=\"transcription\">Transcription: {transcription}</span>"
                     ));
                 }
-                format!("<audio controls src=\"{embed_path}\" type=\"{media_type}\" </audio>")
+                format!("<audio controls src=\"{embed_path}\" type=\"{media_type}\"> </audio>")
             }
             MediaType::Text(_) => {
                 format!(
@@ -1146,7 +1146,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
             if self.config.options.no_lazy {
                 out_s.push_str("\" onerror=\"this.style.display='none'\">");
             } else {
-                out_s.push_str("\" loading=\"lazy\", onerror=\"this.style.display='none'\">");
+                out_s.push_str("\" loading=\"lazy\" onerror=\"this.style.display='none'\">");
             }
         });
 
@@ -1214,7 +1214,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         if let Some(preview) = balloon.preview {
             out_s.push_str("<audio controls src=\"");
             out_s.push_str(preview);
-            out_s.push_str("\" </audio>");
+            out_s.push_str("\"> </audio>");
         }
 
         // Add lyrics, if any
@@ -3005,7 +3005,7 @@ mod tests {
 
         assert_eq!(
             actual,
-            "<div><audio controls src=\"Audio Message.caf\" type=\"x-caf; codecs=opus\" </audio></div> <hr><span class=\"transcription\">Transcription: Test</span>"
+            "<div><audio controls src=\"Audio Message.caf\" type=\"x-caf; codecs=opus\"> </audio></div> <hr><span class=\"transcription\">Transcription: Test</span>"
         );
     }
 
@@ -3040,7 +3040,7 @@ mod tests {
 
         assert_eq!(
             actual,
-            "<div class=\"message\">\n<div class=\"received\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=FAKEGUID-D0C8-4212-AA87-DD8AE4FD1203\">May 17, 2022  5:29:42 PM</a> </span>\n<span class=\"sender\">Unknown</span></p>\n<hr><div class=\"message_part\">\n<div class=\"app\"><a href=\"https://www.ghacks.net/2020/01/23/lastpass-no-longer-listed-on-the-chrome-web-store/\"><div class=\"app_header\"><img src=\"https://www.ghacks.net/wp-content/uploads/2020/01/lastpass-chrome-extension.png\" loading=\"lazy\", onerror=\"this.style.display='none'\"><div class=\"name\">gHacks Technology News</div></div><div class=\"app_footer\"><div class=\"caption\">LastPass no longer listed on the Chrome Web Store - gHacks Tech News</div><div class=\"subcaption\">LastPass customers and new users searching for password managers on Google&apos;s Chrome Web Store may have noticed that the LastPass extension for Google Chrome is currently no longer listed on the store.</div></div></a></div>\n</div>\n</div>\n</div>\n"
+            "<div class=\"message\">\n<div class=\"received\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=FAKEGUID-D0C8-4212-AA87-DD8AE4FD1203\">May 17, 2022  5:29:42 PM</a> </span>\n<span class=\"sender\">Unknown</span></p>\n<hr><div class=\"message_part\">\n<div class=\"app\"><a href=\"https://www.ghacks.net/2020/01/23/lastpass-no-longer-listed-on-the-chrome-web-store/\"><div class=\"app_header\"><img src=\"https://www.ghacks.net/wp-content/uploads/2020/01/lastpass-chrome-extension.png\" loading=\"lazy\" onerror=\"this.style.display='none'\"><div class=\"name\">gHacks Technology News</div></div><div class=\"app_footer\"><div class=\"caption\">LastPass no longer listed on the Chrome Web Store - gHacks Tech News</div><div class=\"subcaption\">LastPass customers and new users searching for password managers on Google&apos;s Chrome Web Store may have noticed that the LastPass extension for Google Chrome is currently no longer listed on the store.</div></div></a></div>\n</div>\n</div>\n</div>\n"
         );
     }
 
@@ -3110,7 +3110,7 @@ mod balloon_format_tests {
 
         let expected =
             exporter.format_url(&Config::fake_message(), &balloon, &Config::fake_message());
-        let actual = "<a href=\"url\"><div class=\"app_header\"><img src=\"images\" loading=\"lazy\", onerror=\"this.style.display='none'\"><div class=\"name\">site_name</div></div><div class=\"app_footer\"><div class=\"caption\">title</div><div class=\"subcaption\">summary</div></div></a>";
+        let actual = "<a href=\"url\"><div class=\"app_header\"><img src=\"images\" loading=\"lazy\" onerror=\"this.style.display='none'\"><div class=\"name\">site_name</div></div><div class=\"app_footer\"><div class=\"caption\">title</div><div class=\"subcaption\">summary</div></div></a>";
 
         assert_eq!(expected, actual);
     }
@@ -3159,7 +3159,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_music(&balloon, &Config::fake_message());
-        let actual = "<div class=\"app_header\"><div class=\"name\">track_name</div><audio controls src=\"preview\" </audio></div><a href=\"url\"><div class=\"app_footer\"><div class=\"caption\">artist</div><div class=\"subcaption\">album</div></div></a>";
+        let actual = "<div class=\"app_header\"><div class=\"name\">track_name</div><audio controls src=\"preview\"> </audio></div><a href=\"url\"><div class=\"app_footer\"><div class=\"caption\">artist</div><div class=\"subcaption\">album</div></div></a>";
 
         assert_eq!(expected, actual);
     }
