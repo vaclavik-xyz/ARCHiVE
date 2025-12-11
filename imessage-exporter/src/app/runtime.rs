@@ -249,7 +249,8 @@ impl Config {
         let tapbacks = Message::cache(data_source.db())?;
 
         eprintln!("  [5/5] Caching translations...");
-        let translated_messages = Message::cache_translations(data_source.db())?;
+        // Translations are not available in older database versions, so we default to an empty set
+        let translated_messages = Message::cache_translations(data_source.db()).unwrap_or_default();
         eprintln!("Cache built!");
 
         Ok(Config {
