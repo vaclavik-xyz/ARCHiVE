@@ -228,11 +228,10 @@ impl ContactsIndex {
         for id_part in id.split_whitespace() {
             if looks_like_email(id_part) {
                 return normalize_email(id_part).and_then(|k| self.index.get(&k).cloned());
-            } else {
-                for k in phone_keys(id_part) {
-                    if let Some(n) = self.index.get(&k) {
-                        return Some(n.clone());
-                    }
+            }
+            for k in phone_keys(id_part) {
+                if let Some(n) = self.index.get(&k) {
+                    return Some(n.clone());
                 }
             }
         }
