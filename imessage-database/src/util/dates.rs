@@ -50,7 +50,15 @@ pub fn get_offset() -> i64 {
 /// let local = get_local_time(&674526582885055488, &current_offset).unwrap();
 /// ```
 pub fn get_local_time(date_stamp: &i64, offset: &i64) -> Result<DateTime<Local>, MessageError> {
-    let utc_stamp = DateTime::from_timestamp((date_stamp / TIMESTAMP_FACTOR) + offset, 0)
+    // Newer databases store timestamps as nanoseconds since 2001-01-01,
+    // while older ones store plain seconds since 2001-01-01.
+    let seconds_since_2001 = if *date_stamp >= 1_000_000_000_000 {
+        date_stamp / TIMESTAMP_FACTOR
+    } else {
+        *date_stamp
+    };
+
+    let utc_stamp = DateTime::from_timestamp(seconds_since_2001 + offset, 0)
         .ok_or(MessageError::InvalidTimestamp(*date_stamp))?
         .naive_utc();
     Ok(Local.from_utc_datetime(&utc_stamp))
@@ -155,7 +163,7 @@ pub fn readable_diff(
 mod tests {
     use crate::{
         error::message::MessageError,
-        util::dates::{format, readable_diff},
+        util::dates::{TIMESTAMP_FACTOR, format, get_local_time, get_offset, readable_diff},
     };
     use chrono::prelude::*;
 
@@ -281,5 +289,74 @@ mod tests {
         let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
         let end = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
         assert_eq!(readable_diff(start, end), Some(String::new()));
+    }
+
+    #[test]
+    fn can_get_local_time_from_seconds_timestamp() {
+        let offset = get_offset();
+        let expected_utc = Utc
+            .with_ymd_and_hms(2020, 5, 20, 9, 10, 11)
+            .single()
+            .unwrap();
+
+        // Older databases store seconds since 2001-01-01 00:00:00
+        let stamp_secs = expected_utc.timestamp() - offset;
+
+        let local = get_local_time(&stamp_secs, &offset).unwrap();
+        let expected_local = expected_utc.with_timezone(&Local);
+
+        assert_eq!(local, expected_local);
+    }
+
+    #[test]
+    fn can_get_local_time_from_nanoseconds_timestamp() {
+        let offset = get_offset();
+        let expected_utc = Utc
+            .with_ymd_and_hms(2020, 5, 20, 9, 10, 11)
+            .single()
+            .unwrap();
+
+        // Newer databases store nanoseconds since 2001-01-01 00:00:00
+        let stamp_ns = (expected_utc.timestamp() - offset) * TIMESTAMP_FACTOR;
+
+        let local = get_local_time(&stamp_ns, &offset).unwrap();
+        let expected_local = expected_utc.with_timezone(&Local);
+
+        assert_eq!(local, expected_local);
+    }
+
+    #[test]
+    fn can_get_local_time_from_hardcoded_seconds_timestamp() {
+        let offset = get_offset();
+
+        // Legacy-style seconds timestamp
+        let stamp_secs: i64 = 347_670_404;
+
+        let expected_utc = Utc.timestamp_opt(stamp_secs + offset, 0).single().unwrap();
+
+        let local = get_local_time(&stamp_secs, &offset).unwrap();
+        let expected_local = expected_utc.with_timezone(&Local);
+
+        assert_eq!(local, expected_local);
+    }
+
+    #[test]
+    fn can_get_local_time_from_hardcoded_nanoseconds_timestamp() {
+        let offset = get_offset();
+
+        // Nanosecond-style timestamp
+        let stamp_ns: i64 = 549_948_395_013_559_360;
+
+        let seconds_since_2001 = stamp_ns / TIMESTAMP_FACTOR;
+
+        let expected_utc = Utc
+            .timestamp_opt(seconds_since_2001 + offset, 0)
+            .single()
+            .unwrap();
+
+        let local = get_local_time(&stamp_ns, &offset).unwrap();
+        let expected_local = expected_utc.with_timezone(&Local);
+
+        assert_eq!(local, expected_local);
     }
 }
