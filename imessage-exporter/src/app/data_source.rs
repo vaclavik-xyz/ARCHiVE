@@ -90,7 +90,7 @@ impl DataSource {
 
                     // Build contacts index
                     let contacts_index =
-                        Self::get_contacts_index(Some(Path::new(DEFAULT_PATH_IOS)))
+                        Self::get_contacts_index(Some(&options.db_path.join(DEFAULT_PATH_IOS)))
                             .unwrap_or_default();
 
                     Ok(Self {
