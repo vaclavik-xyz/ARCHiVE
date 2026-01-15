@@ -32,7 +32,7 @@ use crate::{
 };
 
 // MARK: Constants
-/// The default root directory for iMessage database files, which replace with the custom attachment root if provided
+/// The default root directory for iMessage database files, which is replaced with the custom attachment root if provided
 pub const DEFAULT_MESSAGES_ROOT: &str = "~/Library/Messages";
 /// The default root directory for iMessage attachment data
 pub const DEFAULT_ATTACHMENT_ROOT: &str = "~/Library/Messages/Attachments";
@@ -680,7 +680,7 @@ mod tests {
     fn can_get_resolved_path_macos_custom_sticker() {
         let db_path = PathBuf::from("fake_root");
         let mut attachment = sample_attachment();
-        // Sample path like `~/Library/Messages/Attachments/0a/10/.../image.jpeg`
+        // Sample path like `~/Library/Messages/StickerCache/0a/10/.../image.jpeg`
         attachment.filename = Some(format!("{DEFAULT_STICKER_CACHE_ROOT}/a/b/c.png"));
 
         assert_eq!(
