@@ -9,6 +9,7 @@ use imessage_database::{
 };
 use rusqlite::{Connection, Result};
 
+/// The default contacts file location from the root of an iOS backup
 pub const DEFAULT_PATH_IOS: &str = "31/31bb7ba8914766d4ba40d6dfb6113c8b614be442";
 
 // MARK: Name

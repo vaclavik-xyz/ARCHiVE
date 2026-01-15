@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use clap::{Arg, ArgAction, ArgMatches, Command, crate_version};
 
 use imessage_database::{
-    tables::{attachment::DEFAULT_ATTACHMENT_ROOT, table::DEFAULT_PATH_IOS},
+    tables::{attachment::DEFAULT_MESSAGES_ROOT, table::DEFAULT_PATH_IOS},
     util::{
         dirs::{default_db_path, home},
         platform::Platform,
@@ -372,7 +372,7 @@ fn get_command() -> Command {
             Arg::new(OPTION_ATTACHMENT_ROOT)
                 .short('r')
                 .long(OPTION_ATTACHMENT_ROOT)
-                .help(format!("Specify an optional custom path to look for attachments in (macOS only)\nOnly use this if attachments are stored separately from the database's default location\nThe default location is {}\n", DEFAULT_ATTACHMENT_ROOT.replacen('~', &home(), 1)))
+                .help(format!("Specify an optional custom path to look for attachment data in (macOS only)\nOnly use this if attachments are stored separately from the database's default location\nThs option affects both the `Attachments` and `StickerCache` directories\nThe default location is {}\n", DEFAULT_MESSAGES_ROOT.replacen('~', &home(), 1)))
                 .display_order(4)
                 .value_name("path/to/attachments"),
         )
