@@ -70,7 +70,7 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
         Specify an optional custom path to look for attachment data in (macOS only)
         Only use this if attachments are stored separately from the database's default location
         This option affects both the `Attachments` and `StickerCache` directories
-        The default location is /Users/chris/Library/Messages
+        The default location is ~Library/Messages
         
 -a, --platform <macOS, iOS>
         Specify the platform the database was created on
