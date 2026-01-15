@@ -31,10 +31,10 @@ impl ExportProgress {
     }
 
     /// Starts the progress bar with the specified total length
-    pub fn start(&self, length: u64) {
+    pub fn start(&self, length: i64) {
         self.bar.set_position(0);
         self.bar.enable_steady_tick(Duration::from_millis(100));
-        self.bar.set_length(length);
+        self.bar.set_length(length as u64);
         self.bar.set_draw_target(ProgressDrawTarget::stdout());
     }
 
