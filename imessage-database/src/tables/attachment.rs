@@ -358,7 +358,7 @@ impl Attachment {
                 && (path_str.starts_with(DEFAULT_STICKER_CACHE_ROOT)
                     || path_str.starts_with(DEFAULT_ATTACHMENT_ROOT))
             {
-                path_str = path_str.replace(DEFAULT_MESSAGES_ROOT, custom_attachment_path);
+                path_str = path_str.replacen(DEFAULT_MESSAGES_ROOT, custom_attachment_path, 1);
             }
 
             return match platform {
