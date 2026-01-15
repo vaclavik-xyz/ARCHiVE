@@ -32,8 +32,12 @@ use crate::{
 };
 
 // MARK: Constants
+/// The default root directory for iMessage database files, which is replaced with the custom attachment root if provided
+pub const DEFAULT_MESSAGES_ROOT: &str = "~/Library/Messages";
 /// The default root directory for iMessage attachment data
 pub const DEFAULT_ATTACHMENT_ROOT: &str = "~/Library/Messages/Attachments";
+/// The default root directory for iMessage sticker cache data
+pub const DEFAULT_STICKER_CACHE_ROOT: &str = "~/Library/Messages/StickerCache";
 const COLS: &str = "a.rowid, a.filename, a.uti, a.mime_type, a.transfer_name, a.total_bytes, a.is_sticker, a.hide_attachment, a.emoji_image_short_description";
 
 // MARK: MediaType
@@ -349,10 +353,14 @@ impl Attachment {
         custom_attachment_root: Option<&str>,
     ) -> Option<String> {
         if let Some(mut path_str) = self.filename.clone() {
-            // Apply custom attachment path
-            if let Some(custom_attachment_path) = custom_attachment_root {
-                path_str = path_str.replace(DEFAULT_ATTACHMENT_ROOT, custom_attachment_path);
+            // Apply custom attachment path, if provided
+            if let Some(custom_attachment_path) = custom_attachment_root
+                && (path_str.starts_with(DEFAULT_STICKER_CACHE_ROOT)
+                    || path_str.starts_with(DEFAULT_ATTACHMENT_ROOT))
+            {
+                path_str = path_str.replacen(DEFAULT_MESSAGES_ROOT, custom_attachment_path, 1);
             }
+
             return match platform {
                 Platform::macOS => Some(Attachment::gen_macos_attachment(&path_str)),
                 Platform::iOS => Attachment::gen_ios_attachment(&path_str, db_path),
@@ -534,7 +542,9 @@ impl Attachment {
 mod tests {
     use crate::{
         tables::{
-            attachment::{Attachment, DEFAULT_ATTACHMENT_ROOT, MediaType},
+            attachment::{
+                Attachment, DEFAULT_ATTACHMENT_ROOT, DEFAULT_STICKER_CACHE_ROOT, MediaType,
+            },
             table::get_connection,
         },
         util::{platform::Platform, query_context::QueryContext},
@@ -662,7 +672,20 @@ mod tests {
 
         assert_eq!(
             attachment.resolved_attachment_path(&Platform::macOS, &db_path, Some("custom/root")),
-            Some("custom/root/a/b/c.png".to_string())
+            Some("custom/root/Attachments/a/b/c.png".to_string())
+        );
+    }
+
+    #[test]
+    fn can_get_resolved_path_macos_custom_sticker() {
+        let db_path = PathBuf::from("fake_root");
+        let mut attachment = sample_attachment();
+        // Sample path like `~/Library/Messages/StickerCache/0a/10/.../image.jpeg`
+        attachment.filename = Some(format!("{DEFAULT_STICKER_CACHE_ROOT}/a/b/c.png"));
+
+        assert_eq!(
+            attachment.resolved_attachment_path(&Platform::macOS, &db_path, Some("custom/root")),
+            Some("custom/root/StickerCache/a/b/c.png".to_string())
         );
     }
 
