@@ -12,6 +12,9 @@ use rusqlite::{Connection, Result};
 /// The default contacts file location from the root of an iOS backup
 pub const DEFAULT_PATH_IOS: &str = "31/31bb7ba8914766d4ba40d6dfb6113c8b614be442";
 
+/// Minimum number of digits required to consider a string a valid phone number
+const MIN_PHONE_DIGITS: usize = 7;
+
 // MARK: Name
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// Simple first/last name struct
@@ -225,11 +228,17 @@ impl ContactsIndex {
 
     /// Returns first/last name if found
     pub fn lookup(&self, id: &str) -> Option<Name> {
-        // Handle details can be space-separated list of emails/phones from the iMessage database
+        // Look up each space-separated token
         for id_part in id.split_whitespace() {
             if looks_like_email(id_part) {
-                return normalize_email(id_part).and_then(|k| self.index.get(&k).cloned());
+                if let Some(name) =
+                    normalize_email(id_part).and_then(|k| self.index.get(&k).cloned())
+                {
+                    return Some(name);
+                }
+                continue;
             }
+
             for k in phone_keys(id_part) {
                 if let Some(n) = self.index.get(&k) {
                     return Some(n.clone());
@@ -335,6 +344,7 @@ fn parse_email_list(raw: &str) -> Vec<String> {
 /// Generate possible phone number keys from a raw phone number
 ///
 /// - If the number contains "urn:", returns an empty vector
+/// - If the number has fewer than [`MIN_PHONE_DIGITS`] digits, returns an empty vector
 /// - Returns keys with and without '+' prefix
 /// - For US numbers starting with +1 and 11 digits, also adds variants without the `+1` country code
 fn phone_keys(raw: &str) -> Vec<String> {
@@ -345,7 +355,10 @@ fn phone_keys(raw: &str) -> Vec<String> {
 
     // The digits include the country code portion of the number
     let digits = to_phone_digits(raw);
-    if digits.is_empty() {
+
+    // Skip numbers that are too short to be valid phone numbers
+    // This prevents matching on country codes alone (e.g., "+1" -> "1")
+    if digits.len() < MIN_PHONE_DIGITS {
         return vec![];
     }
 
@@ -655,5 +668,140 @@ mod tests {
         // Test phone_keys function
         let keys = phone_keys("+12345678901");
         assert!(keys.contains(&"+2345678901".to_string()));
+    }
+
+    #[test]
+    fn test_phone_lookup_with_space_after_country_code() {
+        // From issue #671: "+1 5551234567" should match the correct contact
+        let mut index = ContactsIndex::default();
+        let correct_contact =
+            Name::from_opt(Some("Correct".to_string()), Some("Person".to_string())).unwrap();
+
+        // Contact is stored with the full number
+        let db_phone = "+15551234567";
+        let keys = phone_keys(db_phone);
+        for key in keys {
+            index.index.insert(key, correct_contact.clone());
+        }
+
+        // iOS SMS format with space after country code should match
+        assert_eq!(index.lookup("+1 5551234567"), Some(correct_contact.clone()));
+    }
+
+    #[test]
+    fn test_phone_lookup_with_space_does_not_match_wrong_contact() {
+        // Ensure that "+1 5551234567" doesn't match a contact that only has "+1" as a key
+        let mut index = ContactsIndex::default();
+        let wrong_contact =
+            Name::from_opt(Some("Wrong".to_string()), Some("Person".to_string())).unwrap();
+        let correct_contact =
+            Name::from_opt(Some("Correct".to_string()), Some("Person".to_string())).unwrap();
+
+        // Wrong contact only has short keys that could match "+1"
+        index.index.insert("1".to_string(), wrong_contact.clone());
+        index.index.insert("+1".to_string(), wrong_contact.clone());
+
+        // Correct contact has the full number
+        let db_phone = "+15551234567";
+        let keys = phone_keys(db_phone);
+        for key in keys {
+            index.index.insert(key, correct_contact.clone());
+        }
+
+        // Should match the correct contact, not the wrong one
+        let result = index.lookup("+1 5551234567");
+        assert_eq!(result, Some(correct_contact.clone()));
+    }
+
+    #[test]
+    fn test_phone_lookup_short_segment_skipped_in_split() {
+        // When a handle string like "+1 " (country code with trailing space but no number)
+        // is looked up, the split path should skip the short "+1" segment
+        let mut index = ContactsIndex::default();
+        let contact = Name::from_opt(Some("Some".to_string()), Some("Person".to_string())).unwrap();
+
+        // Only index with short country code keys
+        index.index.insert("1".to_string(), contact.clone());
+        index.index.insert("+1".to_string(), contact.clone());
+
+        // A lookup with country code followed by only spaces should not match
+        // because the full lookup produces too few digits and split segments are skipped
+        assert_eq!(index.lookup("+1 "), None);
+    }
+
+    #[test]
+    fn test_phone_lookup_multiple_numbers_with_spaces() {
+        // Test that multiple space-separated numbers work correctly
+        // and don't match a wrong contact indexed with just "+1"
+        let mut index = ContactsIndex::default();
+        let wrong_contact =
+            Name::from_opt(Some("Wrong".to_string()), Some("Contact".to_string())).unwrap();
+        let contact1 =
+            Name::from_opt(Some("First".to_string()), Some("Contact".to_string())).unwrap();
+        let contact2 =
+            Name::from_opt(Some("Second".to_string()), Some("Contact".to_string())).unwrap();
+
+        // Index a wrong contact with short country code keys
+        // Without the fix, the split lookup would match this first
+        index.index.insert("1".to_string(), wrong_contact.clone());
+        index.index.insert("+1".to_string(), wrong_contact.clone());
+
+        // Index both correct contacts with full numbers
+        for key in phone_keys("+15551234567") {
+            index.index.insert(key, contact1.clone());
+        }
+        for key in phone_keys("+15559876543") {
+            index.index.insert(key, contact2.clone());
+        }
+
+        // Space-separated numbers should match the first valid full number, not the wrong contact
+        assert_eq!(
+            index.lookup("+1 5551234567 +1 5559876543"),
+            Some(contact1.clone())
+        );
+    }
+
+    #[test]
+    fn test_lookup_unknown_email_then_phone() {
+        // If an unknown email precedes a known phone, we should still find the phone
+        let mut index = ContactsIndex::default();
+        let contact =
+            Name::from_opt(Some("Phone".to_string()), Some("Contact".to_string())).unwrap();
+
+        // Only index the phone number
+        for key in phone_keys("+15551234567") {
+            index.index.insert(key, contact.clone());
+        }
+
+        // Input has unknown email first, then a known phone
+        assert_eq!(
+            index.lookup("unknown@example.com +15551234567"),
+            Some(contact.clone())
+        );
+    }
+
+    #[test]
+    fn test_multiple_phones_no_concatenation() {
+        // Two phone numbers should not be concatenated and matched as one
+        let mut index = ContactsIndex::default();
+        let wrong_contact =
+            Name::from_opt(Some("Wrong".to_string()), Some("Contact".to_string())).unwrap();
+        let correct_contact =
+            Name::from_opt(Some("Correct".to_string()), Some("Contact".to_string())).unwrap();
+
+        // Index a contact whose number equals the concatenation of two other numbers
+        // e.g., "5551234567" + "5559876543" = "55512345675559876543"
+        index
+            .index
+            .insert("55512345675559876543".to_string(), wrong_contact.clone());
+
+        // Index the correct contact with the first number
+        for key in phone_keys("+15551234567") {
+            index.index.insert(key, correct_contact.clone());
+        }
+
+        // Looking up two separate phone numbers should NOT match the concatenated one
+        let result = index.lookup("+15551234567 +15559876543");
+        assert_eq!(result, Some(correct_contact.clone()));
     }
 }
