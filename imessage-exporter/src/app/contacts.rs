@@ -245,12 +245,6 @@ impl ContactsIndex {
                 return normalize_email(id_part).and_then(|k| self.index.get(&k).cloned());
             }
 
-            // Skip parts that are too short to be valid phone numbers (e.g., just "+1")
-            // to avoid false positive matches on country codes
-            if to_phone_digits(id_part).len() < MIN_PHONE_DIGITS {
-                continue;
-            }
-
             for k in phone_keys(id_part) {
                 if let Some(n) = self.index.get(&k) {
                     return Some(n.clone());
