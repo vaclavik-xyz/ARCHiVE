@@ -242,7 +242,12 @@ impl ContactsIndex {
         // Fall back to space-separated lookup for multiple emails/phones in the same field
         for id_part in id.split_whitespace() {
             if looks_like_email(id_part) {
-                return normalize_email(id_part).and_then(|k| self.index.get(&k).cloned());
+                if let Some(name) =
+                    normalize_email(id_part).and_then(|k| self.index.get(&k).cloned())
+                {
+                    return Some(name);
+                }
+                continue;
             }
 
             for k in phone_keys(id_part) {
@@ -764,6 +769,25 @@ mod tests {
         assert_eq!(
             index.lookup("+1 5551234567 +1 5559876543"),
             Some(contact1.clone())
+        );
+    }
+
+    #[test]
+    fn test_lookup_unknown_email_then_phone() {
+        // If an unknown email precedes a known phone, we should still find the phone
+        let mut index = ContactsIndex::default();
+        let contact =
+            Name::from_opt(Some("Phone".to_string()), Some("Contact".to_string())).unwrap();
+
+        // Only index the phone number
+        for key in phone_keys("+15551234567") {
+            index.index.insert(key, contact.clone());
+        }
+
+        // Input has unknown email first, then a known phone
+        assert_eq!(
+            index.lookup("unknown@example.com +15551234567"),
+            Some(contact.clone())
         );
     }
 }
