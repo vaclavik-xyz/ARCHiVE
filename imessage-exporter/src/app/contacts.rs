@@ -228,18 +228,7 @@ impl ContactsIndex {
 
     /// Returns first/last name if found
     pub fn lookup(&self, id: &str) -> Option<Name> {
-        // First, try to look up the entire string as a single phone number
-        // This handles cases like "+1 5551234567" where a space separates the country code
-        // which is common in iOS SMS messages
-        if !looks_like_email(id) {
-            for k in phone_keys(id) {
-                if let Some(n) = self.index.get(&k) {
-                    return Some(n.clone());
-                }
-            }
-        }
-
-        // Fall back to space-separated lookup for multiple emails/phones in the same field
+        // Look up each space-separated token
         for id_part in id.split_whitespace() {
             if looks_like_email(id_part) {
                 if let Some(name) =
@@ -789,5 +778,30 @@ mod tests {
             index.lookup("unknown@example.com +15551234567"),
             Some(contact.clone())
         );
+    }
+
+    #[test]
+    fn test_multiple_phones_no_concatenation() {
+        // Two phone numbers should not be concatenated and matched as one
+        let mut index = ContactsIndex::default();
+        let wrong_contact =
+            Name::from_opt(Some("Wrong".to_string()), Some("Contact".to_string())).unwrap();
+        let correct_contact =
+            Name::from_opt(Some("Correct".to_string()), Some("Contact".to_string())).unwrap();
+
+        // Index a contact whose number equals the concatenation of two other numbers
+        // e.g., "5551234567" + "5559876543" = "55512345675559876543"
+        index
+            .index
+            .insert("55512345675559876543".to_string(), wrong_contact.clone());
+
+        // Index the correct contact with the first number
+        for key in phone_keys("+15551234567") {
+            index.index.insert(key, correct_contact.clone());
+        }
+
+        // Looking up two separate phone numbers should NOT match the concatenated one
+        let result = index.lookup("+15551234567 +15559876543");
+        assert_eq!(result, Some(correct_contact.clone()));
     }
 }
