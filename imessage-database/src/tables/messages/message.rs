@@ -1143,128 +1143,22 @@ impl Message {
             return Variant::Edited;
         }
 
-        // Handle different types of bundle IDs next, as those are most common
+        // Handle different types of associated message types
         if let Some(associated_message_type) = self.associated_message_type {
-            return match associated_message_type {
+            match associated_message_type {
                 // Standard iMessages with either text or a message payload
-                0 | 2 | 3 => match parse_balloon_bundle_id(self.balloon_bundle_id.as_deref()) {
-                    // This is the most common case
-                    None => Variant::Normal,
-                    Some(bundle_id) => match bundle_id {
-                        "com.apple.messages.URLBalloonProvider" => Variant::App(CustomBalloon::URL),
-                        "com.apple.Handwriting.HandwritingProvider" => {
-                            Variant::App(CustomBalloon::Handwriting)
-                        }
-                        "com.apple.DigitalTouchBalloonProvider" => {
-                            Variant::App(CustomBalloon::DigitalTouch)
-                        }
-                        "com.apple.PassbookUIService.PeerPaymentMessagesExtension" => {
-                            Variant::App(CustomBalloon::ApplePay)
-                        }
-                        "com.apple.ActivityMessagesApp.MessagesExtension" => {
-                            Variant::App(CustomBalloon::Fitness)
-                        }
-                        "com.apple.mobileslideshow.PhotosMessagesApp" => {
-                            Variant::App(CustomBalloon::Slideshow)
-                        }
-                        "com.apple.SafetyMonitorApp.SafetyMonitorMessages" => {
-                            Variant::App(CustomBalloon::CheckIn)
-                        }
-                        "com.apple.findmy.FindMyMessagesApp" => Variant::App(CustomBalloon::FindMy),
-                        "com.apple.messages.Polls" => match &self.associated_message_guid {
-                            Some(id) => {
-                                if id == &self.guid {
-                                    Variant::App(CustomBalloon::Polls)
-                                } else {
-                                    Variant::PollUpdate
-                                }
-                            }
-                            None => Variant::App(CustomBalloon::Polls),
-                        },
-                        _ => Variant::App(CustomBalloon::Application(bundle_id)),
-                    },
-                },
-
-                // Stickers overlaid on messages
-                1000 => {
-                    Variant::Tapback(self.tapback_index(), TapbackAction::Added, Tapback::Sticker)
+                0 | 2 | 3 => return self.get_app_variant().unwrap_or(Variant::Normal),
+                // Tapbacks (added or removed)
+                1000 | 2000..=2007 | 3000..=3007 => {
+                    if let Some((action, tapback)) = self.get_tapback() {
+                        return Variant::Tapback(self.tapback_index(), action, tapback);
+                    }
                 }
-
-                // Tapbacks
-                2000 => {
-                    Variant::Tapback(self.tapback_index(), TapbackAction::Added, Tapback::Loved)
-                }
-                2001 => {
-                    Variant::Tapback(self.tapback_index(), TapbackAction::Added, Tapback::Liked)
-                }
-                2002 => Variant::Tapback(
-                    self.tapback_index(),
-                    TapbackAction::Added,
-                    Tapback::Disliked,
-                ),
-                2003 => {
-                    Variant::Tapback(self.tapback_index(), TapbackAction::Added, Tapback::Laughed)
-                }
-                2004 => Variant::Tapback(
-                    self.tapback_index(),
-                    TapbackAction::Added,
-                    Tapback::Emphasized,
-                ),
-                2005 => Variant::Tapback(
-                    self.tapback_index(),
-                    TapbackAction::Added,
-                    Tapback::Questioned,
-                ),
-                2006 => Variant::Tapback(
-                    self.tapback_index(),
-                    TapbackAction::Added,
-                    Tapback::Emoji(self.associated_message_emoji.as_deref()),
-                ),
-                2007 => {
-                    Variant::Tapback(self.tapback_index(), TapbackAction::Added, Tapback::Sticker)
-                }
-                3000 => {
-                    Variant::Tapback(self.tapback_index(), TapbackAction::Removed, Tapback::Loved)
-                }
-                3001 => {
-                    Variant::Tapback(self.tapback_index(), TapbackAction::Removed, Tapback::Liked)
-                }
-                3002 => Variant::Tapback(
-                    self.tapback_index(),
-                    TapbackAction::Removed,
-                    Tapback::Disliked,
-                ),
-                3003 => Variant::Tapback(
-                    self.tapback_index(),
-                    TapbackAction::Removed,
-                    Tapback::Laughed,
-                ),
-                3004 => Variant::Tapback(
-                    self.tapback_index(),
-                    TapbackAction::Removed,
-                    Tapback::Emphasized,
-                ),
-                3005 => Variant::Tapback(
-                    self.tapback_index(),
-                    TapbackAction::Removed,
-                    Tapback::Questioned,
-                ),
-                3006 => Variant::Tapback(
-                    self.tapback_index(),
-                    TapbackAction::Removed,
-                    Tapback::Emoji(self.associated_message_emoji.as_deref()),
-                ),
-                3007 => Variant::Tapback(
-                    self.tapback_index(),
-                    TapbackAction::Removed,
-                    Tapback::Sticker,
-                ),
                 // A vote was cast on a poll
-                4000 => Variant::Vote,
-
+                4000 => return Variant::Vote,
                 // Unknown
-                x => Variant::Unknown(x),
-            };
+                x => return Variant::Unknown(x),
+            }
         }
 
         // Any other rarer cases belong here
@@ -1273,6 +1167,63 @@ impl Message {
         }
 
         Variant::Normal
+    }
+
+    /// Helper to determine app variants based on balloon bundle ID.
+    #[must_use]
+    fn get_app_variant(&self) -> Option<Variant<'_>> {
+        let bundle_id = parse_balloon_bundle_id(self.balloon_bundle_id.as_deref())?;
+        let custom = match bundle_id {
+            "com.apple.messages.URLBalloonProvider" => CustomBalloon::URL,
+            "com.apple.Handwriting.HandwritingProvider" => CustomBalloon::Handwriting,
+            "com.apple.DigitalTouchBalloonProvider" => CustomBalloon::DigitalTouch,
+            "com.apple.PassbookUIService.PeerPaymentMessagesExtension" => CustomBalloon::ApplePay,
+            "com.apple.ActivityMessagesApp.MessagesExtension" => CustomBalloon::Fitness,
+            "com.apple.mobileslideshow.PhotosMessagesApp" => CustomBalloon::Slideshow,
+            "com.apple.SafetyMonitorApp.SafetyMonitorMessages" => CustomBalloon::CheckIn,
+            "com.apple.findmy.FindMyMessagesApp" => CustomBalloon::FindMy,
+            "com.apple.messages.Polls" => {
+                // Special case: Check if this is the original poll or an update
+                if self.associated_message_guid.as_ref() == Some(&self.guid) {
+                    CustomBalloon::Polls
+                } else {
+                    return Some(Variant::PollUpdate);
+                }
+            }
+            _ => CustomBalloon::Application(bundle_id),
+        };
+        Some(Variant::App(custom))
+    }
+
+    /// Helper to determine tapback variants based on associated message type.
+    #[must_use]
+    fn get_tapback(&self) -> Option<(TapbackAction, Tapback<'_>)> {
+        match self.associated_message_type? {
+            1000 => Some((TapbackAction::Added, Tapback::Sticker)),
+            2000 => Some((TapbackAction::Added, Tapback::Loved)),
+            2001 => Some((TapbackAction::Added, Tapback::Liked)),
+            2002 => Some((TapbackAction::Added, Tapback::Disliked)),
+            2003 => Some((TapbackAction::Added, Tapback::Laughed)),
+            2004 => Some((TapbackAction::Added, Tapback::Emphasized)),
+            2005 => Some((TapbackAction::Added, Tapback::Questioned)),
+            2006 => Some((
+                TapbackAction::Added,
+                Tapback::Emoji(self.associated_message_emoji.as_deref()),
+            )),
+            2007 => Some((TapbackAction::Added, Tapback::Sticker)),
+            3000 => Some((TapbackAction::Removed, Tapback::Loved)),
+            3001 => Some((TapbackAction::Removed, Tapback::Liked)),
+            3002 => Some((TapbackAction::Removed, Tapback::Disliked)),
+            3003 => Some((TapbackAction::Removed, Tapback::Laughed)),
+            3004 => Some((TapbackAction::Removed, Tapback::Emphasized)),
+            3005 => Some((TapbackAction::Removed, Tapback::Questioned)),
+            3006 => Some((
+                TapbackAction::Removed,
+                Tapback::Emoji(self.associated_message_emoji.as_deref()),
+            )),
+            3007 => Some((TapbackAction::Removed, Tapback::Sticker)),
+            _ => None,
+        }
     }
 
     /// Determine the type of announcement a message contains, if it contains one
