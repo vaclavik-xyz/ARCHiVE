@@ -196,6 +196,8 @@ pub enum GroupAction<'a> {
     ChatBackgroundChanged,
     /// The chat background was removed
     ChatBackgroundRemoved,
+    /// A participant changed their phone number
+    PhoneNumberChanged(i32),
 }
 
 impl<'a> GroupAction<'a> {
@@ -208,6 +210,10 @@ impl<'a> GroupAction<'a> {
             message.other_handle,
             &message.group_title,
         ) {
+            // If the handle_id of the message matches the other_handle, the sender changed their own phone number
+            (1, 0, Some(who), _) if message.handle_id == Some(who) => {
+                Some(Self::PhoneNumberChanged(who))
+            }
             (1, 0, Some(who), _) => Some(Self::ParticipantAdded(who)),
             (1, 1, Some(who), _) => Some(Self::ParticipantRemoved(who)),
             (2, _, _, Some(name)) => Some(Self::NameChange(name)),
