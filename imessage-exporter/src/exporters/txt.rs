@@ -642,6 +642,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         let mut who = self
             .config
             .who(msg.handle_id, msg.is_from_me(), &msg.destination_caller_id);
+
         // Rename yourself so we render the proper grammar here
         if who == ME {
             who = self.config.options.custom_name.as_deref().unwrap_or(YOU);
@@ -684,6 +685,9 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                         }
                         GroupAction::ChatBackgroundRemoved => {
                             "removed the chat background.".to_string()
+                        }
+                        GroupAction::PhoneNumberChanged(_) => {
+                            "changed their phone number.".to_string()
                         }
                     },
                     Announcement::AudioMessageKept => "kept an audio message.".to_string(),
@@ -1533,6 +1537,64 @@ mod tests {
 
         let actual = exporter.format_announcement(&message);
         let expected = "May 17, 2022  5:29:42 PM You removed Other from the conversation.\n\n";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_group_removed_other() {
+        // Create exporter
+        let options = Options::fake_options(ExportType::Txt);
+        let mut config = Config::fake_app(options);
+        config.participants.insert(0, Name::fake_name(ME));
+        config.participants.insert(1, Name::fake_name("Other"));
+        config.participants.insert(2, Name::fake_name("Second"));
+        config.real_participants.insert(0, 0);
+        config.real_participants.insert(1, 1);
+        config.real_participants.insert(2, 2);
+
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        // May 17, 2022  8:29:42 PM
+        message.date = 674526582885055488;
+        message.group_title = Some("Hello world".to_string());
+        message.is_from_me = false;
+        message.handle_id = Some(1);
+        message.item_type = 1;
+        message.group_action_type = 1;
+        message.other_handle = Some(2);
+
+        let actual = exporter.format_announcement(&message);
+        let expected = "May 17, 2022  5:29:42 PM Other removed Second from the conversation.\n\n";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_group_changed_number() {
+        // Create exporter
+        let options = Options::fake_options(ExportType::Txt);
+        let mut config = Config::fake_app(options);
+        config.participants.insert(0, Name::fake_name(ME));
+        config.participants.insert(1, Name::fake_name("Other"));
+        config.real_participants.insert(0, 0);
+        config.real_participants.insert(1, 1);
+
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        // May 17, 2022  8:29:42 PM
+        message.date = 674526582885055488;
+        message.group_title = Some("Hello world".to_string());
+        message.is_from_me = false;
+        message.handle_id = Some(1);
+        message.item_type = 1;
+        message.group_action_type = 0;
+        message.other_handle = Some(1);
+
+        let actual = exporter.format_announcement(&message);
+        let expected = "May 17, 2022  5:29:42 PM Other changed their phone number.\n\n";
 
         assert_eq!(actual, expected);
     }
@@ -2809,7 +2871,7 @@ mod text_effect_tests {
     }
 
     #[test]
-    fn can_format_html_text_styled_overlapping_ranges() {
+    fn can_format_txt_text_styled_overlapping_ranges() {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);

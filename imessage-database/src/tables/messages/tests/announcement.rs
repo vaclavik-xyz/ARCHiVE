@@ -7,11 +7,26 @@ mod group_action_tests {
         let mut msg = Message::blank();
         msg.item_type = 1;
         msg.group_action_type = 0;
+        msg.handle_id = Some(100);
         msg.other_handle = Some(123);
 
         assert!(matches!(
             Message::group_action(&msg),
             Some(GroupAction::ParticipantAdded(123))
+        ));
+    }
+
+    #[test]
+    fn test_group_action_phone_number_changed() {
+        let mut msg = Message::blank();
+        msg.item_type = 1;
+        msg.group_action_type = 0;
+        msg.handle_id = Some(349);
+        msg.other_handle = Some(349);
+
+        assert!(matches!(
+            Message::group_action(&msg),
+            Some(GroupAction::PhoneNumberChanged(349))
         ));
     }
 
@@ -145,6 +160,7 @@ mod announcement_tests {
         let mut msg = Message::blank();
         msg.item_type = 1;
         msg.group_action_type = 0;
+        msg.handle_id = Some(100);
         msg.other_handle = Some(123);
 
         assert!(matches!(
