@@ -759,8 +759,11 @@ impl Message {
     /// `true` if the message was sent by the database owner, else `false`
     #[must_use]
     pub fn is_from_me(&self) -> bool {
-        if let (Some(other_handle), Some(share_direction)) =
-            (self.other_handle, self.share_direction)
+        // Share direction and other handle are only populated for shared location messages,
+        // so this check is only necessary for those
+        if self.item_type == 4
+            && let (Some(other_handle), Some(share_direction)) =
+                (self.other_handle, self.share_direction)
         {
             self.is_from_me || other_handle != 0 && !share_direction
         } else {
