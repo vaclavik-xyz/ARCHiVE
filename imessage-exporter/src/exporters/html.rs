@@ -593,15 +593,17 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         }
 
         // Copy the file, if requested
-        self.config
-            .options
-            .attachment_manager
-            .handle_attachment(message, attachment, self.config)
-            .ok_or(attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?)?;
+        let handle_result = self.config.options.attachment_manager.handle_attachment(
+            message,
+            attachment,
+            self.config,
+        );
 
         if will_encode {
             self.pb.set_default_style();
         }
+
+        handle_result.ok_or(attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?)?;
 
         // Build a relative filepath from the fully qualified one on the `Attachment`
         let embed_path = self.config.message_attachment_path(attachment);
