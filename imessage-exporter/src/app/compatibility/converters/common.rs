@@ -2,7 +2,7 @@
  Defines routines common across all converters.
 */
 use std::{
-    fs::{File, FileTimes, copy, create_dir_all, metadata, read_dir},
+    fs::{FileTimes, OpenOptions, copy, create_dir_all, metadata, read_dir},
     path::Path,
     process::{Command, Stdio},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -118,7 +118,7 @@ pub(crate) fn update_file_metadata(from: &Path, to: &Path, message: &Message, co
         let atime = metadata.accessed().ok();
 
         if let (Some(atime), Some(mtime)) = (atime, mtime) {
-            match File::open(to) {
+            match OpenOptions::new().write(true).open(to) {
                 Ok(file) => {
                     let file_times = FileTimes::new().set_accessed(atime).set_modified(mtime);
                     if let Err(why) = file.set_times(file_times) {
