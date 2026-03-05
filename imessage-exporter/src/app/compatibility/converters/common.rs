@@ -1,11 +1,11 @@
 /*!
  Defines routines common across all converters.
 */
-use filetime::{FileTime, set_file_times};
 use std::{
-    fs::{copy, create_dir_all, metadata, read_dir},
+    fs::{File, FileTimes, copy, create_dir_all, metadata, read_dir},
     path::Path,
     process::{Command, Stdio},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use imessage_database::tables::messages::Message;
@@ -109,15 +109,38 @@ pub(crate) fn update_file_metadata(from: &Path, to: &Path, message: &Message, co
     if let Ok(metadata) = metadata(from) {
         // The modification time is the message's date, otherwise the the original file's creation time
         let mtime = match message.date(&config.offset) {
-            Ok(date) => FileTime::from_unix_time(date.timestamp(), date.timestamp_subsec_nanos()),
-            Err(_) => FileTime::from_last_modification_time(&metadata),
+            Ok(date) => unix_to_system_time(date.timestamp(), date.timestamp_subsec_nanos())
+                .or_else(|| metadata.modified().ok()),
+            Err(_) => metadata.modified().ok(),
         };
 
         // The new last access time comes from the metadata of the original file
-        let atime = FileTime::from_last_access_time(&metadata);
+        let atime = metadata.accessed().ok();
 
-        if let Err(why) = set_file_times(to, atime, mtime) {
-            eprintln!("Unable to update {} metadata: {why}", to.display());
+        if let (Some(atime), Some(mtime)) = (atime, mtime) {
+            match File::open(to) {
+                Ok(file) => {
+                    let file_times = FileTimes::new().set_accessed(atime).set_modified(mtime);
+                    if let Err(why) = file.set_times(file_times) {
+                        eprintln!("Unable to update {} metadata: {why}", to.display());
+                    }
+                }
+                Err(why) => {
+                    eprintln!("Unable to open {} to update metadata: {why}", to.display());
+                }
+            }
         }
+    }
+}
+
+fn unix_to_system_time(secs: i64, nanos: u32) -> Option<SystemTime> {
+    if secs >= 0 {
+        UNIX_EPOCH
+            .checked_add(Duration::from_secs(secs as u64))?
+            .checked_add(Duration::from_nanos(u64::from(nanos)))
+    } else {
+        UNIX_EPOCH
+            .checked_sub(Duration::from_secs(secs.unsigned_abs()))?
+            .checked_add(Duration::from_nanos(u64::from(nanos)))
     }
 }
