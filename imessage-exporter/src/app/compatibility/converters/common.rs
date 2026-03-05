@@ -105,6 +105,10 @@ pub(crate) fn copy_raw(from: &Path, to: &Path) {
 
 /// Update the metadata of a copied file, falling back to the original file's metadata if necessary
 pub(crate) fn update_file_metadata(from: &Path, to: &Path, message: &Message, config: &Config) {
+    if to.is_dir() {
+        return;
+    }
+
     // Update file metadata
     if let Ok(metadata) = metadata(from) {
         // The modification time is the message's date, otherwise the the original file's creation time
