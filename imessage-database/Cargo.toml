@@ -20,6 +20,8 @@ crabstep = "=0.3.2"
 base64 = "0.22.1"
 jzon = "0.12.5"
 
+[features]
+proto-regen = ["dep:protobuf-codegen"]
+
 [build-dependencies]
-protobuf = "=3.7.2"
-protobuf-codegen = "=3.7.2"
+protobuf-codegen = { version = "=3.7.2", optional = true }
