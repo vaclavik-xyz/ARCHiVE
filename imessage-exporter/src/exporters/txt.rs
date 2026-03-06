@@ -328,11 +328,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                     .try_for_each(|tapbacks| -> Result<(), TableError> {
                         let formatted = self.format_tapback(tapbacks)?;
                         if !formatted.is_empty() {
-                            self.add_line(
-                                &mut formatted_tapbacks,
-                                &self.format_tapback(tapbacks)?,
-                                &indent,
-                            );
+                            self.add_line(&mut formatted_tapbacks, &formatted, &indent);
                         }
                         Ok(())
                     })?;

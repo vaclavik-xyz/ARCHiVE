@@ -507,7 +507,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                         if !formatted.is_empty() {
                             self.add_line(
                                 &mut formatted_tapbacks,
-                                &self.format_tapback(tapback)?,
+                                &formatted,
                                 "<div class=\"tapback\">",
                                 "</div>",
                             );
