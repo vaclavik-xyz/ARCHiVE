@@ -363,7 +363,17 @@ impl Attachment {
 
                 // handle iOS SMS.db attachment path
                 else if path_str.starts_with("~/Library/SMS") {
-                    path_str = path_str.replacen("~/Library/SMS", custom_attachment_path, 1);
+                    // allow relative or absolute path for Attachment Root
+                    let attachment_path = PathBuf::from(custom_attachment_path);
+                    let resolved_path = if attachment_path.is_absolute() {
+                        attachment_path
+                    } else {
+                        std::env::current_dir()
+                            .map(|cwd| cwd.join(&attachment_path))
+                            .unwrap_or(attachment_path)
+                    };
+                    let resolved_path_str = resolved_path.to_str().unwrap_or("");
+                    path_str = path_str.replacen("~/Library/SMS", resolved_path_str, 1);
                 }
             }
 
