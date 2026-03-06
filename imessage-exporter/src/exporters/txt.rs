@@ -1143,11 +1143,13 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
 // MARK: Impl
 impl TXT<'_> {
     fn get_time(&self, message: &Message) -> String {
-        let (date, read_receipt) = message_time(self.config, message);
+        let (mut date, read_receipt) = message_time(self.config, message);
         if read_receipt.is_empty() {
             date
         } else {
-            format!("{date} {read_receipt}")
+            date.push(' ');
+            date.push_str(&read_receipt);
+            date
         }
     }
 
