@@ -13,7 +13,10 @@ use crate::{
         compatibility::attachment_manager::AttachmentManagerMode, error::RuntimeError,
         progress::ExportProgress, runtime::Config,
     },
-    exporters::exporter::{ATTACHMENT_NO_FILENAME, BalloonFormatter, Exporter, MessageFormatter},
+    exporters::{
+        exporter::{ATTACHMENT_NO_FILENAME, BalloonFormatter, Exporter, MessageFormatter},
+        shared::{format_expressive, message_time},
+    },
 };
 
 use imessage_database::{
@@ -607,7 +610,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
     }
 
     fn format_expressive(&self, msg: &'a Message) -> &'a str {
-        super::shared::format_expressive(msg)
+        format_expressive(msg)
     }
 
     fn format_announcement(&self, msg: &'a Message) -> String {
@@ -1140,7 +1143,7 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
 // MARK: Impl
 impl TXT<'_> {
     fn get_time(&self, message: &Message) -> String {
-        let (date, read_receipt) = super::shared::message_time(self.config, message);
+        let (date, read_receipt) = message_time(self.config, message);
         if read_receipt.is_empty() {
             date
         } else {

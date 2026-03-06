@@ -18,8 +18,12 @@ use crate::{
         compatibility::attachment_manager::AttachmentManagerMode, error::RuntimeError,
         progress::ExportProgress, runtime::Config, sanitizers::sanitize_html,
     },
-    exporters::exporter::{
-        ATTACHMENT_NO_FILENAME, BalloonFormatter, Exporter, MessageFormatter, TextEffectFormatter,
+    exporters::{
+        exporter::{
+            ATTACHMENT_NO_FILENAME, BalloonFormatter, Exporter, MessageFormatter,
+            TextEffectFormatter,
+        },
+        shared::{format_expressive, message_time},
     },
 };
 
@@ -866,7 +870,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
     }
 
     fn format_expressive(&self, msg: &'a Message) -> &'a str {
-        super::shared::format_expressive(msg)
+        format_expressive(msg)
     }
 
     fn format_announcement(&self, msg: &'a Message) -> String {
@@ -1705,7 +1709,7 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
 // MARK: Impl
 impl HTML<'_> {
     fn get_time(&self, message: &Message) -> (String, String) {
-        super::shared::message_time(self.config, message)
+        message_time(self.config, message)
     }
 
     fn add_line(&self, string: &mut String, part: &str, pre: &str, post: &str) {
