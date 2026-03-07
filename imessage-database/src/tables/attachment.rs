@@ -381,7 +381,7 @@ impl Attachment {
                     std::env::current_dir().map(|cwd| cwd.join(&p)).unwrap_or(p)
                 }
             };
-            let resolved_str = resolved_root.to_str().unwrap_or("");
+            let resolved_str = resolved_root.to_str()?;
 
             let prefix = if path_str.starts_with(DEFAULT_MESSAGES_ROOT) {
                 Some(DEFAULT_MESSAGES_ROOT)
