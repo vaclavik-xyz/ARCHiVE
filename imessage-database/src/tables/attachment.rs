@@ -372,17 +372,6 @@ impl Attachment {
         if matches!(platform, Platform::macOS)
             && let Some(custom_attachment_path) = custom_attachment_root
         {
-            // Resolve relative custom paths to absolute
-            let resolved_root = {
-                let p = PathBuf::from(custom_attachment_path);
-                if p.is_absolute() {
-                    p
-                } else {
-                    std::env::current_dir().map(|cwd| cwd.join(&p)).unwrap_or(p)
-                }
-            };
-            let resolved_str = resolved_root.to_str()?;
-
             let prefix = if path_str.starts_with(DEFAULT_MESSAGES_ROOT) {
                 Some(DEFAULT_MESSAGES_ROOT)
             } else if path_str.starts_with(DEFAULT_SMS_ROOT) {
@@ -392,7 +381,7 @@ impl Attachment {
             };
 
             if let Some(old) = prefix {
-                path_str = path_str.replacen(old, resolved_str, 1);
+                path_str = path_str.replacen(old, custom_attachment_path, 1);
             }
         }
 
@@ -705,8 +694,8 @@ mod tests {
         attachment.filename = Some(format!("{DEFAULT_ATTACHMENT_ROOT}/a/b/c.png"));
 
         assert_eq!(
-            attachment.resolved_attachment_path(&Platform::macOS, &db_path, Some("/custom/root")),
-            Some("/custom/root/Attachments/a/b/c.png".to_string())
+            attachment.resolved_attachment_path(&Platform::macOS, &db_path, Some("custom/root")),
+            Some("custom/root/Attachments/a/b/c.png".to_string())
         );
     }
 
@@ -718,8 +707,8 @@ mod tests {
         attachment.filename = Some(format!("{DEFAULT_STICKER_CACHE_ROOT}/a/b/c.png"));
 
         assert_eq!(
-            attachment.resolved_attachment_path(&Platform::macOS, &db_path, Some("/custom/root")),
-            Some("/custom/root/StickerCache/a/b/c.png".to_string())
+            attachment.resolved_attachment_path(&Platform::macOS, &db_path, Some("custom/root")),
+            Some("custom/root/StickerCache/a/b/c.png".to_string())
         );
     }
 
