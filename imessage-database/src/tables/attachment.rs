@@ -34,6 +34,8 @@ use crate::{
 // MARK: Constants
 /// The default root directory for iMessage database files, which is replaced with the custom attachment root if provided
 pub const DEFAULT_MESSAGES_ROOT: &str = "~/Library/Messages";
+// iOS SMS.db uses a different root directory for attachments
+pub const DEFAULT_MESSAGES_ROOT_IOS: &str = "~/Library/SMS";
 /// The default root directory for iMessage attachment data
 pub const DEFAULT_ATTACHMENT_ROOT: &str = "~/Library/Messages/Attachments";
 /// The default root directory for iMessage sticker cache data
@@ -362,7 +364,7 @@ impl Attachment {
                 }
 
                 // handle iOS SMS.db attachment path
-                else if path_str.starts_with("~/Library/SMS") {
+                else if path_str.starts_with(DEFAULT_MESSAGES_ROOT_IOS) {
                     // allow relative or absolute path for Attachment Root
                     let attachment_path = PathBuf::from(custom_attachment_path);
                     let resolved_path = if attachment_path.is_absolute() {
@@ -373,7 +375,7 @@ impl Attachment {
                             .unwrap_or(attachment_path)
                     };
                     let resolved_path_str = resolved_path.to_str().unwrap_or("");
-                    path_str = path_str.replacen("~/Library/SMS", resolved_path_str, 1);
+                    path_str = path_str.replacen(DEFAULT_MESSAGES_ROOT_IOS, resolved_path_str, 1);
                 }
             }
 
