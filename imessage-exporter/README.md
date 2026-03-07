@@ -66,11 +66,14 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
         If the iOS backup is encrypted, --cleartext-password must be passed
         If omitted, the default directory is ~/Library/Messages/chat.db
         
--r, --attachment-root <path/to/attachments>
-        Specify an optional custom path to look for attachment data in (macOS only)
+-r, --attachment-root <path/to/messages/root>
+        Specify an optional custom path to look for attachment data in
         Only use this if attachments are stored separately from the database's default location
+        The provided path should be absolute
         This option affects both the `Attachments` and `StickerCache` directories
-        The default location is ~Library/Messages
+        Also works with jailbroken iOS sms.db databases (use `--platform macOS`)
+        Has no effect on iOS backups
+        The default location is ~/Library/Messages
         
 -a, --platform <macOS, iOS>
         Specify the platform the database was created on
