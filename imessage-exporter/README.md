@@ -71,7 +71,7 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
         Only use this if attachments are stored separately from the database's default location
         The provided path should be absolute
         This option affects both the `Attachments` and `StickerCache` directories
-        Also works with jailbroken iOS sms.db databases (`use --platform macOS`)
+        Also works with jailbroken iOS sms.db databases (use `--platform macOS`)
         Has no effect on iOS backups
         The default location is ~/Library/Messages
         
