@@ -372,7 +372,7 @@ fn get_command() -> Command {
             Arg::new(OPTION_ATTACHMENT_ROOT)
                 .short('r')
                 .long(OPTION_ATTACHMENT_ROOT)
-                .help(format!("Specify an optional custom path to look for attachment data in\nOnly use this if attachments are stored separately from the database's default location\nThe provided path should be absolute\nThis option affects both the `Attachments` and `StickerCache` directories\nAlso works with jailbroken iOS sms.db databases (use --platform macOS)\nHas no effect on iOS backups\nThe default location is {}\n", DEFAULT_MESSAGES_ROOT.replacen('~', &home(), 1)))
+                .help(format!("Specify an optional custom path to look for attachment data in\nOnly use this if attachments are stored separately from the database's default location\nThe provided path should be absolute\nThis option affects both the `Attachments` and `StickerCache` directories\nAlso works with jailbroken iOS sms.db databases (use `--platform macOS`)\nHas no effect on iOS backups\nThe default location is {}\n", DEFAULT_MESSAGES_ROOT.replacen('~', &home(), 1)))
                 .display_order(4)
                 .value_name("path/to/attachments"),
         )
