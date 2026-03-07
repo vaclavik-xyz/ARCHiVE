@@ -34,6 +34,8 @@ use crate::{
 // MARK: Constants
 /// The default root directory for iMessage database files, which is replaced with the custom attachment root if provided
 pub const DEFAULT_MESSAGES_ROOT: &str = "~/Library/Messages";
+/// Alternate root directory used by the iOS SMS.db
+pub const DEFAULT_MESSAGES_ROOT_IOS: &str = "~/Library/SMS";
 /// The default root directory for iMessage attachment data
 pub const DEFAULT_ATTACHMENT_ROOT: &str = "~/Library/Messages/Attachments";
 /// The default root directory for iMessage sticker cache data
@@ -354,11 +356,27 @@ impl Attachment {
     ) -> Option<String> {
         if let Some(mut path_str) = self.filename.clone() {
             // Apply custom attachment path, if provided
-            if let Some(custom_attachment_path) = custom_attachment_root
-                && (path_str.starts_with(DEFAULT_STICKER_CACHE_ROOT)
-                    || path_str.starts_with(DEFAULT_ATTACHMENT_ROOT))
-            {
-                path_str = path_str.replacen(DEFAULT_MESSAGES_ROOT, custom_attachment_path, 1);
+            if let Some(custom_attachment_path) = custom_attachment_root {
+                if path_str.starts_with(DEFAULT_STICKER_CACHE_ROOT)
+                    || path_str.starts_with(DEFAULT_ATTACHMENT_ROOT)
+                {
+                    path_str = path_str.replacen(DEFAULT_MESSAGES_ROOT, custom_attachment_path, 1);
+                }
+
+                // handle iOS SMS.db attachment path
+                else if path_str.starts_with(DEFAULT_MESSAGES_ROOT_IOS) {
+                    // allow relative or absolute path for Attachment Root
+                    let attachment_path = PathBuf::from(custom_attachment_path);
+                    let resolved_path = if attachment_path.is_absolute() {
+                        attachment_path
+                    } else {
+                        std::env::current_dir()
+                            .map(|cwd| cwd.join(&attachment_path))
+                            .unwrap_or(attachment_path)
+                    };
+                    let resolved_path_str = resolved_path.to_str().unwrap_or("");
+                    path_str = path_str.replacen(DEFAULT_MESSAGES_ROOT_IOS, resolved_path_str, 1);
+                }
             }
 
             return match platform {
@@ -543,7 +561,7 @@ mod tests {
     use crate::{
         tables::{
             attachment::{
-                Attachment, DEFAULT_ATTACHMENT_ROOT, DEFAULT_STICKER_CACHE_ROOT, MediaType,
+                Attachment, DEFAULT_ATTACHMENT_ROOT, DEFAULT_MESSAGES_ROOT_IOS, DEFAULT_STICKER_CACHE_ROOT, MediaType,
             },
             table::get_connection,
         },
@@ -739,6 +757,26 @@ mod tests {
         assert_eq!(
             attachment.resolved_attachment_path(&Platform::iOS, &db_path, Some("custom/root")),
             Some("fake_root/41/41746ffc65924078eae42725c979305626f57cca".to_string())
+        );
+    }
+
+    #[test]
+    fn can_get_resolved_path_ios_smsdb() {
+        let db_path = PathBuf::from("fake_root");
+        let mut attachment = sample_attachment();
+        attachment.filename = Some(format!("{DEFAULT_MESSAGES_ROOT_IOS}/Attachments/a/b/c.png"));
+
+        assert_eq!(
+            attachment.resolved_attachment_path(
+                // the platform must be set as macOS, despite being an iOS-related test,
+                // since this test case only applies to users using an extracted iOS SMS.db,
+                // not from an iOS device backup.
+                // Platform::iOS will treat paths as if they are within a backup
+                &Platform::macOS,
+                &db_path,
+                Some("/custom/path"),
+            ),
+            Some("/custom/path/Attachments/a/b/c.png".to_string())
         );
     }
 
