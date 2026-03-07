@@ -347,13 +347,18 @@ impl Attachment {
     /// On iOS, file names are derived from SHA-1 hash of `MediaDomain-` concatenated with the relative [`self.filename()`](Self::filename).
     /// Between the domain and the path there is a dash. Read more [here](https://theapplewiki.com/index.php?title=ITunes_Backup).
     ///
-    /// Use the optional `custom_attachment_root` parameter when the attachments are not stored in
-    /// the same place as the database expects. The expected location is [`DEFAULT_ATTACHMENT_ROOT`].
-    /// A custom attachment root like `/custom/path` will overwrite a path like `~/Library/Messages/Attachments/3d/...` to `/custom/path/3d/...`
+    /// Use the optional `custom_attachment_root` parameter when attachment data is stored under a
+    /// different Messages root than the database expects. This replaces the leading Messages root,
+    /// not just the `Attachments` directory, so it affects both [`DEFAULT_ATTACHMENT_ROOT`] and
+    /// [`DEFAULT_STICKER_CACHE_ROOT`].
+    ///
+    /// For example, a custom attachment root like `/custom/path` will rewrite
+    /// `~/Library/Messages/Attachments/3d/...` to `/custom/path/Attachments/3d/...` and
+    /// `~/Library/Messages/StickerCache/ab/...` to `/custom/path/StickerCache/ab/...`.
     ///
     /// For a jailbroken iOS `sms.db`, attachment paths start with [`DEFAULT_SMS_ROOT`] (`~/Library/SMS`)
     /// instead of [`DEFAULT_ATTACHMENT_ROOT`]. These databases behave like macOS databases and should
-    /// use [`Platform::macOS`] — not [`Platform::iOS`], which is reserved for encrypted iTunes backups.
+    /// use [`Platform::macOS`] — not [`Platform::iOS`], which is reserved for encrypted Finder/Apple Devices/iTunes backups.
     #[must_use]
     pub fn resolved_attachment_path(
         &self,
