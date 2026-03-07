@@ -66,7 +66,7 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
         If the iOS backup is encrypted, --cleartext-password must be passed
         If omitted, the default directory is ~/Library/Messages/chat.db
         
--r, --attachment-root <path/to/attachments>
+-r, --attachment-root <path/to/messages/root>
         Specify an optional custom path to look for attachment data in
         Only use this if attachments are stored separately from the database's default location
         The provided path should be absolute

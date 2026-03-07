@@ -357,7 +357,7 @@ impl Attachment {
     /// `~/Library/Messages/StickerCache/ab/...` to `/custom/path/StickerCache/ab/...`.
     ///
     /// For a jailbroken iOS `sms.db`, attachment paths start with [`DEFAULT_SMS_ROOT`] (`~/Library/SMS`)
-    /// instead of [`DEFAULT_ATTACHMENT_ROOT`]. These databases behave like macOS databases and should
+    /// instead of [`DEFAULT_MESSAGES_ROOT`]. These databases behave like macOS databases and should
     /// use [`Platform::macOS`] — not [`Platform::iOS`], which is reserved for encrypted Finder/Apple Devices/iTunes backups.
     #[must_use]
     pub fn resolved_attachment_path(
