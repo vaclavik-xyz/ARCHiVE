@@ -354,37 +354,37 @@ impl Attachment {
         db_path: &Path,
         custom_attachment_root: Option<&str>,
     ) -> Option<String> {
-        if let Some(mut path_str) = self.filename.clone() {
-            // Apply custom attachment path, if provided
-            if let Some(custom_attachment_path) = custom_attachment_root {
-                if path_str.starts_with(DEFAULT_STICKER_CACHE_ROOT)
-                    || path_str.starts_with(DEFAULT_ATTACHMENT_ROOT)
-                {
-                    path_str = path_str.replacen(DEFAULT_MESSAGES_ROOT, custom_attachment_path, 1);
-                }
+        let mut path_str = self.filename.clone()?;
 
-                // handle iOS SMS.db attachment path
-                else if path_str.starts_with(DEFAULT_MESSAGES_ROOT_IOS) {
-                    // allow relative or absolute path for Attachment Root
-                    let attachment_path = PathBuf::from(custom_attachment_path);
-                    let resolved_path = if attachment_path.is_absolute() {
-                        attachment_path
-                    } else {
-                        std::env::current_dir()
-                            .map(|cwd| cwd.join(&attachment_path))
-                            .unwrap_or(attachment_path)
-                    };
-                    let resolved_path_str = resolved_path.to_str().unwrap_or("");
-                    path_str = path_str.replacen(DEFAULT_MESSAGES_ROOT_IOS, resolved_path_str, 1);
-                }
-            }
-
-            return match platform {
-                Platform::macOS => Some(Attachment::gen_macos_attachment(&path_str)),
-                Platform::iOS => Attachment::gen_ios_attachment(&path_str, db_path),
+        // Apply custom attachment path, if provided
+        if let Some(custom_attachment_path) = custom_attachment_root {
+            let replacement = if path_str.starts_with(DEFAULT_MESSAGES_ROOT) {
+                Some((DEFAULT_MESSAGES_ROOT, custom_attachment_path.to_owned()))
+            } else if path_str.starts_with(DEFAULT_MESSAGES_ROOT_IOS) {
+                // Allow relative or absolute path for Attachment Root
+                let attachment_path = PathBuf::from(custom_attachment_path);
+                let resolved_path = if attachment_path.is_absolute() {
+                    attachment_path
+                } else {
+                    std::env::current_dir()
+                        .map(|cwd| cwd.join(&attachment_path))
+                        .unwrap_or(attachment_path)
+                };
+                let resolved_str = resolved_path.to_str().unwrap_or("").to_owned();
+                Some((DEFAULT_MESSAGES_ROOT_IOS, resolved_str))
+            } else {
+                None
             };
+
+            if let Some((old, new)) = replacement {
+                path_str = path_str.replacen(old, &new, 1);
+            }
         }
-        None
+
+        match platform {
+            Platform::macOS => Some(Attachment::gen_macos_attachment(&path_str)),
+            Platform::iOS => Attachment::gen_ios_attachment(&path_str, db_path),
+        }
     }
 
     /// Emit diagnostic data for the Attachments table
@@ -561,7 +561,8 @@ mod tests {
     use crate::{
         tables::{
             attachment::{
-                Attachment, DEFAULT_ATTACHMENT_ROOT, DEFAULT_MESSAGES_ROOT_IOS, DEFAULT_STICKER_CACHE_ROOT, MediaType,
+                Attachment, DEFAULT_ATTACHMENT_ROOT, DEFAULT_MESSAGES_ROOT_IOS,
+                DEFAULT_STICKER_CACHE_ROOT, MediaType,
             },
             table::get_connection,
         },
