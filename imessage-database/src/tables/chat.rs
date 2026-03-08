@@ -25,15 +25,15 @@ use crate::{
 #[derive(Debug, PartialEq, Eq)]
 pub struct Properties {
     /// Whether the chat has read receipts enabled
-    read_receipts_enabled: bool,
+    pub read_receipts_enabled: bool,
     /// The most recent message in the chat
-    last_message_guid: Option<String>,
+    pub last_message_guid: Option<String>,
     /// Whether the chat was forced to use SMS/RCS instead of iMessage
-    forced_sms: bool,
+    pub forced_sms: bool,
     /// GUID of the group photo, if it exists in the attachments table
-    group_photo_guid: Option<String>,
+    pub group_photo_guid: Option<String>,
     /// Whether the chat has a custom background image
-    has_chat_background: bool,
+    pub has_chat_background: bool,
 }
 
 impl Properties {
