@@ -596,7 +596,7 @@ impl Message {
         }
 
         // If there is still no text, try and use the existing text field on the message,
-        //which may be populated for older messages or those that failed to parse as typedstream
+        // which may be populated for older messages or those that failed to parse as typedstream
         let text = text.or_else(|| self.text.clone());
 
         // The balloon bundle ID can be set in the single URL case, otherwise it should fall back to the existing balloon bundle ID on the message
