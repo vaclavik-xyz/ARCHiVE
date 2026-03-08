@@ -541,58 +541,71 @@ impl Message {
             .as_ref()
             .and_then(|payload| EditedMessage::from_map(payload).ok());
 
-        let mut text = self.text.clone();
+        // Initialize variables for the text, components, and balloon bundle ID that will be parsed from the body
+        let mut text = None;
         let mut components = vec![];
-        let mut balloon_bundle_id = self.balloon_bundle_id.clone();
+        let mut balloon_bundle_id = None;
 
         // Grab the body data from the table
         if let Some(body) = self.attributed_body(db) {
             // Attempt to deserialize the typedstream data
             let mut typedstream = TypedStreamDeserializer::new(&body);
-            let parsed =
-                parse_body_typedstream(typedstream.iter_root().ok(), edited_parts.as_ref());
+            match parse_body_typedstream(typedstream.iter_root().ok(), edited_parts.as_ref()) {
+                Some(parsed) => {
+                    text = parsed.text;
 
-            if let Some(parsed) = parsed {
-                // Determine if the message is a single URL
-                let is_single_url = match &parsed.components[..] {
-                    [BubbleComponent::Text(text_attrs)] => match &text_attrs[..] {
-                        [TextAttributes { effects, .. }] => {
-                            matches!(&effects[..], [TextEffect::Link(_)])
-                        }
+                    // Determine if the message is a single URL
+                    let is_single_url = match &parsed.components[..] {
+                        [BubbleComponent::Text(text_attrs)] => match &text_attrs[..] {
+                            [TextAttributes { effects, .. }] => {
+                                matches!(&effects[..], [TextEffect::Link(_)])
+                            }
+                            _ => false,
+                        },
                         _ => false,
-                    },
-                    _ => false,
-                };
+                    };
 
-                text = parsed.text;
-
-                // If the message is a single URL or has a balloon bundle ID
-                // set the components to just the app component
-                if balloon_bundle_id.is_some() {
-                    components = vec![BubbleComponent::App];
-                } else if is_single_url
-                    && self.has_blob(db, MESSAGE, MESSAGE_PAYLOAD, self.rowid.into())
-                {
-                    // This patch is to handle the case where a message is a single URL
-                    // but the `balloon_bundle_id` is not set.
-                    // This case can only hit if there was payload data provided for the preview,
-                    // but no `balloon_bundle_id` was set.
-                    balloon_bundle_id = Some("com.apple.messages.URLBalloonProvider".to_string());
-                    components = vec![BubbleComponent::App];
-                } else {
-                    components = parsed.components;
+                    // If the message has a balloon bundle ID or is a single URL,
+                    // set the components to just the app component
+                    if self.balloon_bundle_id.is_some() {
+                        components = vec![BubbleComponent::App];
+                    } else if is_single_url
+                        && self.has_blob(db, MESSAGE, MESSAGE_PAYLOAD, self.rowid.into())
+                    {
+                        // This patch is to handle the case where a message is a single URL
+                        // but the `balloon_bundle_id` is not set.
+                        // This case can only hit if there was payload data provided for the preview,
+                        // but no `balloon_bundle_id` was set.
+                        balloon_bundle_id =
+                            Some("com.apple.messages.URLBalloonProvider".to_string());
+                        components = vec![BubbleComponent::App];
+                    } else {
+                        components = parsed.components;
+                    }
+                }
+                None => {
+                    // Typedstream failed entirely; try self.text before legacy parser
+                    text = self.text.clone();
                 }
             }
 
-            // If the above parsing failed, fall back to the legacy parser instead
+            // If neither typedstream nor self.text produced text, fall back to legacy streamtyped
             if text.is_none() {
                 text = Some(streamtyped::parse(body)?);
-
-                // Fallback component parser as well
-                if components.is_empty() {
-                    components = parse_body_legacy(&text);
-                }
             }
+        }
+
+        // If there is still no text, try and use the existing text field on the message,
+        //which may be populated for older messages or those that failed to parse as typedstream
+        let text = text.or_else(|| self.text.clone());
+
+        // The balloon bundle ID can be set in the single URL case, otherwise it should fall back to the existing balloon bundle ID on the message
+        let balloon_bundle_id = balloon_bundle_id.or_else(|| self.balloon_bundle_id.clone());
+
+        // If we got here, it means typedstream parsing failed, but we may be
+        // able to get components from the legacy parser
+        if components.is_empty() && text.is_some() {
+            components = parse_body_legacy(&text);
         }
 
         if text.is_some() {
