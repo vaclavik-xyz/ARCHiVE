@@ -281,7 +281,6 @@ impl Table for Message {
             .or_else(|_| db.prepare_cached(&ios_14_15_query(None)))
             .or_else(|_| db.prepare_cached(&ios_13_older_query(None)))?)
     }
-
 }
 
 // MARK: Diagnostic
@@ -1308,7 +1307,7 @@ impl Message {
     /// Determine the service the message was sent from, i.e. iMessage, SMS, IRC, etc.
     #[must_use]
     pub fn service(&'_ self) -> Service<'_> {
-        Service::from(self.service.as_deref())
+        Service::from_name(self.service.as_deref())
     }
 
     // MARK: BLOBs

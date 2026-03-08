@@ -146,7 +146,7 @@ impl Chat {
     /// Get the service used by the chat, i.e. iMessage, SMS, IRC, etc.
     #[must_use]
     pub fn service(&'_ self) -> Service<'_> {
-        Service::from(self.service_name.as_deref())
+        Service::from_name(self.service_name.as_deref())
     }
 
     /// Get the [`Properties`] for the chat, if they exist
