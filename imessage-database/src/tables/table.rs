@@ -46,7 +46,12 @@ pub trait Table: Sized {
     fn get(db: &'_ Connection) -> Result<CachedStatement<'_>, TableError>;
 
     /// Map a `rusqlite::Result<Self>` into our `TableError`
-    fn extract(item: Result<Result<Self, Error>, Error>) -> Result<Self, TableError>;
+    fn extract(item: Result<Result<Self, Error>, Error>) -> Result<Self, TableError> {
+        match item {
+            Ok(Ok(row)) => Ok(row),
+            Err(why) | Ok(Err(why)) => Err(TableError::QueryError(why)),
+        }
+    }
 
     /// Process all rows from the table using a callback.
     /// This is the most memory-efficient approach for large tables.
@@ -273,7 +278,7 @@ pub const ATTACHMENTS_DIR: &str = "attachments";
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::{CachedStatement, Connection, Error, Result, Row};
+    use rusqlite::{CachedStatement, Connection, Result, Row};
 
     use crate::error::table::TableError;
 
@@ -288,13 +293,6 @@ mod tests {
 
         fn get(db: &'_ Connection) -> Result<CachedStatement<'_>, TableError> {
             Ok(db.prepare_cached("SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3")?)
-        }
-
-        fn extract(item: Result<Result<Self, Error>, Error>) -> Result<Self, TableError> {
-            match item {
-                Ok(Ok(row)) => Ok(row),
-                Err(why) | Ok(Err(why)) => Err(TableError::QueryError(why)),
-            }
         }
     }
 
@@ -339,13 +337,6 @@ mod tests {
 
             fn get(_db: &'_ Connection) -> Result<CachedStatement<'_>, TableError> {
                 Err(TableError::CannotRead(std::io::Error::other("boom")))
-            }
-
-            fn extract(item: Result<Result<Self, Error>, Error>) -> Result<Self, TableError> {
-                match item {
-                    Ok(Ok(row)) => Ok(row),
-                    Err(why) | Ok(Err(why)) => Err(TableError::QueryError(why)),
-                }
             }
         }
 

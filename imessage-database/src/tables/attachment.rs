@@ -137,12 +137,6 @@ impl Table for Attachment {
         Ok(db.prepare_cached(&format!("SELECT * from {ATTACHMENT}"))?)
     }
 
-    fn extract(attachment: Result<Result<Self, Error>, Error>) -> Result<Self, TableError> {
-        match attachment {
-            Ok(Ok(attachment)) => Ok(attachment),
-            Err(why) | Ok(Err(why)) => Err(TableError::QueryError(why)),
-        }
-    }
 }
 
 // MARK: Impl

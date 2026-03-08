@@ -132,7 +132,7 @@ use std::{
 use chrono::{DateTime, offset::Local};
 use crabstep::TypedStreamDeserializer;
 use plist::Value;
-use rusqlite::{CachedStatement, Connection, Error, Result, Row};
+use rusqlite::{CachedStatement, Connection, Result, Row};
 
 use crate::{
     error::{message::MessageError, table::TableError},
@@ -256,12 +256,6 @@ impl Table for Message {
             .or_else(|_| db.prepare_cached(&ios_13_older_query(None)))?)
     }
 
-    fn extract(message: Result<Result<Self, Error>, Error>) -> Result<Self, TableError> {
-        match message {
-            Ok(Ok(message)) => Ok(message),
-            Err(why) | Ok(Err(why)) => Err(TableError::QueryError(why)),
-        }
-    }
 }
 
 // MARK: Diagnostic
