@@ -119,8 +119,10 @@ impl<'a> Exporter<'a> for TXT<'a> {
             }
             current_message_row = msg.rowid;
 
-            // Generate the text of the message
-            let _ = msg.generate_text(self.config.data_source.db());
+            // Parse and apply the message body
+            if let Ok(body) = msg.parse_body(self.config.data_source.db()) {
+                msg.apply_body(body);
+            }
 
             // Render the announcement in-line
             if msg.is_announcement() {
@@ -347,7 +349,9 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 replies
                     .iter_mut()
                     .try_for_each(|reply| -> Result<(), TableError> {
-                        let _ = reply.generate_text(self.config.data_source.db());
+                        if let Ok(body) = reply.parse_body(self.config.data_source.db()) {
+                            reply.apply_body(body);
+                        }
                         if !reply.is_tapback() {
                             self.add_line(
                                 &mut formatted_message,
@@ -2267,7 +2271,9 @@ mod tests {
                     ]
                 ),
             ]),];
-        let _ = message.generate_text(config.data_source.db());
+        if let Ok(body) = message.parse_body(config.data_source.db()) {
+            message.apply_body(body);
+        }
 
         let actual = exporter.format_message(&message, 0).unwrap();
 
