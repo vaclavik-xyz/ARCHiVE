@@ -3067,9 +3067,9 @@ mod tests {
                     ]
                 ),
             ]),];
-        if let Ok(body) = message.parse_body(config.data_source.db()) {
-            message.apply_body(body);
-        }
+
+        let body = message.parse_body(config.data_source.db()).unwrap();
+        message.apply_body(body);
 
         let actual = exporter.format_message(&message, 0).unwrap();
 
