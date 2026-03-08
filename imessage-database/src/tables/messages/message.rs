@@ -608,7 +608,9 @@ impl Message {
             components = parse_body_legacy(&text);
         }
 
-        if text.is_some() {
+        // Return Ok if we have text or any meaningful non-text body data
+        // (e.g., Retracted components from fully-unsent messages, or edited_parts metadata)
+        if text.is_some() || !components.is_empty() || edited_parts.is_some() {
             Ok(ParsedBody {
                 text,
                 components,
