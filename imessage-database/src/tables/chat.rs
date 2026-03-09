@@ -63,7 +63,7 @@ pub struct Chat {
     pub chat_identifier: String,
     /// The service the chat used, i.e. iMessage, SMS, IRC, etc.
     pub service_name: Option<String>,
-    /// Optional custom name created created for the chat
+    /// Optional custom name created for the chat
     pub display_name: Option<String>,
 }
 
@@ -81,7 +81,6 @@ impl Table for Chat {
     fn get(db: &'_ Connection) -> Result<CachedStatement<'_>, TableError> {
         Ok(db.prepare_cached(&format!("SELECT * from {CHAT}"))?)
     }
-
 }
 
 // MARK: Cache
