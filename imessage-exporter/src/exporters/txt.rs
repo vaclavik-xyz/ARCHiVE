@@ -627,7 +627,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
             who = self.config.options.custom_name.as_deref().unwrap_or(YOU);
         }
 
-        let timestamp = format(&msg.date(&self.config.offset));
+        let timestamp = format(&msg.date(self.config.offset));
 
         match msg.get_announcement() {
             Some(announcement) => {
@@ -711,14 +711,14 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                             // Original message get an absolute timestamp
                             None => {
                                 let parsed_timestamp =
-                                    format(&get_local_time(&event.date, &self.config.offset));
+                                    format(&get_local_time(event.date, self.config.offset));
                                 out_s.push_str(&parsed_timestamp);
                                 out_s.push(' ');
                             }
                             // Subsequent edits get a relative timestamp
                             Some(prev_timestamp) => {
-                                let end = get_local_time(&event.date, &self.config.offset);
-                                let start = get_local_time(prev_timestamp, &self.config.offset);
+                                let end = get_local_time(event.date, self.config.offset);
+                                let start = get_local_time(*prev_timestamp, self.config.offset);
                                 if let Some(diff) = readable_diff(start, end) {
                                     out_s.push_str(indent);
                                     out_s.push_str("Edited ");
@@ -745,8 +745,8 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                     };
 
                     if let Some(diff) = readable_diff(
-                        msg.date(&self.config.offset),
-                        msg.date_edited(&self.config.offset),
+                        msg.date(self.config.offset),
+                        msg.date_edited(self.config.offset),
                     ) {
                         out_s.push_str(who);
                         out_s.push_str(" unsent this message part ");
@@ -1047,7 +1047,7 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         if let Some(date_str) = metadata.get("estimatedEndTime") {
             // Parse the estimated end time from the message's query string
             let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
-            let date_time = get_local_time(&date_stamp, &0);
+            let date_time = get_local_time(date_stamp, 0);
             let date_string = format(&date_time);
 
             out_s.push_str("\nExpected at ");
@@ -1057,7 +1057,7 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         else if let Some(date_str) = metadata.get("triggerTime") {
             // Parse the estimated end time from the message's query string
             let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
-            let date_time = get_local_time(&date_stamp, &0);
+            let date_time = get_local_time(date_stamp, 0);
             let date_string = format(&date_time);
 
             out_s.push_str("\nWas expected at ");
@@ -1067,7 +1067,7 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         else if let Some(date_str) = metadata.get("sendDate") {
             // Parse the estimated end time from the message's query string
             let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
-            let date_time = get_local_time(&date_stamp, &0);
+            let date_time = get_local_time(date_stamp, 0);
             let date_string = format(&date_time);
 
             out_s.push_str("\nChecked in at ");
