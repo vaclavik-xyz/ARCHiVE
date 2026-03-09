@@ -145,8 +145,10 @@ impl<'a> Exporter<'a> for HTML<'a> {
             }
             current_message_row = msg.rowid;
 
-            // Generate the text of the message
-            let _ = msg.generate_text(self.config.data_source.db());
+            // Parse and apply the message body
+            if let Ok(body) = msg.parse_body(self.config.data_source.db()) {
+                msg.apply_body(body);
+            }
 
             // Render the announcement in-line
             if msg.is_announcement() {
@@ -537,7 +539,9 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 replies
                     .iter_mut()
                     .try_for_each(|reply| -> Result<(), TableError> {
-                        let _ = reply.generate_text(self.config.data_source.db());
+                        if let Ok(body) = reply.parse_body(self.config.data_source.db()) {
+                            reply.apply_body(body);
+                        }
                         if !reply.is_tapback() {
                             // Set indent to 1 so we know this is a recursive call
                             self.add_line(
@@ -3063,7 +3067,9 @@ mod tests {
                     ]
                 ),
             ]),];
-        let _ = message.generate_text(config.data_source.db());
+
+        let body = message.parse_body(config.data_source.db()).unwrap();
+        message.apply_body(body);
 
         let actual = exporter.format_message(&message, 0).unwrap();
 
