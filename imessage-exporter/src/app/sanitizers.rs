@@ -76,6 +76,13 @@ impl HtmlBuilder {
         Self { buf: String::new() }
     }
 
+    /// Creates a new builder with pre-allocated capacity
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            buf: String::with_capacity(capacity),
+        }
+    }
+
     /// Appends raw, pre-built HTML (not escaped)
     #[inline]
     pub(crate) fn raw(&mut self, html: &str) -> &mut Self {
