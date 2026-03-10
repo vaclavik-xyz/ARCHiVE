@@ -156,7 +156,6 @@ impl<'a> Exporter<'a> for TXT<'a> {
                     Vacant(entry) => {
                         let mut path = self.config.options.export_path.clone();
                         path.push(filename);
-                        path.set_extension("txt");
 
                         let file = File::options().append(true).create(true).open(&path)?;
 
