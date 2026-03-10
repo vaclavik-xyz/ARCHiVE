@@ -662,8 +662,8 @@ impl Message {
     /// This field is stored as a unix timestamp with an epoch of `2001-01-01 00:00:00` in the local time zone
     ///
     /// `offset` can be provided by [`get_offset`](crate::util::dates::get_offset) or manually.
-    pub fn date(&self, offset: &i64) -> Result<DateTime<Local>, MessageError> {
-        get_local_time(&self.date, offset)
+    pub fn date(&self, offset: i64) -> Result<DateTime<Local>, MessageError> {
+        get_local_time(self.date, offset)
     }
 
     /// Calculates the date a message was marked as delivered.
@@ -671,8 +671,8 @@ impl Message {
     /// This field is stored as a unix timestamp with an epoch of `2001-01-01 00:00:00` in the local time zone
     ///
     /// `offset` can be provided by [`get_offset`](crate::util::dates::get_offset) or manually.
-    pub fn date_delivered(&self, offset: &i64) -> Result<DateTime<Local>, MessageError> {
-        get_local_time(&self.date_delivered, offset)
+    pub fn date_delivered(&self, offset: i64) -> Result<DateTime<Local>, MessageError> {
+        get_local_time(self.date_delivered, offset)
     }
 
     /// Calculates the date a message was marked as read.
@@ -680,8 +680,8 @@ impl Message {
     /// This field is stored as a unix timestamp with an epoch of `2001-01-01 00:00:00` in the local time zone
     ///
     /// `offset` can be provided by [`get_offset`](crate::util::dates::get_offset) or manually.
-    pub fn date_read(&self, offset: &i64) -> Result<DateTime<Local>, MessageError> {
-        get_local_time(&self.date_read, offset)
+    pub fn date_read(&self, offset: i64) -> Result<DateTime<Local>, MessageError> {
+        get_local_time(self.date_read, offset)
     }
 
     /// Calculates the date a message was most recently edited.
@@ -689,8 +689,8 @@ impl Message {
     /// This field is stored as a unix timestamp with an epoch of `2001-01-01 00:00:00` in the local time zone
     ///
     /// `offset` can be provided by [`get_offset`](crate::util::dates::get_offset) or manually.
-    pub fn date_edited(&self, offset: &i64) -> Result<DateTime<Local>, MessageError> {
-        get_local_time(&self.date_edited, offset)
+    pub fn date_edited(&self, offset: i64) -> Result<DateTime<Local>, MessageError> {
+        get_local_time(self.date_edited, offset)
     }
 
     /// Gets the time until the message was read. This can happen in two ways:
@@ -707,7 +707,7 @@ impl Message {
     ///
     /// `offset` can be provided by [`get_offset`](crate::util::dates::get_offset) or manually.
     #[must_use]
-    pub fn time_until_read(&self, offset: &i64) -> Option<String> {
+    pub fn time_until_read(&self, offset: i64) -> Option<String> {
         // Message we received
         if !self.is_from_me && self.date_read != 0 && self.date != 0 {
             return readable_diff(self.date(offset), self.date_read(offset));
@@ -774,7 +774,7 @@ impl Message {
         self.associated_message_type == Some(4000)
     }
 
-    /// `true` if the message is a [`Poll`] vote, else `false`
+    /// `true` if the message adds a new option to a [`Poll`], else `false`
     #[must_use]
     pub fn is_poll_update(&self) -> bool {
         matches!(self.variant(), Variant::PollUpdate)
