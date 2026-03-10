@@ -380,7 +380,7 @@ impl Config {
             estimated_export_size += total_attachment_size;
             if estimated_export_size >= free_space_at_location {
                 return Err(RuntimeError::NotEnoughAvailableSpace(
-                    estimated_export_size + total_attachment_size,
+                    estimated_export_size,
                     free_space_at_location,
                 ));
             }
@@ -441,18 +441,15 @@ impl Config {
         if let (Some(first), Some(last)) = (
             message_diag.first_message_date,
             message_diag.last_message_date,
-        )
-            && let (Ok(first_date), Ok(last_date)) = (
-                get_local_time(first, self.offset),
-                get_local_time(last, self.offset),
-            )
-        {
+        ) && let (Ok(first_date), Ok(last_date)) = (
+            get_local_time(first, self.offset),
+            get_local_time(last, self.offset),
+        ) {
             println!(
                 "    Date range: {} to {}\n                {}",
                 format_date(&first_date),
                 format_date(&last_date),
-                readable_diff(&first_date, &last_date)
-                    .unwrap_or_else(|| "N/A".to_string()),
+                readable_diff(&first_date, &last_date).unwrap_or_else(|| "N/A".to_string()),
             );
         }
 
@@ -538,7 +535,7 @@ impl Config {
     /// Start the app given the provided set of options. This will either run
     /// diagnostic tests on the database or export data to the specified file type.
     ///
-    // # Example:
+    /// # Example:
     ///
     /// ```
     /// use crate::app::{

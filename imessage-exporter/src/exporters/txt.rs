@@ -151,11 +151,11 @@ impl<'a> Exporter<'a> for TXT<'a> {
         match self.config.conversation(message) {
             Some((chatroom, _)) => {
                 let filename = self.config.filename(chatroom);
-                match self.files.entry(filename) {
+                match self.files.entry(filename.clone()) {
                     Occupied(entry) => Ok(entry.into_mut()),
                     Vacant(entry) => {
                         let mut path = self.config.options.export_path.clone();
-                        path.push(self.config.filename(chatroom));
+                        path.push(filename);
                         path.set_extension("txt");
 
                         let file = File::options().append(true).create(true).open(&path)?;
@@ -713,10 +713,11 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                         match previous_timestamp {
                             // Original message get an absolute timestamp
                             None => {
-                                let parsed_timestamp = match get_local_time(event.date, self.config.offset) {
-                                    Ok(d) => format(&d),
-                                    Err(why) => why.to_string(),
-                                };
+                                let parsed_timestamp =
+                                    match get_local_time(event.date, self.config.offset) {
+                                        Ok(d) => format(&d),
+                                        Err(why) => why.to_string(),
+                                    };
                                 out_s.push_str(&parsed_timestamp);
                                 out_s.push(' ');
                             }
@@ -725,8 +726,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                                 if let (Ok(start), Ok(end)) = (
                                     get_local_time(*prev_timestamp, self.config.offset),
                                     get_local_time(event.date, self.config.offset),
-                                )
-                                    && let Some(diff) = readable_diff(&start, &end)
+                                ) && let Some(diff) = readable_diff(&start, &end)
                                 {
                                     out_s.push_str(indent);
                                     out_s.push_str("Edited ");
@@ -752,7 +752,12 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                         "They"
                     };
 
-                    if let Some(diff) = msg.date(self.config.offset).ok().zip(msg.date_edited(self.config.offset).ok()).and_then(|(s, e)| readable_diff(&s, &e)) {
+                    if let Some(diff) = msg
+                        .date(self.config.offset)
+                        .ok()
+                        .zip(msg.date_edited(self.config.offset).ok())
+                        .and_then(|(s, e)| readable_diff(&s, &e))
+                    {
                         out_s.push_str(who);
                         out_s.push_str(" unsent this message part ");
                         out_s.push_str(&diff);

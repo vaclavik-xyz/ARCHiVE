@@ -70,7 +70,7 @@ impl ExportProgress {
 
     /// Starts the progress bar with the specified total length
     pub fn start(&self, length: i64) {
-        self.length.set(length as u64);
+        self.length.set(length.try_into().unwrap_or(0));
         self.position.set(0);
         self.start_time.set(Some(Instant::now()));
         self.draw();
