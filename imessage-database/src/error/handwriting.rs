@@ -27,7 +27,16 @@ pub enum HandwritingError {
     ResizeError(std::num::TryFromIntError),
 }
 
-impl std::error::Error for HandwritingError {}
+impl std::error::Error for HandwritingError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            HandwritingError::ProtobufError(e) => Some(e),
+            HandwritingError::XZError(e) => Some(e),
+            HandwritingError::ResizeError(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl Display for HandwritingError {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> Result {
