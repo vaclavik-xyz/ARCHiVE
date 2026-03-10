@@ -15,8 +15,11 @@ use std::{
 
 use crate::{
     app::{
-        compatibility::attachment_manager::AttachmentManagerMode, error::RuntimeError,
-        progress::ExportProgress, runtime::Config, sanitizers::sanitize_html,
+        compatibility::attachment_manager::AttachmentManagerMode,
+        error::RuntimeError,
+        progress::ExportProgress,
+        runtime::Config,
+        sanitizers::{HtmlBuilder, sanitize_html},
     },
     exporters::{
         exporter::{
@@ -220,11 +223,12 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         let mut formatted_message = String::with_capacity(1024);
 
         // Message div
+        let clean_guid = sanitize_html(&message.guid);
         if message.is_reply() && indent_size == 0 {
             // Add an ID for any top-level message so we can link to them in threads
             self.add_line(
                 &mut formatted_message,
-                &format!("<div class=\"message\" id=\"r-{}\">", message.guid),
+                &format!("<div class=\"message\" id=\"r-{clean_guid}\">"),
                 "",
                 "",
             );
@@ -248,8 +252,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         // Add message date
         let (date, read_after) = self.get_time(message);
         let linked_time = format!(
-            "<a title=\"Reveal in Messages app\" href=\"sms://open?message-guid={}\">{date}</a>",
-            message.guid
+            "<a title=\"Reveal in Messages app\" href=\"sms://open?message-guid={clean_guid}\">{date}</a>",
         );
         self.add_line(
             &mut formatted_message,
@@ -264,10 +267,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 // If we are indented it means we are rendering in a thread
                 self.add_line(
                     &mut formatted_message,
-                    &format!(
-                        "<a title=\"View in context\" href=\"#r-{}\">⇲</a>",
-                        message.guid
-                    ),
+                    &format!("<a title=\"View in context\" href=\"#r-{clean_guid}\">⇲</a>",),
                     "<span class=\"reply_anchor\">",
                     "</span>",
                 );
@@ -275,10 +275,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 // If there is no ident we are rendering a top-level message
                 self.add_line(
                     &mut formatted_message,
-                    &format!(
-                        "<a title=\"View in thread\" href=\"#{}\">⇱</a>",
-                        message.guid
-                    ),
+                    &format!("<a title=\"View in thread\" href=\"#{clean_guid}\">⇱</a>",),
                     "<span class=\"reply_anchor\">",
                     "</span>",
                 );
@@ -288,11 +285,11 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         // Add message sender
         self.add_line(
             &mut formatted_message,
-            self.config.who(
+            &sanitize_html(self.config.who(
                 message.handle_id,
                 message.is_from_me(),
                 &message.destination_caller_id,
-            ),
+            )),
             "<span class=\"sender\">",
             "</span></p>",
         );
@@ -441,7 +438,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                                     Err(result) => {
                                         self.add_line(
                                             &mut formatted_message,
-                                            result,
+                                            &sanitize_html(result),
                                             "<span class=\"attachment_error\">Unable to locate attachment: ",
                                             "</span>",
                                         );
@@ -547,7 +544,10 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                             self.add_line(
                                 &mut formatted_message,
                                 &self.format_message(reply, 1)?,
-                                &format!("<div class=\"reply\" id=\"{}\">", reply.guid),
+                                &format!(
+                                    "<div class=\"reply\" id=\"{}\">",
+                                    sanitize_html(&reply.guid)
+                                ),
                                 "</div>",
                             );
                         }
@@ -608,7 +608,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         handle_result.ok_or(attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?)?;
 
         // Build a relative filepath from the fully qualified one on the `Attachment`
-        let embed_path = self.config.message_attachment_path(attachment);
+        let raw_embed_path = self.config.message_attachment_path(attachment);
+        let embed_path = sanitize_html(&raw_embed_path);
 
         Ok(match attachment.mime_type() {
             MediaType::Image(_) => {
@@ -626,33 +627,39 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             }
             MediaType::Audio(media_type) => {
                 if let Some(transcription) = &metadata.transcription {
+                    let clean_transcription = sanitize_html(transcription);
                     return Ok(format!(
-                        "<div><audio controls src=\"{embed_path}\" type=\"{media_type}\"> </audio></div> <hr><span class=\"transcription\">Transcription: {transcription}</span>"
+                        "<div><audio controls src=\"{embed_path}\" type=\"{media_type}\"> </audio></div> <hr><span class=\"transcription\">Transcription: {clean_transcription}</span>"
                     ));
                 }
                 format!("<audio controls src=\"{embed_path}\" type=\"{media_type}\"> </audio>")
             }
             MediaType::Text(_) => {
+                let clean_filename =
+                    sanitize_html(attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?);
                 format!(
-                    "<a href=\"{embed_path}\">Click to download {} ({})</a>",
-                    attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?,
+                    "<a href=\"{embed_path}\">Click to download {clean_filename} ({})</a>",
                     attachment.file_size()
                 )
             }
-            MediaType::Application(_) => format!(
-                "<a href=\"{embed_path}\">Click to download {} ({})</a>",
-                attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?,
-                attachment.file_size()
-            ),
+            MediaType::Application(_) => {
+                let clean_filename =
+                    sanitize_html(attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?);
+                format!(
+                    "<a href=\"{embed_path}\">Click to download {clean_filename} ({})</a>",
+                    attachment.file_size()
+                )
+            }
             MediaType::Unknown => {
                 if attachment
                     .copied_path
                     .as_ref()
                     .is_some_and(|path| path.is_dir())
                 {
+                    let clean_filename =
+                        sanitize_html(attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?);
                     format!(
-                        "<p>Folder: <i>{}</i> ({}) <a href=\"{embed_path}\">Click to open</a></p>",
-                        attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?,
+                        "<p>Folder: <i>{clean_filename}</i> ({}) <a href=\"{embed_path}\">Click to open</a></p>",
                         attachment.file_size()
                     )
                 } else {
@@ -679,9 +686,10 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                         StickerSource::Genmoji => {
                             // Add sticker prompt
                             if let Some(prompt) = &sticker.emoji_description {
+                                let clean_prompt = sanitize_html(prompt);
                                 let _ = write!(
                                     sticker_embed,
-                                    "\n<div class=\"genmoji_prompt\">Genmoji prompt: {prompt}</div>"
+                                    "\n<div class=\"genmoji_prompt\">Genmoji prompt: {clean_prompt}</div>"
                                 );
                             }
                         }
@@ -702,9 +710,10 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                         }
                         StickerSource::App(bundle_id) => {
                             // Add the application name used to generate/send the sticker
-                            let app_name = sticker
+                            let raw_app_name = sticker
                                 .get_sticker_source_application_name(self.config.data_source.db())
                                 .unwrap_or(bundle_id);
+                            let app_name = sanitize_html(&raw_app_name);
                             let _ = write!(
                                 sticker_embed,
                                 "\n<div class=\"sticker_name\">App: {app_name}</div>"
@@ -805,20 +814,15 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 if message.is_url()
                     && let Some(text) = &message.text
                 {
-                    let mut out_s = String::new();
-                    out_s.push_str("<a href=\"");
-                    out_s.push_str(text);
-                    out_s.push_str("\">");
-
-                    out_s.push_str("<div class=\"app_header\"><div class=\"name\">");
-                    out_s.push_str(text);
-                    out_s.push_str("</div></div>");
-
-                    out_s.push_str("<div class=\"app_footer\"><div class=\"caption\">");
-                    out_s.push_str(text);
-                    out_s.push_str("</div></div></a>");
-
-                    return Ok(out_s);
+                    let mut h = HtmlBuilder::new();
+                    h.raw("<a href=\"").attr(text).raw("\">");
+                    h.raw("<div class=\"app_header\"><div class=\"name\">")
+                        .text(text)
+                        .raw("</div></div>");
+                    h.raw("<div class=\"app_footer\"><div class=\"caption\">")
+                        .text(text)
+                        .raw("</div></div></a>");
+                    return Ok(h.build());
                 }
                 return Err(MessageError::PlistParseError(PlistParseError::NoPayload));
             }
@@ -840,11 +844,11 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                     Tapback::Sticker => {
                         let mut paths =
                             Attachment::from_message(self.config.data_source.db(), msg)?;
-                        let who = self.config.who(
+                        let who = sanitize_html(self.config.who(
                             msg.handle_id,
                             msg.is_from_me(),
                             &msg.destination_caller_id,
-                        );
+                        ));
                         // Sticker messages have only one attachment, the sticker image
                         Ok(match paths.get_mut(0) {
                             Some(sticker) => format!(
@@ -858,15 +862,16 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                             }
                         })
                     }
-                    _ => Ok(format!(
-                        "<span class=\"tapback\"><b>{}</b> by {}</span>",
-                        tapback,
-                        self.config.who(
+                    _ => {
+                        let who = sanitize_html(self.config.who(
                             msg.handle_id,
                             msg.is_from_me(),
-                            &msg.destination_caller_id
-                        ),
-                    )),
+                            &msg.destination_caller_id,
+                        ));
+                        Ok(format!(
+                            "<span class=\"tapback\"><b>{tapback}</b> by {who}</span>",
+                        ))
+                    }
                 }
             }
             _ => unreachable!(),
@@ -886,6 +891,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         if who == ME {
             who = self.config.options.custom_name.as_deref().unwrap_or("You");
         }
+        let who = sanitize_html(who);
         let timestamp = match msg.date(self.config.offset) {
             Ok(d) => format(&d),
             Err(why) => why.to_string(),
@@ -897,9 +903,11 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                     Announcement::GroupAction(action) => match action {
                         GroupAction::ParticipantAdded(person)
                         | GroupAction::ParticipantRemoved(person) => {
-                            let resolved_person =
-                                self.config
-                                    .who(Some(*person), false, &msg.destination_caller_id);
+                            let resolved_person = sanitize_html(self.config.who(
+                                Some(*person),
+                                false,
+                                &msg.destination_caller_id,
+                            ));
                             let action_word = if matches!(action, GroupAction::ParticipantAdded(_))
                             {
                                 "added"
@@ -1021,12 +1029,12 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                     out_s.push_str("</table>");
                 }
                 EditStatus::Unsent => {
-                    let who = if msg.is_from_me() {
+                    let who = sanitize_html(if msg.is_from_me() {
                         self.config.options.custom_name.as_deref().unwrap_or(YOU)
                     } else {
                         self.config
                             .who(msg.handle_id, msg.is_from_me(), &msg.destination_caller_id)
-                    };
+                    });
 
                     match msg
                         .date(self.config.offset)
@@ -1117,295 +1125,254 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
 // MARK: Balloons
 impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
     fn format_url(&self, msg: &Message, balloon: &URLMessage, _: &Message) -> String {
-        let mut out_s = String::new();
+        let mut h = HtmlBuilder::new();
 
         // Make the whole bubble clickable
         let mut close_url = false;
         if let Some(url) = balloon.get_url() {
-            out_s.push_str("<a href=\"");
-            out_s.push_str(url);
-            out_s.push_str("\">");
+            h.raw("<a href=\"").attr(url).raw("\">");
             close_url = true;
         } else if let Some(text) = &msg.text {
             // Fallback if the balloon data does not contain the URL
-            out_s.push_str("<a href=\"");
-            out_s.push_str(text);
-            out_s.push_str("\">");
+            h.raw("<a href=\"").attr(text).raw("\">");
             close_url = true;
         }
 
         // Header section
-        out_s.push_str("<div class=\"app_header\">");
+        h.raw("<div class=\"app_header\">");
 
         // Add preview images
-        balloon.images.iter().for_each(|image| {
-            out_s.push_str("<img src=\"");
-            out_s.push_str(image);
+        for image in &balloon.images {
+            h.raw("<img src=\"").attr(image);
             if self.config.options.no_lazy {
-                out_s.push_str("\" onerror=\"this.style.display='none'\">");
+                h.raw("\" onerror=\"this.style.display='none'\">");
             } else {
-                out_s.push_str("\" loading=\"lazy\" onerror=\"this.style.display='none'\">");
+                h.raw("\" loading=\"lazy\" onerror=\"this.style.display='none'\">");
             }
-        });
+        }
 
         if let Some(site_name) = balloon.site_name {
-            out_s.push_str("<div class=\"name\">");
-            out_s.push_str(site_name);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"name\">").text(site_name).raw("</div>");
         } else if let Some(url) = balloon.get_url() {
-            out_s.push_str("<div class=\"name\">");
-            out_s.push_str(url);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"name\">").text(url).raw("</div>");
         } else if let Some(text) = &msg.text {
             // Fallback if the balloon data does not contain the URL
-            out_s.push_str("<div class=\"name\">");
-            out_s.push_str(text);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"name\">").text(text).raw("</div>");
         }
 
         // Header end
-        out_s.push_str("</div>");
+        h.raw("</div>");
 
         // Only write the footer if there is data to write
         if balloon.title.is_some() || balloon.summary.is_some() {
-            out_s.push_str("<div class=\"app_footer\">");
+            h.raw("<div class=\"app_footer\">");
 
             // Title
             if let Some(title) = balloon.title {
-                out_s.push_str("<div class=\"caption\">");
-                out_s.push_str(&sanitize_html(title));
-                out_s.push_str("</div>");
+                h.raw("<div class=\"caption\">").text(title).raw("</div>");
             }
 
             // Subtitle
             if let Some(summary) = balloon.summary {
-                out_s.push_str("<div class=\"subcaption\">");
-                out_s.push_str(&sanitize_html(summary));
-                out_s.push_str("</div>");
+                h.raw("<div class=\"subcaption\">")
+                    .text(summary)
+                    .raw("</div>");
             }
 
             // End footer
-            out_s.push_str("</div>");
+            h.raw("</div>");
         }
 
         // End the link
         if close_url {
-            out_s.push_str("</a>");
+            h.raw("</a>");
         }
-        out_s
+        h.build()
     }
 
     fn format_music(&self, balloon: &MusicMessage, _: &Message) -> String {
-        let mut out_s = String::new();
+        let mut h = HtmlBuilder::new();
 
         // Header section
-        out_s.push_str("<div class=\"app_header\">");
+        h.raw("<div class=\"app_header\">");
 
         // Name
         if let Some(track_name) = balloon.track_name {
-            out_s.push_str("<div class=\"name\">");
-            out_s.push_str(track_name);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"name\">").text(track_name).raw("</div>");
         }
 
         // Add preview section
         if let Some(preview) = balloon.preview {
-            out_s.push_str("<audio controls src=\"");
-            out_s.push_str(preview);
-            out_s.push_str("\"> </audio>");
+            h.raw("<audio controls src=\"")
+                .attr(preview)
+                .raw("\"> </audio>");
         }
 
         // Add lyrics, if any
         if let Some(lyrics) = &balloon.lyrics {
-            out_s.push_str("<div class=\"ldtext\">");
+            h.raw("<div class=\"ldtext\">");
             for line in lyrics {
-                out_s.push_str("<p>");
-                out_s.push_str(line);
-                out_s.push_str("</p>");
+                h.raw("<p>").text(line).raw("</p>");
             }
-            out_s.push_str("</div>");
+            h.raw("</div>");
         }
 
         // Header end
-        out_s.push_str("</div>");
+        h.raw("</div>");
 
         // Make the footer clickable so we can interact with the preview
         if let Some(url) = balloon.url {
-            out_s.push_str("<a href=\"");
-            out_s.push_str(url);
-            out_s.push_str("\">");
+            h.raw("<a href=\"").attr(url).raw("\">");
         }
 
         // Only write the footer if there is data to write
         if balloon.artist.is_some() || balloon.album.is_some() {
-            out_s.push_str("<div class=\"app_footer\">");
+            h.raw("<div class=\"app_footer\">");
 
             // artist
             if let Some(artist) = balloon.artist {
-                out_s.push_str("<div class=\"caption\">");
-                out_s.push_str(artist);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"caption\">").text(artist).raw("</div>");
             }
 
             // Subtitle
             if let Some(album) = balloon.album {
-                out_s.push_str("<div class=\"subcaption\">");
-                out_s.push_str(album);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"subcaption\">")
+                    .text(album)
+                    .raw("</div>");
             }
 
             // End footer
-            out_s.push_str("</div>");
+            h.raw("</div>");
         }
 
         // End the link
         if balloon.url.is_some() {
-            out_s.push_str("</a>");
+            h.raw("</a>");
         }
-        out_s
+        h.build()
     }
 
     fn format_collaboration(&self, balloon: &CollaborationMessage, _: &Message) -> String {
-        let mut out_s = String::new();
+        let mut h = HtmlBuilder::new();
 
         // Header section
-        out_s.push_str("<div class=\"app_header\">");
+        h.raw("<div class=\"app_header\">");
 
         // Name
         if let Some(app_name) = balloon.app_name {
-            out_s.push_str("<div class=\"name\">");
-            out_s.push_str(app_name);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"name\">").text(app_name).raw("</div>");
         } else if let Some(bundle_id) = balloon.bundle_id {
-            out_s.push_str("<div class=\"name\">");
-            out_s.push_str(bundle_id);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"name\">").text(bundle_id).raw("</div>");
         }
 
         // Header end
-        out_s.push_str("</div>");
+        h.raw("</div>");
 
         // Make the footer clickable so we can interact with the preview
         if let Some(url) = balloon.url {
-            out_s.push_str("<a href=\"");
-            out_s.push_str(url);
-            out_s.push_str("\">");
+            h.raw("<a href=\"").attr(url).raw("\">");
         }
 
         // Only write the footer if there is data to write
         if balloon.title.is_some() || balloon.get_url().is_some() {
-            out_s.push_str("<div class=\"app_footer\">");
+            h.raw("<div class=\"app_footer\">");
 
             // artist
             if let Some(title) = balloon.title {
-                out_s.push_str("<div class=\"caption\">");
-                out_s.push_str(title);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"caption\">").text(title).raw("</div>");
             }
 
             // Subtitle
             if let Some(url) = balloon.get_url() {
-                out_s.push_str("<div class=\"subcaption\">");
-                out_s.push_str(url);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"subcaption\">").text(url).raw("</div>");
             }
 
             // End footer
-            out_s.push_str("</div>");
+            h.raw("</div>");
         }
 
         // End the link
         if balloon.url.is_some() {
-            out_s.push_str("</a>");
+            h.raw("</a>");
         }
 
-        out_s
+        h.build()
     }
 
     fn format_app_store(&self, balloon: &AppStoreMessage, _: &'a Message) -> String {
-        let mut out_s = String::new();
+        let mut h = HtmlBuilder::new();
 
         // Header section
-        out_s.push_str("<div class=\"app_header\">");
+        h.raw("<div class=\"app_header\">");
 
         // App name
         if let Some(app_name) = balloon.app_name {
-            out_s.push_str("<div class=\"name\">");
-            out_s.push_str(app_name);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"name\">").text(app_name).raw("</div>");
         }
 
         // Header end
-        out_s.push_str("</div>");
+        h.raw("</div>");
 
         // Make the footer clickable so we can interact with the preview
         if let Some(url) = balloon.url {
-            out_s.push_str("<a href=\"");
-            out_s.push_str(url);
-            out_s.push_str("\">");
+            h.raw("<a href=\"").attr(url).raw("\">");
         }
 
         // Only write the footer if there is data to write
         if balloon.description.is_some() || balloon.genre.is_some() {
-            out_s.push_str("<div class=\"app_footer\">");
+            h.raw("<div class=\"app_footer\">");
 
             // App description
             if let Some(description) = balloon.description {
-                out_s.push_str("<div class=\"caption\">");
-                out_s.push_str(description);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"caption\">")
+                    .text(description)
+                    .raw("</div>");
             }
 
             // App platform
             if let Some(platform) = balloon.platform {
-                out_s.push_str("<div class=\"subcaption\">");
-                out_s.push_str(platform);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"subcaption\">")
+                    .text(platform)
+                    .raw("</div>");
             }
 
             // App genre
             if let Some(genre) = balloon.genre {
-                out_s.push_str("<div class=\"trailing_subcaption\">");
-                out_s.push_str(genre);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"trailing_subcaption\">")
+                    .text(genre)
+                    .raw("</div>");
             }
 
             // End footer
-            out_s.push_str("</div>");
+            h.raw("</div>");
         }
 
         // End the link
         if balloon.url.is_some() {
-            out_s.push_str("</a>");
+            h.raw("</a>");
         }
-        out_s
+        h.build()
     }
 
     fn format_placemark(&self, balloon: &PlacemarkMessage, _: &'a Message) -> String {
-        let mut out_s = String::new();
+        let mut h = HtmlBuilder::new();
 
         // Make the whole bubble clickable
         if let Some(url) = balloon.get_url() {
-            out_s.push_str("<a href=\"");
-            out_s.push_str(url);
-            out_s.push_str("\">");
+            h.raw("<a href=\"").attr(url).raw("\">");
         }
 
         // Header section
-        out_s.push_str("<div class=\"app_header\">");
+        h.raw("<div class=\"app_header\">");
 
         if let Some(place_name) = balloon.place_name {
-            out_s.push_str("<div class=\"name\">");
-            out_s.push_str(place_name);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"name\">").text(place_name).raw("</div>");
         } else if let Some(url) = balloon.get_url() {
-            out_s.push_str("<div class=\"name\">");
-            out_s.push_str(url);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"name\">").text(url).raw("</div>");
         }
 
         // Header end
-        out_s.push_str("</div>");
+        h.raw("</div>");
 
         // Only write the footer if there is data to write
         if balloon.placemark.address.is_some()
@@ -1413,45 +1380,43 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
             || balloon.placemark.country.is_some()
             || balloon.placemark.sub_administrative_area.is_some()
         {
-            out_s.push_str("<div class=\"app_footer\">");
+            h.raw("<div class=\"app_footer\">");
 
             // Address
             if let Some(address) = balloon.placemark.address {
-                out_s.push_str("<div class=\"caption\">");
-                out_s.push_str(address);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"caption\">").text(address).raw("</div>");
             }
 
             // Postal Code
             if let Some(postal_code) = balloon.placemark.postal_code {
-                out_s.push_str("<div class=\"trailing_caption\">");
-                out_s.push_str(postal_code);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"trailing_caption\">")
+                    .text(postal_code)
+                    .raw("</div>");
             }
 
             // Country
             if let Some(country) = balloon.placemark.country {
-                out_s.push_str("<div class=\"subcaption\">");
-                out_s.push_str(country);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"subcaption\">")
+                    .text(country)
+                    .raw("</div>");
             }
 
             // Administrative Area
             if let Some(area) = balloon.placemark.sub_administrative_area {
-                out_s.push_str("<div class=\"trailing_subcaption\">");
-                out_s.push_str(area);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"trailing_subcaption\">")
+                    .text(area)
+                    .raw("</div>");
             }
 
             // End footer
-            out_s.push_str("</div>");
+            h.raw("</div>");
         }
 
         // End the link
         if balloon.get_url().is_some() {
-            out_s.push_str("</a>");
+            h.raw("</a>");
         }
-        out_s
+        h.build()
     }
 
     fn format_handwriting(&self, _: &Message, balloon: &HandwrittenMessage, _: &Message) -> String {
@@ -1460,36 +1425,34 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
     }
 
     fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouch, _: &'a Message) -> String {
-        format!(
-            "<div class=\"app_header\"><div class=\"name\">Digital Touch Message</div></div>\n<div class=\"app_footer\"><div class=\"caption\">{balloon:?}</div></div>"
-        )
+        let mut h = HtmlBuilder::new();
+        h.raw("<div class=\"app_header\"><div class=\"name\">Digital Touch Message</div></div>\n<div class=\"app_footer\"><div class=\"caption\">")
+            .text(&format!("{balloon:?}"))
+            .raw("</div></div>");
+        h.build()
     }
 
     fn format_apple_pay(&self, balloon: &AppMessage, _: &Message) -> String {
-        let mut out_s = String::new();
+        let mut h = HtmlBuilder::new();
 
-        out_s.push_str("<div class=\"app_header\">");
+        h.raw("<div class=\"app_header\">");
 
         if let Some(app_name) = balloon.app_name {
-            out_s.push_str("<div class=\"name\">");
-            out_s.push_str(app_name);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"name\">").text(app_name).raw("</div>");
         }
 
         // Header end, footer begin
-        out_s.push_str("</div>");
-        out_s.push_str("<div class=\"app_footer\">");
+        h.raw("</div>");
+        h.raw("<div class=\"app_footer\">");
 
         if let Some(ldtext) = balloon.ldtext {
-            out_s.push_str("<div class=\"caption\">");
-            out_s.push_str(ldtext);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"caption\">").text(ldtext).raw("</div>");
         }
 
         // End footer
-        out_s.push_str("</div>");
+        h.raw("</div>");
 
-        out_s
+        h.build()
     }
 
     fn format_fitness(&self, balloon: &AppMessage, message: &Message) -> String {
@@ -1501,51 +1464,45 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
     }
 
     fn format_find_my(&self, balloon: &AppMessage, _: &'a Message) -> String {
-        let mut out_s = String::new();
+        let mut h = HtmlBuilder::new();
 
-        out_s.push_str("<div class=\"app_header\">");
+        h.raw("<div class=\"app_header\">");
 
         if let Some(app_name) = balloon.app_name {
-            out_s.push_str("<div class=\"name\">");
-            out_s.push_str(app_name);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"name\">").text(app_name).raw("</div>");
         }
 
         // Header end, footer begin
-        out_s.push_str("</div>");
-        out_s.push_str("<div class=\"app_footer\">");
+        h.raw("</div>");
+        h.raw("<div class=\"app_footer\">");
 
         if let Some(ldtext) = balloon.ldtext {
-            out_s.push_str("<div class=\"caption\">");
-            out_s.push_str(ldtext);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"caption\">").text(ldtext).raw("</div>");
         }
 
         // End footer
-        out_s.push_str("</div>");
+        h.raw("</div>");
 
-        out_s
+        h.build()
     }
 
     fn format_check_in(&self, balloon: &AppMessage, _: &Message) -> String {
-        let mut out_s = String::new();
+        let mut h = HtmlBuilder::new();
 
-        out_s.push_str("<div class=\"app_header\">");
+        h.raw("<div class=\"app_header\">");
 
         // Name
-        out_s.push_str("<div class=\"name\">");
-        out_s.push_str(balloon.app_name.unwrap_or("Check In"));
-        out_s.push_str("</div>");
+        h.raw("<div class=\"name\">")
+            .text(balloon.app_name.unwrap_or("Check In"))
+            .raw("</div>");
 
         // ldtext
         if let Some(ldtext) = balloon.ldtext {
-            out_s.push_str("<div class=\"ldtext\">");
-            out_s.push_str(ldtext);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"ldtext\">").text(ldtext).raw("</div>");
         }
 
         // Header end, footer begin
-        out_s.push_str("</div>");
+        h.raw("</div>");
 
         // Only write the footer if there is data to write
         let metadata: HashMap<&str, &str> = balloon.parse_query_string();
@@ -1557,13 +1514,11 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
             if let Ok(date_time) = get_local_time(date_stamp, 0) {
                 let date_string = format(&date_time);
 
-                out_s.push_str("<div class=\"app_footer\">");
-
-                out_s.push_str("<div class=\"caption\">Expected around ");
-                out_s.push_str(&date_string);
-                out_s.push_str("</div>");
-
-                out_s.push_str("</div>");
+                h.raw("<div class=\"app_footer\">");
+                h.raw("<div class=\"caption\">Expected around ")
+                    .text(&date_string)
+                    .raw("</div>");
+                h.raw("</div>");
             }
         }
         // Expired check-in
@@ -1573,13 +1528,11 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
             if let Ok(date_time) = get_local_time(date_stamp, 0) {
                 let date_string = format(&date_time);
 
-                out_s.push_str("<div class=\"app_footer\">");
-
-                out_s.push_str("<div class=\"caption\">Was expected around ");
-                out_s.push_str(&date_string);
-                out_s.push_str("</div>");
-
-                out_s.push_str("</div>");
+                h.raw("<div class=\"app_footer\">");
+                h.raw("<div class=\"caption\">Was expected around ")
+                    .text(&date_string)
+                    .raw("</div>");
+                h.raw("</div>");
             }
         }
         // Accepted check-in
@@ -1589,21 +1542,19 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
             if let Ok(date_time) = get_local_time(date_stamp, 0) {
                 let date_string = format(&date_time);
 
-                out_s.push_str("<div class=\"app_footer\">");
-
-                out_s.push_str("<div class=\"caption\">Checked in at ");
-                out_s.push_str(&date_string);
-                out_s.push_str("</div>");
-
-                out_s.push_str("</div>");
+                h.raw("<div class=\"app_footer\">");
+                h.raw("<div class=\"caption\">Checked in at ")
+                    .text(&date_string)
+                    .raw("</div>");
+                h.raw("</div>");
             }
         }
 
-        out_s
+        h.build()
     }
 
     fn format_poll(&self, poll: &Poll, _: &'a Message) -> String {
-        let mut out_s = String::new();
+        let mut h = HtmlBuilder::new();
 
         // Calculate max votes for scaling the bars
         let max_votes = poll
@@ -1615,7 +1566,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
             .unwrap_or(0);
 
         // Start the poll container
-        out_s.push_str("<div class=\"poll-container\">");
+        h.raw("<div class=\"poll-container\">");
 
         for poll_option in &poll.order {
             if let Some(option) = poll.options.get(poll_option) {
@@ -1626,36 +1577,39 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
                     0
                 };
 
-                out_s.push_str("<div class=\"poll-option\">");
+                h.raw("<div class=\"poll-option\">");
 
                 // Option header with name and vote count
-                out_s.push_str(&format!(
-                    "<div class=\"option-header\"><span>{}</span><span class=\"vote-count\">{}</span></div>",
-                    option.text, vote_count
-                ));
+                h.raw("<div class=\"option-header\"><span>")
+                    .text(&option.text)
+                    .raw("</span><span class=\"vote-count\">")
+                    .raw(&vote_count.to_string())
+                    .raw("</span></div>");
 
                 // Vote bar visualization
-                out_s.push_str("<div class=\"vote-bar-container\">");
-                out_s.push_str(&format!(
+                h.raw("<div class=\"vote-bar-container\">");
+                h.raw(&format!(
                     "<div class=\"vote-bar\" style=\"width: {bar_width}%;\"></div>"
                 ));
-                out_s.push_str("</div>");
+                h.raw("</div>");
 
                 // List of voters
                 if !option.votes.is_empty() {
-                    out_s.push_str("<div class=\"voters-list\">");
+                    h.raw("<div class=\"voters-list\">");
                     for vote in &option.votes {
-                        out_s.push_str(&format!("<span class=\"voter\">{}</span>", vote.voter));
+                        h.raw("<span class=\"voter\">")
+                            .text(&vote.voter)
+                            .raw("</span>");
                     }
-                    out_s.push_str("</div>");
+                    h.raw("</div>");
                 }
 
-                out_s.push_str("</div>");
+                h.raw("</div>");
             }
         }
 
-        out_s.push_str("</div>");
-        out_s
+        h.raw("</div>");
+        h.build()
     }
 
     fn format_generic_app(
@@ -1684,11 +1638,23 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
     }
 
     fn format_mention(&self, text: &str, mentioned: &str) -> String {
-        format!("<span title=\"{mentioned}\"><b>{text}</b></span>")
+        let mut h = HtmlBuilder::new();
+        h.raw("<span title=\"")
+            .attr(mentioned)
+            .raw("\"><b>")
+            .raw(text)
+            .raw("</b></span>");
+        h.build()
     }
 
     fn format_link(&self, text: &str, url: &str) -> String {
-        format!("<a href=\"{url}\">{text}</a>")
+        let mut h = HtmlBuilder::new();
+        h.raw("<a href=\"")
+            .attr(url)
+            .raw("\">")
+            .raw(text)
+            .raw("</a>");
+        h.build()
     }
 
     fn format_otp(&self, text: &str) -> String {
@@ -1719,6 +1685,7 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
     }
 
     fn format_animated(&self, text: &str, animation: &Animation) -> String {
+        // animation:? is a Rust enum variant name (safe), text is pre-sanitized
         format!("<span class=\"animation{animation:?}\">{text}</span>")
     }
 }
@@ -1796,21 +1763,17 @@ impl HTML<'_> {
         attachments: &mut [Attachment],
         message: &Message,
     ) -> String {
-        let mut out_s = String::new();
+        let mut h = HtmlBuilder::new();
         if let Some(url) = balloon.url {
-            out_s.push_str("<a href=\"");
-            out_s.push_str(url);
-            out_s.push_str("\">");
+            h.raw("<a href=\"").attr(url).raw("\">");
         }
-        out_s.push_str("<div class=\"app_header\">");
+        h.raw("<div class=\"app_header\">");
 
         // Image
         if let Some(image) = balloon.image {
-            out_s.push_str("<img src=\"");
-            out_s.push_str(image);
-            out_s.push_str("\">");
+            h.raw("<img src=\"").attr(image).raw("\">");
         } else if let Some(attachment) = attachments.get_mut(0) {
-            out_s.push_str(
+            h.raw(
                 &self
                     .format_attachment(attachment, message, &AttachmentMeta::default())
                     .unwrap_or_default(),
@@ -1818,33 +1781,31 @@ impl HTML<'_> {
         }
 
         // Name
-        out_s.push_str("<div class=\"name\">");
-        out_s.push_str(balloon.app_name.unwrap_or(bundle_id));
-        out_s.push_str("</div>");
+        h.raw("<div class=\"name\">")
+            .text(balloon.app_name.unwrap_or(bundle_id))
+            .raw("</div>");
 
         // Title
         if let Some(title) = balloon.title {
-            out_s.push_str("<div class=\"image_title\">");
-            out_s.push_str(title);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"image_title\">")
+                .text(title)
+                .raw("</div>");
         }
 
         // Subtitle
         if let Some(subtitle) = balloon.subtitle {
-            out_s.push_str("<div class=\"image_subtitle\">");
-            out_s.push_str(subtitle);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"image_subtitle\">")
+                .text(subtitle)
+                .raw("</div>");
         }
 
         // ldtext
         if let Some(ldtext) = balloon.ldtext {
-            out_s.push_str("<div class=\"ldtext\">");
-            out_s.push_str(ldtext);
-            out_s.push_str("</div>");
+            h.raw("<div class=\"ldtext\">").text(ldtext).raw("</div>");
         }
 
         // Header end, footer begin
-        out_s.push_str("</div>");
+        h.raw("</div>");
 
         // Only write the footer if there is data to write
         if balloon.caption.is_some()
@@ -1852,42 +1813,40 @@ impl HTML<'_> {
             || balloon.trailing_caption.is_some()
             || balloon.trailing_subcaption.is_some()
         {
-            out_s.push_str("<div class=\"app_footer\">");
+            h.raw("<div class=\"app_footer\">");
 
             // Caption
             if let Some(caption) = balloon.caption {
-                out_s.push_str("<div class=\"caption\">");
-                out_s.push_str(caption);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"caption\">").text(caption).raw("</div>");
             }
 
             // Subcaption
             if let Some(subcaption) = balloon.subcaption {
-                out_s.push_str("<div class=\"subcaption\">");
-                out_s.push_str(subcaption);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"subcaption\">")
+                    .text(subcaption)
+                    .raw("</div>");
             }
 
             // Trailing Caption
             if let Some(trailing_caption) = balloon.trailing_caption {
-                out_s.push_str("<div class=\"trailing_caption\">");
-                out_s.push_str(trailing_caption);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"trailing_caption\">")
+                    .text(trailing_caption)
+                    .raw("</div>");
             }
 
             // Trailing Subcaption
             if let Some(trailing_subcaption) = balloon.trailing_subcaption {
-                out_s.push_str("<div class=\"trailing_subcaption\">");
-                out_s.push_str(trailing_subcaption);
-                out_s.push_str("</div>");
+                h.raw("<div class=\"trailing_subcaption\">")
+                    .text(trailing_subcaption)
+                    .raw("</div>");
             }
 
-            out_s.push_str("</div>");
+            h.raw("</div>");
         }
         if balloon.url.is_some() {
-            out_s.push_str("</a>");
+            h.raw("</a>");
         }
-        out_s
+        h.build()
     }
 }
 
@@ -3381,7 +3340,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_check_in(&balloon, &Config::fake_message());
-        let actual = "<div class=\"app_header\"><div class=\"name\">Check\u{a0}In</div><div class=\"ldtext\">Check\u{a0}In: Timer Started</div></div><div class=\"app_footer\"><div class=\"caption\">Checked in at Oct 14, 2023  1:54:29 PM</div></div>";
+        let actual = "<div class=\"app_header\"><div class=\"name\">Check&nbsp;In</div><div class=\"ldtext\">Check&nbsp;In: Timer Started</div></div><div class=\"app_footer\"><div class=\"caption\">Checked in at Oct 14, 2023  1:54:29 PM</div></div>";
 
         assert_eq!(expected, actual);
     }
@@ -3407,7 +3366,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_check_in(&balloon, &Config::fake_message());
-        let actual = "<div class=\"app_header\"><div class=\"name\">Check\u{a0}In</div><div class=\"ldtext\">Check\u{a0}In: Has not checked in when expected, location shared</div></div><div class=\"app_footer\"><div class=\"caption\">Checked in at Oct 14, 2023  1:54:29 PM</div></div>";
+        let actual = "<div class=\"app_header\"><div class=\"name\">Check&nbsp;In</div><div class=\"ldtext\">Check&nbsp;In: Has not checked in when expected, location shared</div></div><div class=\"app_footer\"><div class=\"caption\">Checked in at Oct 14, 2023  1:54:29 PM</div></div>";
 
         assert_eq!(expected, actual);
     }
@@ -3433,7 +3392,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_check_in(&balloon, &Config::fake_message());
-        let actual = "<div class=\"app_header\"><div class=\"name\">Check\u{a0}In</div><div class=\"ldtext\">Check\u{a0}In: Fake Location</div></div><div class=\"app_footer\"><div class=\"caption\">Checked in at Oct 14, 2023  1:54:29 PM</div></div>";
+        let actual = "<div class=\"app_header\"><div class=\"name\">Check&nbsp;In</div><div class=\"ldtext\">Check&nbsp;In: Fake Location</div></div><div class=\"app_footer\"><div class=\"caption\">Checked in at Oct 14, 2023  1:54:29 PM</div></div>";
 
         assert_eq!(expected, actual);
     }
