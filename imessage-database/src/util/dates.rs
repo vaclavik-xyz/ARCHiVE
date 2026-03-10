@@ -5,11 +5,15 @@
 */
 use std::fmt::Write;
 
-use chrono::{DateTime, Duration, Local, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Local, Months, TimeZone, Utc};
 
 use crate::error::message::MessageError;
 
 const SEPARATOR: &str = ", ";
+const SECONDS_PER_MINUTE: i64 = 60;
+const SECONDS_PER_HOUR: i64 = 60 * SECONDS_PER_MINUTE;
+const SECONDS_PER_DAY: i64 = 24 * SECONDS_PER_HOUR;
+const SECONDS_PER_YEAR: i64 = 365 * SECONDS_PER_DAY;
 
 /// Factor used to convert between nanosecond-precision timestamps and seconds
 ///
@@ -100,63 +104,73 @@ pub fn readable_diff(
     start: Result<DateTime<Local>, MessageError>,
     end: Result<DateTime<Local>, MessageError>,
 ) -> Option<String> {
+    let start = start.ok()?;
+    let end = end.ok()?;
+
     // Calculate diff
-    let diff: Duration = end.ok()? - start.ok()?;
-    let seconds = diff.num_seconds();
+    let seconds = end.timestamp() - start.timestamp();
 
     // Early escape for invalid date diff
     if seconds < 0 {
         return None;
     }
 
-    // 42 is the length of a diff string that has all components with 2 digits each
-    // This allocation improved performance over `::new()` by 20%
-    // (21.99s to 27.79s over 250k messages)
-    let mut out_s = String::with_capacity(42);
+    let (years, remaining_seconds) = years_and_remainder(&start, &end)
+        .unwrap_or((seconds / SECONDS_PER_YEAR, seconds % SECONDS_PER_YEAR));
 
-    let days = seconds / 86400;
-    let hours = (seconds % 86400) / 3600;
-    let minutes = (seconds % 86400 % 3600) / 60;
-    let secs = seconds % 86400 % 3600 % 60;
+    // 51 is the length of a diff string that has all components with 2 digits each.
+    // This represented a performance increase of ~20% over a string that starts empty and grows with each component.
+    let mut out_s = String::with_capacity(51);
 
-    if days != 0 {
-        let metric = match days {
-            1 => "day",
-            _ => "days",
-        };
-        let _ = write!(out_s, "{days} {metric}");
-    }
-    if hours != 0 {
-        let metric = match hours {
-            1 => "hour",
-            _ => "hours",
-        };
-        if !out_s.is_empty() {
-            out_s.push_str(SEPARATOR);
-        }
-        let _ = write!(out_s, "{hours} {metric}");
-    }
-    if minutes != 0 {
-        let metric = match minutes {
-            1 => "minute",
-            _ => "minutes",
-        };
-        if !out_s.is_empty() {
-            out_s.push_str(SEPARATOR);
-        }
-        let _ = write!(out_s, "{minutes} {metric}");
-    }
-    if secs != 0 {
-        let metric = match secs {
-            1 => "second",
-            _ => "seconds",
-        };
-        if !out_s.is_empty() {
-            out_s.push_str(SEPARATOR);
-        }
-        let _ = write!(out_s, "{secs} {metric}");
-    }
+    let days = remaining_seconds / SECONDS_PER_DAY;
+    let hours = (remaining_seconds % SECONDS_PER_DAY) / SECONDS_PER_HOUR;
+    let minutes = (remaining_seconds % SECONDS_PER_DAY % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE;
+    let secs = remaining_seconds % SECONDS_PER_DAY % SECONDS_PER_HOUR % SECONDS_PER_MINUTE;
+
+    append_component(&mut out_s, years, "year", "years");
+    append_component(&mut out_s, days, "day", "days");
+    append_component(&mut out_s, hours, "hour", "hours");
+    append_component(&mut out_s, minutes, "minute", "minutes");
+    append_component(&mut out_s, secs, "second", "seconds");
+
     Some(out_s)
+}
+
+/// Calculate the number of whole years between two dates, and the remaining seconds after accounting for those years.
+fn years_and_remainder(start: &DateTime<Local>, end: &DateTime<Local>) -> Option<(i64, i64)> {
+    let mut years = end.year() - start.year();
+
+    if years <= 0 {
+        return Some((0, end.timestamp() - start.timestamp()));
+    }
+
+    let mut remainder_start =
+        start.checked_add_months(Months::new(u32::try_from(years).ok()?.checked_mul(12)?))?;
+
+    if remainder_start > *end {
+        years -= 1;
+        remainder_start =
+            start.checked_add_months(Months::new(u32::try_from(years).ok()?.checked_mul(12)?))?;
+    }
+
+    Some((
+        i64::from(years),
+        end.timestamp() - remainder_start.timestamp(),
+    ))
+}
+
+/// Append a time component to the output string if the value is greater than 0, with correct singular/plural formatting.
+fn append_component(out_s: &mut String, value: i64, singular: &str, plural: &str) {
+    if value == 0 {
+        return;
+    }
+
+    if !out_s.is_empty() {
+        out_s.push_str(SEPARATOR);
+    }
+
+    let metric = if value == 1 { singular } else { plural };
+    let _ = write!(out_s, "{value} {metric}");
 }
 
 #[cfg(test)]
@@ -268,10 +282,27 @@ mod tests {
     }
 
     #[test]
-    fn can_format_diff_year() {
+    fn can_format_diff_single_year() {
+        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
+        let end = Ok(Local.with_ymd_and_hms(2021, 5, 20, 9, 10, 11).unwrap());
+        assert_eq!(readable_diff(start, end), Some("1 year".to_owned()));
+    }
+
+    #[test]
+    fn can_format_diff_years_days() {
         let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
         let end = Ok(Local.with_ymd_and_hms(2022, 7, 20, 9, 10, 11).unwrap());
-        assert_eq!(readable_diff(start, end), Some("791 days".to_owned()));
+        assert_eq!(
+            readable_diff(start, end),
+            Some("2 years, 61 days".to_owned())
+        );
+    }
+
+    #[test]
+    fn can_format_diff_leap_day_anniversary_as_year() {
+        let start = Ok(Local.with_ymd_and_hms(2020, 2, 29, 9, 10, 11).unwrap());
+        let end = Ok(Local.with_ymd_and_hms(2021, 2, 28, 9, 10, 11).unwrap());
+        assert_eq!(readable_diff(start, end), Some("1 year".to_owned()));
     }
 
     #[test]
