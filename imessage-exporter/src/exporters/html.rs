@@ -219,89 +219,62 @@ impl<'a> Exporter<'a> for HTML<'a> {
 // MARK: Writer
 impl<'a> MessageFormatter<'a> for HTML<'a> {
     fn format_message(&self, message: &Message, indent_size: usize) -> Result<String, TableError> {
-        // Data we want to write to a file
-        let mut formatted_message = String::with_capacity(1024);
+        let mut h = HtmlBuilder::with_capacity(1024);
 
         // Message div
-        let clean_guid = sanitize_html(&message.guid);
         if message.is_reply() && indent_size == 0 {
             // Add an ID for any top-level message so we can link to them in threads
-            self.add_line(
-                &mut formatted_message,
-                &format!("<div class=\"message\" id=\"r-{clean_guid}\">"),
-                "",
-                "",
-            );
+            h.raw("<div class=\"message\" id=\"r-")
+                .attr(&message.guid)
+                .raw("\">\n");
         } else {
-            // No ID needed if the message has no replies
-            self.add_line(&mut formatted_message, "<div class=\"message\">", "", "");
+            h.raw("<div class=\"message\">\n");
         }
 
         // Start message div
         if message.is_from_me() {
-            self.add_line(
-                &mut formatted_message,
-                &format!("<div class=\"sent {}\">", message.service()),
-                "",
-                "",
-            );
+            h.raw(&format!("<div class=\"sent {}\">\n", message.service()));
         } else {
-            self.add_line(&mut formatted_message, "<div class=\"received\">", "", "");
+            h.raw("<div class=\"received\">\n");
         }
 
         // Add message date
         let (date, read_after) = self.get_time(message);
-        let linked_time = format!(
-            "<a title=\"Reveal in Messages app\" href=\"sms://open?message-guid={clean_guid}\">{date}</a>",
-        );
-        self.add_line(
-            &mut formatted_message,
-            &format!("{linked_time} {read_after}"),
-            "<p><span class=\"timestamp\">",
-            "</span>",
-        );
+        h.raw("<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=")
+            .attr(&message.guid)
+            .raw("\">")
+            .text(&date)
+            .raw("</a> ")
+            .text(&read_after)
+            .raw("</span>\n");
 
         // Add reply anchor if necessary
         if message.is_reply() {
             if indent_size > 0 {
                 // If we are indented it means we are rendering in a thread
-                self.add_line(
-                    &mut formatted_message,
-                    &format!("<a title=\"View in context\" href=\"#r-{clean_guid}\">⇲</a>",),
-                    "<span class=\"reply_anchor\">",
-                    "</span>",
-                );
+                h.raw("<span class=\"reply_anchor\"><a title=\"View in context\" href=\"#r-")
+                    .attr(&message.guid)
+                    .raw("\">⇲</a></span>\n");
             } else {
-                // If there is no ident we are rendering a top-level message
-                self.add_line(
-                    &mut formatted_message,
-                    &format!("<a title=\"View in thread\" href=\"#{clean_guid}\">⇱</a>",),
-                    "<span class=\"reply_anchor\">",
-                    "</span>",
-                );
+                // If there is no indent we are rendering a top-level message
+                h.raw("<span class=\"reply_anchor\"><a title=\"View in thread\" href=\"#")
+                    .attr(&message.guid)
+                    .raw("\">⇱</a></span>\n");
             }
         }
 
         // Add message sender
-        self.add_line(
-            &mut formatted_message,
-            &sanitize_html(self.config.who(
+        h.raw("<span class=\"sender\">")
+            .text(self.config.who(
                 message.handle_id,
                 message.is_from_me(),
                 &message.destination_caller_id,
-            )),
-            "<span class=\"sender\">",
-            "</span></p>",
-        );
+            ))
+            .raw("</span></p>\n");
 
         // If message was deleted (not unsent), annotate it
         if message.is_deleted() {
-            self.add_line(
-                &mut formatted_message,
-                "This message was deleted from the conversation!",
-                "<span class=\"deleted\">",
-                "</span></p>",
-            );
+            h.raw("<span class=\"deleted\">This message was deleted from the conversation!</span></p>\n");
         }
 
         // Useful message metadata
@@ -313,44 +286,29 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
 
         // Add message subject
         if let Some(subject) = &message.subject {
-            // Add message subject
-            self.add_line(
-                &mut formatted_message,
-                &sanitize_html(subject),
-                "<p>Subject: <span class=\"subject\">",
-                "</span></p>",
-            );
+            h.raw("<p>Subject: <span class=\"subject\">")
+                .text(subject)
+                .raw("</span></p>\n");
         }
 
         // Handle SharePlay
         if message.is_shareplay() {
-            self.add_line(
-                &mut formatted_message,
-                self.format_shareplay(),
-                "<span class=\"shareplay\">",
-                "</span>",
-            );
+            h.raw("<span class=\"shareplay\">")
+                .raw(self.format_shareplay())
+                .raw("</span>\n");
         }
 
         // Handle Shared Location
         if message.started_sharing_location() || message.stopped_sharing_location() {
-            self.add_line(
-                &mut formatted_message,
-                self.format_shared_location(message),
-                "<span class=\"shared_location\">",
-                "</span>",
-            );
+            h.raw("<span class=\"shared_location\">")
+                .raw(self.format_shared_location(message))
+                .raw("</span>\n");
         }
 
-        // Generate the message body from it's components
+        // Generate the message body from its components
         for (idx, message_part) in message.components.iter().enumerate() {
             // Write the part div start
-            self.add_line(
-                &mut formatted_message,
-                "<hr><div class=\"message_part\">",
-                "",
-                "",
-            );
+            h.raw("<hr><div class=\"message_part\">\n");
 
             match message_part {
                 BubbleComponent::Text(text_attrs) => {
@@ -361,17 +319,12 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                                 && let Some(edited) =
                                     self.format_edited(message, edited_parts, idx, "")
                             {
-                                self.add_line(
-                                    &mut formatted_message,
-                                    &edited,
-                                    "<div class=\"edited\">",
-                                    "</div>",
-                                );
+                                h.raw("<div class=\"edited\">").raw(&edited).raw("</div>\n");
                             }
                         } else {
                             let mut formatted_text = self.format_attributes(text, text_attrs);
 
-                            // If we failed to parse any text above, make sure we sanitize if before using it
+                            // If we failed to parse any text above, make sure we sanitize before using it
                             if formatted_text.is_empty() {
                                 formatted_text.push_str(&sanitize_html(text));
                             }
@@ -382,34 +335,22 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                                     message.get_translation(self.config.data_source.db())
                             {
                                 // Render the translated text as the message body
-                                self.add_line(
-                                    &mut formatted_message,
-                                    &sanitize_html(&translation.translated_text),
-                                    "<span class=\"bubble\">",
-                                    "</span>",
-                                );
+                                h.raw("<span class=\"bubble\">")
+                                    .text(&translation.translated_text)
+                                    .raw("</span>\n");
                                 // Then, render the original message that the system translated
-                                self.add_line(
-                                    &mut formatted_message,
-                                    &formatted_text,
-                                    "<div class=\"translated\"><span class=\"bubble\">",
-                                    "</span></div>",
-                                );
+                                h.raw("<div class=\"translated\"><span class=\"bubble\">")
+                                    .raw(&formatted_text)
+                                    .raw("</span></div>\n");
                             } else if formatted_text.starts_with(FITNESS_RECEIVER) {
-                                // Fitness messages have a prefix that we need to replace with the opposite if who sent the message
-                                self.add_line(
-                                    &mut formatted_message,
-                                    &formatted_text.replace(FITNESS_RECEIVER, YOU),
-                                    "<span class=\"bubble\">",
-                                    "</span>",
-                                );
+                                // Fitness messages have a prefix that we need to replace
+                                h.raw("<span class=\"bubble\">")
+                                    .raw(&formatted_text.replace(FITNESS_RECEIVER, YOU))
+                                    .raw("</span>\n");
                             } else {
-                                self.add_line(
-                                    &mut formatted_message,
-                                    &formatted_text,
-                                    "<span class=\"bubble\">",
-                                    "</span>",
-                                );
+                                h.raw("<span class=\"bubble\">")
+                                    .raw(&formatted_text)
+                                    .raw("</span>\n");
                             }
                         }
                     }
@@ -419,82 +360,66 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                         Some(attachment) => {
                             if attachment.is_sticker {
                                 let result = self.format_sticker(attachment, message);
-                                self.add_line(
-                                    &mut formatted_message,
-                                    &result,
-                                    "<div class=\"sticker\">",
-                                    "</div>",
-                                );
+                                h.raw("<div class=\"sticker\">")
+                                    .raw(&result)
+                                    .raw("</div>\n");
                             } else {
                                 match self.format_attachment(attachment, message, metadata) {
                                     Ok(result) => {
-                                        self.add_line(
-                                            &mut formatted_message,
-                                            &result,
-                                            "<div class=\"attachment\">",
-                                            "</div>",
-                                        );
+                                        h.raw("<div class=\"attachment\">")
+                                            .raw(&result)
+                                            .raw("</div>\n");
                                     }
                                     Err(result) => {
-                                        self.add_line(
-                                            &mut formatted_message,
-                                            &sanitize_html(result),
-                                            "<span class=\"attachment_error\">Unable to locate attachment: ",
-                                            "</span>",
-                                        );
+                                        h.raw("<span class=\"attachment_error\">Unable to locate attachment: ")
+                                            .text(result)
+                                            .raw("</span>\n");
                                     }
                                 }
                                 attachment_index += 1;
                             }
                         }
                         // Attachment does not exist in attachments table
-                        None => self.add_line(
-                            &mut formatted_message,
-                            "Attachment does not exist!",
-                            "<span class=\"attachment_error\">",
-                            "</span>",
-                        ),
+                        None => {
+                            h.raw("<span class=\"attachment_error\">Attachment does not exist!</span>\n");
+                        }
                     }
                 }
                 BubbleComponent::App => match self.format_app(message, &mut attachments, "") {
-                    Ok(ok_bubble) => self.add_line(
-                        &mut formatted_message,
-                        &ok_bubble,
-                        "<div class=\"app\">",
-                        "</div>",
-                    ),
-                    Err(why) => self.add_line(
-                        &mut formatted_message,
-                        &format!("Unable to format {:?} message: {why}", message.variant()),
-                        "<div class=\"app_error\">",
-                        "</div>",
-                    ),
+                    Ok(ok_bubble) => {
+                        h.raw("<div class=\"app\">").raw(&ok_bubble).raw("</div>\n");
+                    }
+                    Err(why) => {
+                        h.raw("<div class=\"app_error\">")
+                            .text(&format!(
+                                "Unable to format {:?} message: {why}",
+                                message.variant()
+                            ))
+                            .raw("</div>\n");
+                    }
                 },
                 BubbleComponent::Retracted => {
                     if let Some(edited_parts) = &message.edited_parts
                         && let Some(edited) = self.format_edited(message, edited_parts, idx, "")
                     {
-                        self.add_line(
-                            &mut formatted_message,
-                            &edited,
-                            "<span class=\"unsent\">",
-                            "</span>",
-                        );
+                        h.raw("<span class=\"unsent\">")
+                            .raw(&edited)
+                            .raw("</span>\n");
                     }
                 }
             }
 
             // Write the part div end
-            self.add_line(&mut formatted_message, "</div>", "", "");
+            h.raw("</div>\n");
 
             // Handle expressives
             if message.expressive_send_style_id.is_some() {
-                self.add_line(
-                    &mut formatted_message,
-                    self.format_expressive(message),
-                    "<span class=\"expressive\">",
-                    "</span>",
-                );
+                let expressive = self.format_expressive(message);
+                if !expressive.is_empty() {
+                    h.raw("<span class=\"expressive\">")
+                        .raw(expressive)
+                        .raw("</span>\n");
+                }
             }
 
             // Handle Tapbacks
@@ -508,31 +433,23 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                     .try_for_each(|tapback| -> Result<(), TableError> {
                         let formatted = self.format_tapback(tapback)?;
                         if !formatted.is_empty() {
-                            self.add_line(
-                                &mut formatted_tapbacks,
-                                &formatted,
-                                "<div class=\"tapback\">",
-                                "</div>",
-                            );
+                            formatted_tapbacks.push_str("<div class=\"tapback\">");
+                            formatted_tapbacks.push_str(&formatted);
+                            formatted_tapbacks.push_str("</div>\n");
                         }
                         Ok(())
                     })?;
 
                 if !formatted_tapbacks.is_empty() {
-                    self.add_line(
-                        &mut formatted_message,
-                        "<hr><p>Tapbacks:</p>",
-                        "<div class=\"tapbacks\">",
-                        "",
-                    );
-                    self.add_line(&mut formatted_message, &formatted_tapbacks, "", "");
-                    self.add_line(&mut formatted_message, "</div>", "", "");
+                    h.raw("<div class=\"tapbacks\"><hr><p>Tapbacks:</p>\n")
+                        .raw(&formatted_tapbacks)
+                        .raw("\n</div>\n");
                 }
             }
 
             // Handle Replies
             if let Some(replies) = replies.get_mut(&idx) {
-                self.add_line(&mut formatted_message, "<div class=\"replies\">", "", "");
+                h.raw("<div class=\"replies\">\n");
                 replies
                     .iter_mut()
                     .try_for_each(|reply| -> Result<(), TableError> {
@@ -541,39 +458,30 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                         }
                         if !reply.is_tapback() {
                             // Set indent to 1 so we know this is a recursive call
-                            self.add_line(
-                                &mut formatted_message,
-                                &self.format_message(reply, 1)?,
-                                &format!(
-                                    "<div class=\"reply\" id=\"{}\">",
-                                    sanitize_html(&reply.guid)
-                                ),
-                                "</div>",
-                            );
+                            h.raw("<div class=\"reply\" id=\"")
+                                .attr(&reply.guid)
+                                .raw("\">")
+                                .raw(&self.format_message(reply, 1)?)
+                                .raw("</div>\n");
                         }
                         Ok(())
                     })?;
-                self.add_line(&mut formatted_message, "</div>", "", "");
+                h.raw("</div>\n");
             }
         }
 
         // Add a note if the message is a reply and not rendered in a thread
         if message.is_reply() && indent_size == 0 {
-            self.add_line(
-                &mut formatted_message,
-                "This message responded to an earlier message.",
-                "<span class=\"reply_context\">",
-                "</span>",
-            );
+            h.raw("<span class=\"reply_context\">This message responded to an earlier message.</span>\n");
         }
 
         // End message type div
-        self.add_line(&mut formatted_message, "</div>", "", "");
+        h.raw("</div>\n");
 
         // End message div
-        self.add_line(&mut formatted_message, "</div>", "", "");
+        h.raw("</div>\n");
 
-        Ok(formatted_message)
+        Ok(h.build())
     }
 
     fn format_attachment(
@@ -1696,15 +1604,6 @@ impl HTML<'_> {
         message_time(self.config, message)
     }
 
-    fn add_line(&self, string: &mut String, part: &str, pre: &str, post: &str) {
-        if !part.is_empty() {
-            string.push_str(pre);
-            string.push_str(part);
-            string.push_str(post);
-            string.push('\n');
-        }
-    }
-
     fn write_headers(file: &mut BufWriter<File>) -> Result<(), RuntimeError> {
         // Write file header
         HTML::write_to_file(file, HEADER)?;
@@ -1926,48 +1825,6 @@ mod tests {
             exporter.get_time(&message),
             ("May 17, 2022  6:30:31 PM".to_string(), String::new())
         );
-    }
-
-    #[test]
-    fn can_add_line_no_indent() {
-        // Create exporter
-        let options = Options::fake_options(ExportType::Html);
-        let config = Config::fake_app(options);
-        let exporter = HTML::new(&config).unwrap();
-
-        // Create sample data
-        let mut s = String::new();
-        exporter.add_line(&mut s, "hello world", "", "");
-
-        assert_eq!(s, "hello world\n".to_string());
-    }
-
-    #[test]
-    fn can_add_line() {
-        // Create exporter
-        let options = Options::fake_options(ExportType::Html);
-        let config = Config::fake_app(options);
-        let exporter = HTML::new(&config).unwrap();
-
-        // Create sample data
-        let mut s = String::new();
-        exporter.add_line(&mut s, "hello world", "  ", "");
-
-        assert_eq!(s, "  hello world\n".to_string());
-    }
-
-    #[test]
-    fn can_add_line_pre_post() {
-        // Create exporter
-        let options = Options::fake_options(ExportType::Html);
-        let config = Config::fake_app(options);
-        let exporter = HTML::new(&config).unwrap();
-
-        // Create sample data
-        let mut s = String::new();
-        exporter.add_line(&mut s, "hello world", "<div>", "</div>");
-
-        assert_eq!(s, "<div>hello world</div>\n".to_string());
     }
 
     #[test]
