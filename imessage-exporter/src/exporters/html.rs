@@ -274,7 +274,9 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
 
         // If message was deleted (not unsent), annotate it
         if message.is_deleted() {
-            h.raw("<span class=\"deleted\">This message was deleted from the conversation!</span></p>\n");
+            h.raw(
+                "<span class=\"deleted\">This message was deleted from the conversation!</span>\n",
+            );
         }
 
         // Useful message metadata
@@ -1891,7 +1893,7 @@ mod tests {
             .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
-        let expected = "<div class=\"message\">\n<div class=\"sent iMessage\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a> </span>\n<span class=\"sender\">Me</span></p>\n<span class=\"deleted\">This message was deleted from the conversation!</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Hello world</span>\n</div>\n</div>\n</div>\n";
+        let expected = "<div class=\"message\">\n<div class=\"sent iMessage\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a> </span>\n<span class=\"sender\">Me</span></p>\n<span class=\"deleted\">This message was deleted from the conversation!</span>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Hello world</span>\n</div>\n</div>\n</div>\n";
 
         assert_eq!(actual, expected);
     }
