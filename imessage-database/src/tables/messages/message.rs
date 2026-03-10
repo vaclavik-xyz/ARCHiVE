@@ -1274,7 +1274,11 @@ impl Message {
             "com.apple.findmy.FindMyMessagesApp" => CustomBalloon::FindMy,
             "com.apple.messages.Polls" => {
                 // Special case: Check if this is the original poll or an update
-                if self.associated_message_guid.as_ref() == Some(&self.guid) {
+                if self
+                    .associated_message_guid
+                    .as_ref()
+                    .is_none_or(|id| id == &self.guid)
+                {
                     CustomBalloon::Polls
                 } else {
                     return Some(Variant::PollUpdate);
