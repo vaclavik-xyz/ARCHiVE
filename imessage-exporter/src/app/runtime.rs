@@ -21,7 +21,7 @@ use imessage_database::{
         table::{ATTACHMENTS_DIR, Cacheable, Deduplicate, ME, ORPHANED, UNKNOWN, get_db_size},
     },
     util::{
-        dates::{format as format_date, get_local_time, get_offset},
+        dates::{format as format_date, get_local_time, get_offset, readable_diff},
         size::format_file_size,
     },
 };
@@ -443,9 +443,14 @@ impl Config {
             message_diag.last_message_date,
         ) {
             println!(
-                "    Date range: {} to {}",
+                "    Date range: {} to {}\n                {}",
                 format_date(&get_local_time(first, self.offset)),
                 format_date(&get_local_time(last, self.offset)),
+                readable_diff(
+                    get_local_time(first, self.offset),
+                    get_local_time(last, self.offset)
+                )
+                .unwrap_or_else(|| "N/A".to_string()),
             );
         }
 
