@@ -15,6 +15,7 @@ use rusqlite::{CachedStatement, Connection, Result, Row};
 
 // MARK: Struct
 /// Represents a single row in the `chat_handle_join` table.
+#[derive(Debug)]
 pub struct ChatToHandle {
     chat_id: i32,
     handle_id: i32,

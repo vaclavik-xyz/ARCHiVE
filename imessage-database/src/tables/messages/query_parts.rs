@@ -13,7 +13,7 @@ use crate::tables::{
 };
 
 // MARK: Queries
-/// macOS Ventura+ and i0S 16+ schema, interpolated with required columns for performance
+/// macOS Ventura+ and iOS 16+ schema, interpolated with required columns for performance
 static IOS_16_NEWER_HEAD: LazyLock<String> = LazyLock::new(|| {
     format!("
 SELECT
@@ -65,7 +65,7 @@ ORDER BY
 ";
 
 // MARK: Functions
-/// Generate a SQL Query compatible with the macOS Ventura+ and i0S 16+ schema
+/// Generate a SQL Query compatible with the macOS Ventura+ and iOS 16+ schema
 pub(crate) fn ios_16_newer_query(filters: Option<&str>) -> String {
     format!(
         "{}{}{}",
