@@ -6,8 +6,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::{
     error::table::TableError,
-    tables::table::{CHAT_HANDLE_JOIN, CHAT_MESSAGE_JOIN, Cacheable, Diagnostic, Table},
-    util::output::{done_processing, processing},
+    tables::{
+        diagnostic::ChatHandleDiagnostic,
+        table::{CHAT_HANDLE_JOIN, CHAT_MESSAGE_JOIN, Cacheable, Table},
+    },
 };
 use rusqlite::{CachedStatement, Connection, Result, Row};
 
@@ -29,7 +31,6 @@ impl Table for ChatToHandle {
     fn get(db: &'_ Connection) -> Result<CachedStatement<'_>, TableError> {
         Ok(db.prepare_cached(&format!("SELECT * FROM {CHAT_HANDLE_JOIN}"))?)
     }
-
 }
 
 // MARK: Cache
@@ -71,8 +72,8 @@ impl Cacheable for ChatToHandle {
 }
 
 // MARK: Diagnostic
-impl Diagnostic for ChatToHandle {
-    /// Emit diagnostic data for the Chat to Handle join table
+impl ChatToHandle {
+    /// Compute diagnostic data for the Chat to Handle join table
     ///
     /// Get the number of chats referenced in the messages table
     /// that do not exist in this join table:
@@ -81,16 +82,14 @@ impl Diagnostic for ChatToHandle {
     ///
     /// ```
     /// use imessage_database::util::dirs::default_db_path;
-    /// use imessage_database::tables::table::{Diagnostic, get_connection};
+    /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::chat_handle::ChatToHandle;
     ///
     /// let db_path = default_db_path();
     /// let conn = get_connection(&db_path).unwrap();
-    /// ChatToHandle::run_diagnostic(&conn);
+    /// let diagnostic = ChatToHandle::run_diagnostic(&conn);
     /// ```
-    fn run_diagnostic(db: &Connection) -> Result<(), TableError> {
-        processing();
-
+    pub fn run_diagnostic(db: &Connection) -> Result<ChatHandleDiagnostic, TableError> {
         // Get the Chat IDs that are associated with messages
         let mut statement_message_chats =
             db.prepare(&format!("SELECT DISTINCT chat_id from {CHAT_MESSAGE_JOIN}"))?;
@@ -126,27 +125,19 @@ impl Diagnostic for ChatToHandle {
         let real_chatrooms = ChatToHandle::dedupe(&chatroom_participants, &chat_handle_lookup)?;
 
         // Calculate total duplicated chats
-        let total_dupes =
+        let total_duplicated =
             all_chats.len() - HashSet::<&i32>::from_iter(real_chatrooms.values()).len();
 
-        done_processing();
-
-        // Find the set difference and emit
+        // Find the set difference
         let chats_with_no_handles = unique_chats_from_messages
             .difference(&unique_chats_from_handles)
             .count();
 
-        println!("Thread diagnostic data:");
-        println!("    Total chats: {}", all_chats.len());
-
-        if total_dupes > 0 {
-            println!("    Total duplicated chats: {total_dupes}");
-        }
-
-        if chats_with_no_handles > 0 {
-            println!("    Chats with no handles: {chats_with_no_handles:?}");
-        }
-        Ok(())
+        Ok(ChatHandleDiagnostic {
+            total_chats: all_chats.len(),
+            total_duplicated,
+            chats_with_no_handles,
+        })
     }
 }
 
@@ -160,7 +151,7 @@ impl ChatToHandle {
     ///
     /// ```
     /// use imessage_database::util::dirs::default_db_path;
-    /// use imessage_database::tables::table::{Diagnostic, get_connection};
+    /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::chat_handle::ChatToHandle;
     ///
     /// let db_path = default_db_path();

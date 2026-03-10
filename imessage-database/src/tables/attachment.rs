@@ -17,17 +17,13 @@ use crate::{
     error::{attachment::AttachmentError, table::TableError},
     message_types::sticker::{StickerEffect, StickerSource, get_sticker_effect},
     tables::{
+        diagnostic::AttachmentDiagnostic,
         messages::Message,
         table::{ATTACHMENT, ATTRIBUTION_INFO, STICKER_USER_INFO, Table},
     },
     util::{
-        dates::TIMESTAMP_FACTOR,
-        dirs::home,
-        output::{done_processing, processing},
-        platform::Platform,
-        plist::plist_as_dictionary,
-        query_context::QueryContext,
-        size::format_file_size,
+        dates::TIMESTAMP_FACTOR, dirs::home, platform::Platform, plist::plist_as_dictionary,
+        query_context::QueryContext, size::format_file_size,
     },
 };
 
@@ -136,7 +132,6 @@ impl Table for Attachment {
     fn get(db: &'_ Connection) -> Result<CachedStatement<'_>, TableError> {
         Ok(db.prepare_cached(&format!("SELECT * from {ATTACHMENT}"))?)
     }
-
 }
 
 // MARK: Impl
@@ -387,21 +382,21 @@ impl Attachment {
 
     /// Emit diagnostic data for the Attachments table
     ///
-    /// This is defined outside of [`Diagnostic`](crate::tables::table::Diagnostic) because it requires additional data.
+    /// Compute diagnostic data for the Attachments table
     ///
-    /// Get the number of attachments that are missing, either because the path is missing from the
+    /// Counts the number of attachments that are missing, either because the path is missing from the
     /// table or the path does not point to a file.
     ///
     /// # Example:
     ///
     /// ```
     /// use imessage_database::util::{dirs::default_db_path, platform::Platform};
-    /// use imessage_database::tables::table::{Diagnostic, get_connection};
+    /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::attachment::Attachment;
     ///
     /// let db_path = default_db_path();
     /// let conn = get_connection(&db_path).unwrap();
-    /// Attachment::run_diagnostic(&conn, &db_path, &Platform::macOS);
+    /// let diagnostic = Attachment::run_diagnostic(&conn, &db_path, &Platform::macOS);
     /// ```
     ///
     /// `db_path` is the path to the root of the backup directory.
@@ -410,11 +405,10 @@ impl Attachment {
         db: &Connection,
         db_path: &Path,
         platform: &Platform,
-    ) -> Result<(), TableError> {
-        processing();
+    ) -> Result<AttachmentDiagnostic, TableError> {
         let mut total_attachments = 0;
-        let mut null_attachments = 0;
-        let mut size_on_disk: u64 = 0;
+        let mut no_path_provided = 0;
+        let mut total_bytes_on_disk: u64 = 0;
         let mut statement_paths = db.prepare(&format!("SELECT filename FROM {ATTACHMENT}"))?;
         let paths = statement_paths.query_map([], |r| Ok(r.get(0)))?;
 
@@ -429,7 +423,7 @@ impl Attachment {
                             let path = Attachment::gen_macos_attachment(filepath);
                             let file = Path::new(&path);
                             if let Ok(metadata) = file.metadata() {
-                                size_on_disk += metadata.len();
+                                total_bytes_on_disk += metadata.len();
                             }
                             !file.exists()
                         }
@@ -439,7 +433,7 @@ impl Attachment {
                             {
                                 let file = Path::new(&parsed_path);
                                 if let Ok(metadata) = file.metadata() {
-                                    size_on_disk += metadata.len();
+                                    total_bytes_on_disk += metadata.len();
                                 }
                                 return !file.exists();
                             }
@@ -449,41 +443,22 @@ impl Attachment {
                     }
                 } else {
                     // This hits if there is no path provided for the current attachment
-                    null_attachments += 1;
+                    no_path_provided += 1;
                     true
                 }
             })
             .count();
 
-        let total_bytes =
+        let total_bytes_referenced =
             Attachment::get_total_attachment_bytes(db, &QueryContext::default()).unwrap_or(0);
 
-        done_processing();
-
-        if total_attachments > 0 {
-            println!("\rAttachment diagnostic data:");
-            println!("    Total attachments: {total_attachments}");
-            println!(
-                "        Data referenced in table: {}",
-                format_file_size(total_bytes)
-            );
-            println!(
-                "        Data present on disk: {}",
-                format_file_size(size_on_disk)
-            );
-            if missing_files > 0 && total_attachments > 0 {
-                println!(
-                    "    Missing files: {missing_files:?} ({:.0}%)",
-                    (missing_files as f64 / f64::from(total_attachments)) * 100f64
-                );
-                println!("        No path provided: {null_attachments}");
-                println!(
-                    "        No file located: {}",
-                    missing_files.saturating_sub(null_attachments)
-                );
-            }
-        }
-        Ok(())
+        Ok(AttachmentDiagnostic {
+            total_attachments,
+            total_bytes_referenced,
+            total_bytes_on_disk,
+            missing_files,
+            no_path_provided,
+        })
     }
 
     /// Generate a macOS path for an attachment

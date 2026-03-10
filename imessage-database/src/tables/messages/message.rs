@@ -11,7 +11,7 @@
      error::table::TableError,
      tables::{
          messages::Message,
-         table::{get_connection, Diagnostic, Table},
+         table::{get_connection, Table},
      },
      util::dirs::default_db_path,
  };
@@ -93,7 +93,7 @@
  use imessage_database::{
      tables::{
          messages::Message,
-         table::{get_connection, Diagnostic, Table},
+         table::{get_connection, Table},
      },
      util::dirs::default_db_path
  };
@@ -145,21 +145,20 @@ use crate::{
         variants::{Announcement, BalloonProvider, CustomBalloon, Tapback, TapbackAction, Variant},
     },
     tables::{
+        diagnostic::MessageDiagnostic,
         messages::{
             body::{parse_body_legacy, parse_body_typedstream},
             models::{BubbleComponent, GroupAction, Service, TextAttributes},
             query_parts::{ios_13_older_query, ios_14_15_query, ios_16_newer_query},
         },
         table::{
-            ATTRIBUTED_BODY, CHAT_MESSAGE_JOIN, Cacheable, Diagnostic, MESSAGE,
-            MESSAGE_ATTACHMENT_JOIN, MESSAGE_PAYLOAD, MESSAGE_SUMMARY_INFO, RECENTLY_DELETED,
-            Table,
+            ATTRIBUTED_BODY, CHAT_MESSAGE_JOIN, Cacheable, MESSAGE, MESSAGE_ATTACHMENT_JOIN,
+            MESSAGE_PAYLOAD, MESSAGE_SUMMARY_INFO, RECENTLY_DELETED, Table,
         },
     },
     util::{
         bundle_id::parse_balloon_bundle_id,
         dates::{get_local_time, readable_diff},
-        output::{done_processing, processing},
         query_context::QueryContext,
         streamtyped,
     },
@@ -284,22 +283,21 @@ impl Table for Message {
 }
 
 // MARK: Diagnostic
-impl Diagnostic for Message {
-    /// Emit diagnostic data for the Messages table
+impl Message {
+    /// Compute diagnostic data for the Messages table
     ///
     /// # Example
     ///
     /// ```
     /// use imessage_database::util::dirs::default_db_path;
-    /// use imessage_database::tables::table::{Diagnostic, get_connection};
+    /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::messages::Message;
     ///
     /// let db_path = default_db_path();
     /// let conn = get_connection(&db_path).unwrap();
-    /// Message::run_diagnostic(&conn);
+    /// let diagnostic = Message::run_diagnostic(&conn);
     /// ```
-    fn run_diagnostic(db: &Connection) -> Result<(), TableError> {
-        processing();
+    pub fn run_diagnostic(db: &Connection) -> Result<MessageDiagnostic, TableError> {
         let mut messages_without_chat = db.prepare(&format!(
             "
             SELECT
@@ -314,7 +312,7 @@ impl Diagnostic for Message {
             "
         ))?;
 
-        let num_dangling: i32 = messages_without_chat
+        let messages_without_chat: i32 = messages_without_chat
             .query_row([], |r| r.get(0))
             .unwrap_or(0);
 
@@ -333,7 +331,7 @@ impl Diagnostic for Message {
             "
         ))?;
 
-        let messages_in_more_than_one_chat: i32 = messages_in_more_than_one_chat_q
+        let messages_in_multiple_chats: i32 = messages_in_more_than_one_chat_q
             .query_row([], |r| r.get(0))
             .unwrap_or(0);
 
@@ -348,19 +346,11 @@ impl Diagnostic for Message {
 
         let total_messages: i64 = messages_count.query_row([], |r| r.get(0)).unwrap_or(0);
 
-        done_processing();
-
-        println!("Message diagnostic data:");
-        println!("    Total messages: {total_messages}");
-        if num_dangling > 0 {
-            println!("    Messages not associated with a chat: {num_dangling}");
-        }
-        if messages_in_more_than_one_chat > 0 {
-            println!(
-                "    Messages belonging to more than one chat: {messages_in_more_than_one_chat}"
-            );
-        }
-        Ok(())
+        Ok(MessageDiagnostic {
+            total_messages,
+            messages_without_chat,
+            messages_in_multiple_chats,
+        })
     }
 }
 
@@ -1001,7 +991,7 @@ impl Message {
     ///
     /// ```
     /// use imessage_database::util::dirs::default_db_path;
-    /// use imessage_database::tables::table::{Diagnostic, get_connection};
+    /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::messages::Message;
     /// use imessage_database::util::query_context::QueryContext;
     ///
@@ -1046,7 +1036,7 @@ impl Message {
     ///
     /// ```
     /// use imessage_database::util::dirs::default_db_path;
-    /// use imessage_database::tables::table::{Diagnostic, get_connection};
+    /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::{messages::Message, table::Table};
     /// use imessage_database::util::query_context::QueryContext;
     ///

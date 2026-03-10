@@ -7,8 +7,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::{
     error::table::TableError,
-    tables::table::{Cacheable, Deduplicate, Diagnostic, HANDLE, ME, Table},
-    util::output::{done_processing, processing},
+    tables::{
+        diagnostic::HandleDiagnostic,
+        table::{Cacheable, Deduplicate, HANDLE, ME, Table},
+    },
 };
 
 // MARK: Handle
@@ -36,7 +38,6 @@ impl Table for Handle {
     fn get(db: &'_ Connection) -> Result<CachedStatement<'_>, TableError> {
         Ok(db.prepare_cached(&format!("SELECT * from {HANDLE}"))?)
     }
-
 }
 
 // MARK: Cache
@@ -137,14 +138,12 @@ impl Deduplicate for Handle {
 }
 
 // MARK: Diagnostic
-impl Diagnostic for Handle {
-    /// Emit diagnostic data for the Handles table
+impl Handle {
+    /// Compute diagnostic data for the Handles table
     ///
-    /// Get the number of handles that are duplicated
-    ///
-    /// The `person_centric_id` is used to map handles that represent the
-    /// same contact across ids (numbers, emails, etc) and across
-    /// services (iMessage, Jabber, iChat, SMS, etc)
+    /// Counts the number of handles that are duplicated. The `person_centric_id`
+    /// is used to map handles that represent the same contact across ids (numbers,
+    /// emails, etc) and across services (iMessage, Jabber, iChat, SMS, etc).
     ///
     /// In some databases, `person_centric_id` may not be available.
     ///
@@ -152,51 +151,41 @@ impl Diagnostic for Handle {
     ///
     /// ```
     /// use imessage_database::util::dirs::default_db_path;
-    /// use imessage_database::tables::table::{Diagnostic, get_connection};
+    /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::handle::Handle;
     ///
     /// let db_path = default_db_path();
     /// let conn = get_connection(&db_path).unwrap();
-    /// Handle::run_diagnostic(&conn);
+    /// let diagnostic = Handle::run_diagnostic(&conn);
     /// ```
-    fn run_diagnostic(db: &Connection) -> Result<(), TableError> {
+    pub fn run_diagnostic(db: &Connection) -> Result<HandleDiagnostic, TableError> {
         let query = concat!(
             "SELECT COUNT(DISTINCT person_centric_id) ",
             "FROM handle ",
             "WHERE person_centric_id NOT NULL"
         );
 
-        if let Ok(mut rows) = db.prepare(query) {
-            processing();
+        let handles_with_multiple_ids = if let Ok(mut rows) = db.prepare(query) {
+            rows.query_row([], |r| r.get(0)).unwrap_or(0)
+        } else {
+            0
+        };
 
-            // Get number of handles with identical person_centric_ids
-            let handles_with_identical_ids: i32 = rows.query_row([], |r| r.get(0)).unwrap_or(0);
+        // Cache all handles
+        let all_handles = Self::cache(db)?;
 
-            // Cache all handles
-            let all_handles = Self::cache(db)?;
+        // Deduplicate handles
+        let unique_handles = Self::dedupe(&all_handles);
 
-            // Deduplicate handles
-            let unique_handles = Self::dedupe(&all_handles);
+        // Calculate total duplicated handles
+        let total_duplicated =
+            all_handles.len() - HashSet::<&i32>::from_iter(unique_handles.values()).len();
 
-            // Calculate total duplicated handles
-            let total_dupes =
-                all_handles.len() - HashSet::<&i32>::from_iter(unique_handles.values()).len();
-
-            done_processing();
-
-            println!("Handle diagnostic data:");
-            println!("    Total handles: {}", all_handles.len());
-            if handles_with_identical_ids > 0 || total_dupes > 0 {
-                if handles_with_identical_ids > 0 {
-                    println!("    Handles with more than one ID: {handles_with_identical_ids}");
-                }
-                if total_dupes > 0 {
-                    println!("    Total duplicated handles: {total_dupes}");
-                }
-            }
-        }
-
-        Ok(())
+        Ok(HandleDiagnostic {
+            total_handles: all_handles.len(),
+            handles_with_multiple_ids,
+            total_duplicated,
+        })
     }
 }
 
