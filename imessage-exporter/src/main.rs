@@ -17,24 +17,20 @@ fn main() {
     let options = Options::from_args(&args);
 
     // Create app state and start
-    if let Err(why) = &options {
-        eprintln!("{why}");
-    } else {
-        match options {
-            Ok(options) => match Config::new(options) {
-                Ok(mut app) => {
-                    // Resolve the filtered contacts, if provided
-                    app.resolve_filtered_handles();
+    match options {
+        Ok(options) => match Config::new(options) {
+            Ok(mut app) => {
+                // Resolve the filtered contacts, if provided
+                app.resolve_filtered_handles();
 
-                    if let Err(why) = app.start() {
-                        eprintln!("Unable to export: {why}");
-                    }
+                if let Err(why) = app.start() {
+                    eprintln!("Unable to export: {why}");
                 }
-                Err(why) => {
-                    eprintln!("Invalid configuration: {why}");
-                }
-            },
-            Err(why) => eprintln!("Invalid command line options: {why}"),
-        }
+            }
+            Err(why) => {
+                eprintln!("Invalid configuration: {why}");
+            }
+        },
+        Err(why) => eprintln!("Invalid command line options: {why}"),
     }
 }
