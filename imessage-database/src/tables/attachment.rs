@@ -420,20 +420,26 @@ impl Attachment {
                         Platform::macOS => {
                             let path = Attachment::gen_macos_attachment(filepath);
                             let file = Path::new(&path);
-                            if let Ok(metadata) = file.metadata() {
-                                total_bytes_on_disk += metadata.len();
+                            match file.metadata() {
+                                Ok(metadata) => {
+                                    total_bytes_on_disk += metadata.len();
+                                    false
+                                }
+                                Err(_) => true,
                             }
-                            !file.exists()
                         }
                         Platform::iOS => {
                             if let Some(parsed_path) =
                                 Attachment::gen_ios_attachment(filepath, db_path)
                             {
                                 let file = Path::new(&parsed_path);
-                                if let Ok(metadata) = file.metadata() {
-                                    total_bytes_on_disk += metadata.len();
-                                }
-                                return !file.exists();
+                                return match file.metadata() {
+                                    Ok(metadata) => {
+                                        total_bytes_on_disk += metadata.len();
+                                        false
+                                    }
+                                    Err(_) => true,
+                                };
                             }
                             // This hits if the attachment path doesn't get generated
                             true
