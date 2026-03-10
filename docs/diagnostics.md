@@ -13,6 +13,9 @@ Message diagnostic data:
     Total messages: 183453
     Messages not associated with a chat: 43210
     Messages belonging to more than one chat: 36
+    Recoverable deleted messages: 1
+    Date range: Sep 20, 2019  1:53:14 PM to Mar 09, 2026  5:03:14 PM
+                6 years, 170 days, 4 hours, 58 minutes, 24 seconds
 Attachment diagnostic data:
     Total attachments: 49422
         Data referenced in table: 44.13 GB
@@ -63,6 +66,14 @@ If a message exists in the `messages` table but does not have an entry in the `c
 ### Messages belonging to more than one chat
 
 If a message exists in the `messages` table and maps to multiple chats in `chat_message_join`, the message will exist in all of those chats when exported.
+
+## Recoverable deleted messages
+
+The number of messages that were marked as deleted from conversations but are recoverable and will be rendered in-line in exports.
+
+## Date range
+
+The range of total available messages in the database in both exact and relative format.
 
 ## Attachment diagnostic data
 

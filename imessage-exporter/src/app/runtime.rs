@@ -18,11 +18,12 @@ use imessage_database::{
         chat_handle::ChatToHandle,
         handle::Handle,
         messages::Message,
-        table::{
-            ATTACHMENTS_DIR, Cacheable, Deduplicate, Diagnostic, ME, ORPHANED, UNKNOWN, get_db_size,
-        },
+        table::{ATTACHMENTS_DIR, Cacheable, Deduplicate, ME, ORPHANED, UNKNOWN, get_db_size},
     },
-    util::{dates::get_offset, size::format_file_size},
+    util::{
+        dates::{format as format_date, get_local_time, get_offset, readable_diff},
+        size::format_file_size,
+    },
 };
 
 use crate::{
@@ -397,14 +398,103 @@ impl Config {
     /// Handles diagnostic tests for database
     fn run_diagnostic(&self) -> Result<(), RuntimeError> {
         println!("\niMessage Database Diagnostics\n");
-        Handle::run_diagnostic(self.data_source.db())?;
-        Message::run_diagnostic(self.data_source.db())?;
-        Attachment::run_diagnostic(
+
+        // Handle diagnostics
+        let handle_diag = Handle::run_diagnostic(self.data_source.db())?;
+        println!("Handle diagnostic data:");
+        println!("    Total handles: {}", handle_diag.total_handles);
+        if handle_diag.handles_with_multiple_ids > 0 {
+            println!(
+                "    Handles with more than one ID: {}",
+                handle_diag.handles_with_multiple_ids
+            );
+        }
+        if handle_diag.total_duplicated > 0 {
+            println!(
+                "    Total duplicated handles: {}",
+                handle_diag.total_duplicated
+            );
+        }
+
+        // Message diagnostics
+        let message_diag = Message::run_diagnostic(self.data_source.db())?;
+        println!("Message diagnostic data:");
+        println!("    Total messages: {}", message_diag.total_messages);
+        if message_diag.messages_without_chat > 0 {
+            println!(
+                "    Messages not associated with a chat: {}",
+                message_diag.messages_without_chat
+            );
+        }
+        if message_diag.messages_in_multiple_chats > 0 {
+            println!(
+                "    Messages belonging to more than one chat: {}",
+                message_diag.messages_in_multiple_chats
+            );
+        }
+        if message_diag.recoverable_messages > 0 {
+            println!(
+                "    Recoverable deleted messages: {}",
+                message_diag.recoverable_messages
+            );
+        }
+        if let (Some(first), Some(last)) = (
+            message_diag.first_message_date,
+            message_diag.last_message_date,
+        ) {
+            println!(
+                "    Date range: {} to {}\n                {}",
+                format_date(&get_local_time(first, self.offset)),
+                format_date(&get_local_time(last, self.offset)),
+                readable_diff(
+                    get_local_time(first, self.offset),
+                    get_local_time(last, self.offset)
+                )
+                .unwrap_or_else(|| "N/A".to_string()),
+            );
+        }
+
+        // Attachment diagnostics
+        let attach_diag = Attachment::run_diagnostic(
             self.data_source.db(),
             &self.options.db_path,
             &self.options.platform,
         )?;
-        ChatToHandle::run_diagnostic(self.data_source.db())?;
+        if attach_diag.total_attachments > 0 {
+            println!("Attachment diagnostic data:");
+            println!("    Total attachments: {}", attach_diag.total_attachments);
+            println!(
+                "        Data referenced in table: {}",
+                format_file_size(attach_diag.total_bytes_referenced)
+            );
+            println!(
+                "        Data present on disk: {}",
+                format_file_size(attach_diag.total_bytes_on_disk)
+            );
+            if attach_diag.missing_files > 0 {
+                println!(
+                    "    Missing files: {} ({:.0}%)",
+                    attach_diag.missing_files,
+                    attach_diag.missing_percent().unwrap_or(0.0)
+                );
+                println!("        No path provided: {}", attach_diag.no_path_provided);
+                println!("        No file located: {}", attach_diag.no_file_located());
+            }
+        }
+
+        // Chat/thread diagnostics
+        let chat_diag = ChatToHandle::run_diagnostic(self.data_source.db())?;
+        println!("Thread diagnostic data:");
+        println!("    Total chats: {}", chat_diag.total_chats);
+        if chat_diag.total_duplicated > 0 {
+            println!("    Total duplicated chats: {}", chat_diag.total_duplicated);
+        }
+        if chat_diag.chats_with_no_handles > 0 {
+            println!(
+                "    Chats with no handles: {}",
+                chat_diag.chats_with_no_handles
+            );
+        }
 
         // Global Diagnostics
         println!("Global diagnostic data:");

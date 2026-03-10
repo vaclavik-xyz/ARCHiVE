@@ -5,7 +5,6 @@
 pub mod bundle_id;
 pub mod dates;
 pub mod dirs;
-pub mod output;
 pub mod platform;
 pub mod plist;
 pub mod query_context;

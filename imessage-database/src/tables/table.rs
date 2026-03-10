@@ -164,12 +164,6 @@ pub trait Deduplicate {
     fn dedupe(duplicated_data: &HashMap<i32, Self::T>) -> HashMap<i32, i32>;
 }
 
-/// Defines behavior for printing diagnostic information for a table
-pub trait Diagnostic {
-    /// Emit diagnostic data about the table to `stdout`
-    fn run_diagnostic(db: &Connection) -> Result<(), TableError>;
-}
-
 // MARK: Database
 /// Get a connection to the iMessage `SQLite` database
 // # Example:
