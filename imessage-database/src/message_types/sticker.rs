@@ -53,8 +53,7 @@ impl StickerSource {
 }
 
 /// Represents different types of [sticker effects](https://www.macrumors.com/how-to/add-effects-to-stickers-in-messages/) that can be applied to sticker iMessage balloons.
-#[derive(Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub enum StickerEffect {
     /// Sticker sent with no effect
     #[default]
@@ -97,17 +96,16 @@ impl Display for StickerEffect {
     }
 }
 
-
 /// Parse the sticker effect type from the EXIF data of a HEIC blob
 #[must_use]
-pub fn get_sticker_effect(mut heic_data: Vec<u8>) -> StickerEffect {
+pub fn get_sticker_effect(mut heic_data: &[u8]) -> StickerEffect {
     // Find the start index and drain
     for idx in 0..heic_data.len() {
         if idx + STICKER_EFFECT_PREFIX.len() < heic_data.len() {
             let part = &heic_data[idx..idx + STICKER_EFFECT_PREFIX.len()];
             if part == STICKER_EFFECT_PREFIX {
                 // Remove the start pattern from the blob
-                heic_data.drain(..idx + STICKER_EFFECT_PREFIX.len());
+                heic_data = &heic_data[idx + STICKER_EFFECT_PREFIX.len()..];
                 break;
             }
         } else {
@@ -124,11 +122,11 @@ pub fn get_sticker_effect(mut heic_data: Vec<u8>) -> StickerEffect {
 
         if part == STICKER_EFFECT_SUFFIX {
             // Remove the end pattern from the string
-            heic_data.truncate(idx);
+            heic_data = &heic_data[..idx];
             break;
         }
     }
-    StickerEffect::from_exif(&String::from_utf8_lossy(&heic_data))
+    StickerEffect::from_exif(&String::from_utf8_lossy(heic_data))
 }
 
 #[cfg(test)]
@@ -149,7 +147,7 @@ mod tests {
         let mut bytes = vec![];
         file.read_to_end(&mut bytes).unwrap();
 
-        let effect = get_sticker_effect(bytes);
+        let effect = get_sticker_effect(&bytes);
 
         assert_eq!(effect, StickerEffect::Normal);
     }
@@ -164,7 +162,7 @@ mod tests {
         let mut bytes = vec![];
         file.read_to_end(&mut bytes).unwrap();
 
-        let effect = get_sticker_effect(bytes);
+        let effect = get_sticker_effect(&bytes);
 
         assert_eq!(effect, StickerEffect::Outline);
     }
@@ -179,7 +177,7 @@ mod tests {
         let mut bytes = vec![];
         file.read_to_end(&mut bytes).unwrap();
 
-        let effect = get_sticker_effect(bytes);
+        let effect = get_sticker_effect(&bytes);
 
         assert_eq!(effect, StickerEffect::Comic);
     }
@@ -194,7 +192,7 @@ mod tests {
         let mut bytes = vec![];
         file.read_to_end(&mut bytes).unwrap();
 
-        let effect = get_sticker_effect(bytes);
+        let effect = get_sticker_effect(&bytes);
 
         assert_eq!(effect, StickerEffect::Puffy);
     }
@@ -209,7 +207,7 @@ mod tests {
         let mut bytes = vec![];
         file.read_to_end(&mut bytes).unwrap();
 
-        let effect = get_sticker_effect(bytes);
+        let effect = get_sticker_effect(&bytes);
 
         assert_eq!(effect, StickerEffect::Shiny);
     }

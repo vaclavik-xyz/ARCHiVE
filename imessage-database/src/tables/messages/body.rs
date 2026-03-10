@@ -39,12 +39,14 @@ const APP_CHAR: char = '\u{FFFD}';
 const REPLACEMENT_CHARS: [char; 2] = [ATTACHMENT_CHAR, APP_CHAR];
 
 /// Indicates the outcome of parsing an attributed range: either an optional text effect or a style change.
+#[derive(Debug, PartialEq)]
 pub enum RangeResult {
     Effect(Option<TextEffect>),
     Style(Style),
 }
 
 /// The result of parsing a message body, containing its components and optional plain text.
+#[derive(Debug, PartialEq)]
 pub struct ParseResult {
     pub components: Vec<BubbleComponent>,
     pub text: Option<String>,

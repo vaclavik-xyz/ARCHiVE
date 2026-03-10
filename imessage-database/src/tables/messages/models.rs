@@ -32,7 +32,7 @@ pub enum BubbleComponent {
 
 // MARK: Service
 /// Defines different types of [services](https://support.apple.com/en-us/104972) we can receive messages from.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Service<'a> {
     /// An iMessage
     #[allow(non_camel_case_types)]
@@ -178,7 +178,7 @@ impl AttachmentMeta {
 
 // MARK: GroupAction
 /// Represents different types of group message actions that can occur in a chat system
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum GroupAction<'a> {
     /// A new participant has been added to the group
     ParticipantAdded(i32),

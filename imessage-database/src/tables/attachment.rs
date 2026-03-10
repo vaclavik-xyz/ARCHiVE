@@ -248,7 +248,7 @@ impl Attachment {
 
         // Try to parse the HEIC data
         if let Some(data) = self.as_bytes(platform, db_path, custom_attachment_root)? {
-            return Ok(Some(get_sticker_effect(data)));
+            return Ok(Some(get_sticker_effect(&data)));
         }
 
         // Default if the attachment is a sticker and cannot be parsed/read

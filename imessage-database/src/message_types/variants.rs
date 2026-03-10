@@ -43,7 +43,7 @@ use crate::{
 /// - 3 is the text of the message
 ///
 /// In this example, a Like on `p:2/` is a like on the third image.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Tapback<'a> {
     /// Heart
     Loved,
@@ -79,7 +79,7 @@ impl Display for Tapback<'_> {
 ///
 /// Messages sent via an app's iMessage integration will send in a special balloon instead of a normal
 /// text balloon. This represents the different variants of message balloon.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CustomBalloon<'a> {
     /// Generic third party [applications](crate::message_types::app)
     Application(&'a str),
@@ -107,7 +107,7 @@ pub enum CustomBalloon<'a> {
 ///
 /// Apple sometimes overloads `com.apple.messages.URLBalloonProvider` with
 /// other types of messages; this enum represents those variants.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum URLOverride<'a> {
     /// [`URL`](crate::message_types::url) previews
     Normal(URLMessage<'a>),
@@ -125,7 +125,7 @@ pub enum URLOverride<'a> {
 ///
 /// Announcements are messages sent to a thread for actions that are not balloons, i.e.
 /// updating the name of the group or changing the group photo
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Announcement<'a> {
     /// All parts of the message were unsent
     FullyUnsent,
@@ -140,7 +140,7 @@ pub enum Announcement<'a> {
 /// Tapback Action Container
 ///
 /// Tapbacks can either be added or removed; this enum represents those states
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TapbackAction {
     /// Tapback was added to the message
     Added,
@@ -152,7 +152,7 @@ pub enum TapbackAction {
 ///
 /// Messages can exist as one of many different variants, this encapsulates
 /// all of the possibilities.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Variant<'a> {
     /// An iMessage with a standard text body that may include attachments
     Normal,
