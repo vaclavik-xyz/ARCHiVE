@@ -76,15 +76,12 @@ pub fn get_local_time(date_stamp: i64, offset: i64) -> Result<DateTime<Local>, M
 /// use chrono::offset::Local;
 /// use imessage_database::util::dates::format;
 ///
-/// let date = format(&Ok(Local::now()));
+/// let date = format(&Local::now());
 /// println!("{date}");
 /// ```
 #[must_use]
-pub fn format(date: &Result<DateTime<Local>, MessageError>) -> String {
-    match date {
-        Ok(d) => DateTime::format(d, "%b %d, %Y %l:%M:%S %p").to_string(),
-        Err(why) => why.to_string(),
-    }
+pub fn format(date: &DateTime<Local>) -> String {
+    DateTime::format(date, "%b %d, %Y %l:%M:%S %p").to_string()
 }
 
 /// Generate a readable diff from two local timestamps.
@@ -95,17 +92,12 @@ pub fn format(date: &Result<DateTime<Local>, MessageError>) -> String {
 /// use chrono::prelude::*;
 /// use imessage_database::util::dates::readable_diff;
 ///
-/// let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-/// let end = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 15, 13).unwrap());
-/// println!("{}", readable_diff(start, end).unwrap()) // "5 minutes, 2 seconds"
+/// let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+/// let end = Local.with_ymd_and_hms(2020, 5, 20, 9, 15, 13).unwrap();
+/// println!("{}", readable_diff(&start, &end).unwrap()) // "5 minutes, 2 seconds"
 /// ```
 #[must_use]
-pub fn readable_diff(
-    start: Result<DateTime<Local>, MessageError>,
-    end: Result<DateTime<Local>, MessageError>,
-) -> Option<String> {
-    let start = start.ok()?;
-    let end = end.ok()?;
+pub fn readable_diff(start: &DateTime<Local>, end: &DateTime<Local>) -> Option<String> {
 
     // Calculate diff
     let seconds = end.timestamp() - start.timestamp();
@@ -115,7 +107,7 @@ pub fn readable_diff(
         return None;
     }
 
-    let (years, remaining_seconds) = years_and_remainder(&start, &end)
+    let (years, remaining_seconds) = years_and_remainder(start, end)
         .unwrap_or((seconds / SECONDS_PER_YEAR, seconds % SECONDS_PER_YEAR));
 
     // 51 is the length of a diff string that has all components with 2 digits each.
@@ -175,151 +167,142 @@ fn append_component(out_s: &mut String, value: i64, singular: &str, plural: &str
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        error::message::MessageError,
-        util::dates::{TIMESTAMP_FACTOR, format, get_local_time, get_offset, readable_diff},
-    };
+    use crate::util::dates::{TIMESTAMP_FACTOR, format, get_local_time, get_offset, readable_diff};
     use chrono::prelude::*;
 
     #[test]
     fn can_format_date_single_digit() {
-        let date = Local
-            .with_ymd_and_hms(2020, 5, 20, 9, 10, 11)
-            .single()
-            .ok_or(MessageError::InvalidTimestamp(0));
+        let date = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
         assert_eq!(format(&date), "May 20, 2020  9:10:11 AM");
     }
 
     #[test]
     fn can_format_date_double_digit() {
-        let date = Local
-            .with_ymd_and_hms(2020, 5, 20, 10, 10, 11)
-            .single()
-            .ok_or(MessageError::InvalidTimestamp(0));
+        let date = Local.with_ymd_and_hms(2020, 5, 20, 10, 10, 11).unwrap();
         assert_eq!(format(&date), "May 20, 2020 10:10:11 AM");
     }
 
     #[test]
     fn cant_format_diff_backwards() {
-        let end = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 30).unwrap());
-        assert_eq!(readable_diff(start, end), None);
+        let end = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 30).unwrap();
+        assert_eq!(readable_diff(&start, &end), None);
     }
 
     #[test]
     fn can_format_diff_all_singular() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2020, 5, 21, 10, 11, 12).unwrap());
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2020, 5, 21, 10, 11, 12).unwrap();
         assert_eq!(
-            readable_diff(start, end),
+            readable_diff(&start, &end),
             Some("1 day, 1 hour, 1 minute, 1 second".to_owned())
         );
     }
 
     #[test]
     fn can_format_diff_mixed_singular() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2020, 5, 22, 10, 20, 12).unwrap());
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2020, 5, 22, 10, 20, 12).unwrap();
         assert_eq!(
-            readable_diff(start, end),
+            readable_diff(&start, &end),
             Some("2 days, 1 hour, 10 minutes, 1 second".to_owned())
         );
     }
 
     #[test]
     fn can_format_diff_seconds() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 30).unwrap());
-        assert_eq!(readable_diff(start, end), Some("19 seconds".to_owned()));
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 30).unwrap();
+        assert_eq!(readable_diff(&start, &end), Some("19 seconds".to_owned()));
     }
 
     #[test]
     fn can_format_diff_minutes() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 15, 11).unwrap());
-        assert_eq!(readable_diff(start, end), Some("5 minutes".to_owned()));
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2020, 5, 20, 9, 15, 11).unwrap();
+        assert_eq!(readable_diff(&start, &end), Some("5 minutes".to_owned()));
     }
 
     #[test]
     fn can_format_diff_hours() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2020, 5, 20, 12, 10, 11).unwrap());
-        assert_eq!(readable_diff(start, end), Some("3 hours".to_owned()));
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2020, 5, 20, 12, 10, 11).unwrap();
+        assert_eq!(readable_diff(&start, &end), Some("3 hours".to_owned()));
     }
 
     #[test]
     fn can_format_diff_days() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2020, 5, 30, 9, 10, 11).unwrap());
-        assert_eq!(readable_diff(start, end), Some("10 days".to_owned()));
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2020, 5, 30, 9, 10, 11).unwrap();
+        assert_eq!(readable_diff(&start, &end), Some("10 days".to_owned()));
     }
 
     #[test]
     fn can_format_diff_minutes_seconds() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 15, 30).unwrap());
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2020, 5, 20, 9, 15, 30).unwrap();
         assert_eq!(
-            readable_diff(start, end),
+            readable_diff(&start, &end),
             Some("5 minutes, 19 seconds".to_owned())
         );
     }
 
     #[test]
     fn can_format_diff_days_minutes() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2020, 5, 22, 9, 30, 11).unwrap());
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2020, 5, 22, 9, 30, 11).unwrap();
         assert_eq!(
-            readable_diff(start, end),
+            readable_diff(&start, &end),
             Some("2 days, 20 minutes".to_owned())
         );
     }
 
     #[test]
     fn can_format_diff_month() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2020, 7, 20, 9, 10, 11).unwrap());
-        assert_eq!(readable_diff(start, end), Some("61 days".to_owned()));
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2020, 7, 20, 9, 10, 11).unwrap();
+        assert_eq!(readable_diff(&start, &end), Some("61 days".to_owned()));
     }
 
     #[test]
     fn can_format_diff_single_year() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2021, 5, 20, 9, 10, 11).unwrap());
-        assert_eq!(readable_diff(start, end), Some("1 year".to_owned()));
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2021, 5, 20, 9, 10, 11).unwrap();
+        assert_eq!(readable_diff(&start, &end), Some("1 year".to_owned()));
     }
 
     #[test]
     fn can_format_diff_years_days() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2022, 7, 20, 9, 10, 11).unwrap());
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2022, 7, 20, 9, 10, 11).unwrap();
         assert_eq!(
-            readable_diff(start, end),
+            readable_diff(&start, &end),
             Some("2 years, 61 days".to_owned())
         );
     }
 
     #[test]
     fn can_format_diff_leap_day_anniversary_as_year() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 2, 29, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2021, 2, 28, 9, 10, 11).unwrap());
-        assert_eq!(readable_diff(start, end), Some("1 year".to_owned()));
+        let start = Local.with_ymd_and_hms(2020, 2, 29, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2021, 2, 28, 9, 10, 11).unwrap();
+        assert_eq!(readable_diff(&start, &end), Some("1 year".to_owned()));
     }
 
     #[test]
     fn can_format_diff_all() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2020, 5, 22, 14, 32, 45).unwrap());
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2020, 5, 22, 14, 32, 45).unwrap();
         assert_eq!(
-            readable_diff(start, end),
+            readable_diff(&start, &end),
             Some("2 days, 5 hours, 22 minutes, 34 seconds".to_owned())
         );
     }
 
     #[test]
     fn can_format_no_diff() {
-        let start = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        let end = Ok(Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap());
-        assert_eq!(readable_diff(start, end), Some(String::new()));
+        let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        let end = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
+        assert_eq!(readable_diff(&start, &end), Some(String::new()));
     }
 
     #[test]

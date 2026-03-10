@@ -441,16 +441,18 @@ impl Config {
         if let (Some(first), Some(last)) = (
             message_diag.first_message_date,
             message_diag.last_message_date,
-        ) {
+        )
+            && let (Ok(first_date), Ok(last_date)) = (
+                get_local_time(first, self.offset),
+                get_local_time(last, self.offset),
+            )
+        {
             println!(
                 "    Date range: {} to {}\n                {}",
-                format_date(&get_local_time(first, self.offset)),
-                format_date(&get_local_time(last, self.offset)),
-                readable_diff(
-                    get_local_time(first, self.offset),
-                    get_local_time(last, self.offset)
-                )
-                .unwrap_or_else(|| "N/A".to_string()),
+                format_date(&first_date),
+                format_date(&last_date),
+                readable_diff(&first_date, &last_date)
+                    .unwrap_or_else(|| "N/A".to_string()),
             );
         }
 
