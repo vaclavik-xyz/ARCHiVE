@@ -97,13 +97,6 @@ impl HtmlBuilder {
         self
     }
 
-    /// Appends an HTML-escaped attribute value
-    #[inline]
-    pub(crate) fn attr(&mut self, value: &str) -> &mut Self {
-        self.buf.push_str(&sanitize_html(value));
-        self
-    }
-
     /// Consumes the builder and returns the HTML string
     #[inline]
     pub(crate) fn build(self) -> String {
@@ -384,7 +377,7 @@ mod html_builder_tests {
     fn attr_escapes_quotes() {
         let mut h = HtmlBuilder::new();
         h.raw("<a href=\"")
-            .attr("javascript:alert(\"xss\")")
+            .text("javascript:alert(\"xss\")")
             .raw("\">");
         assert_eq!(h.build(), "<a href=\"javascript:alert(&quot;xss&quot;)\">");
     }

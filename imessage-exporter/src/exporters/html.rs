@@ -225,7 +225,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         if message.is_reply() && indent_size == 0 {
             // Add an ID for any top-level message so we can link to them in threads
             h.raw("<div class=\"message\" id=\"r-")
-                .attr(&message.guid)
+                .text(&message.guid)
                 .raw("\">\n");
         } else {
             h.raw("<div class=\"message\">\n");
@@ -241,7 +241,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         // Add message date
         let (date, read_after) = self.get_time(message);
         h.raw("<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=")
-            .attr(&message.guid)
+            .text(&message.guid)
             .raw("\">")
             .text(&date)
             .raw("</a> ")
@@ -253,12 +253,12 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             if indent_size > 0 {
                 // If we are indented it means we are rendering in a thread
                 h.raw("<span class=\"reply_anchor\"><a title=\"View in context\" href=\"#r-")
-                    .attr(&message.guid)
+                    .text(&message.guid)
                     .raw("\">⇲</a></span>\n");
             } else {
                 // If there is no indent we are rendering a top-level message
                 h.raw("<span class=\"reply_anchor\"><a title=\"View in thread\" href=\"#")
-                    .attr(&message.guid)
+                    .text(&message.guid)
                     .raw("\">⇱</a></span>\n");
             }
         }
@@ -461,7 +461,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                         if !reply.is_tapback() {
                             // Set indent to 1 so we know this is a recursive call
                             h.raw("<div class=\"reply\" id=\"")
-                                .attr(&reply.guid)
+                                .text(&reply.guid)
                                 .raw("\">")
                                 .raw(&self.format_message(reply, 1)?)
                                 .raw("</div>\n");
@@ -725,7 +725,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                     && let Some(text) = &message.text
                 {
                     let mut h = HtmlBuilder::new();
-                    h.raw("<a href=\"").attr(text).raw("\">");
+                    h.raw("<a href=\"").text(text).raw("\">");
                     h.raw("<div class=\"app_header\"><div class=\"name\">")
                         .text(text)
                         .raw("</div></div>");
@@ -1040,11 +1040,11 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         // Make the whole bubble clickable
         let mut close_url = false;
         if let Some(url) = balloon.get_url() {
-            h.raw("<a href=\"").attr(url).raw("\">");
+            h.raw("<a href=\"").text(url).raw("\">");
             close_url = true;
         } else if let Some(text) = &msg.text {
             // Fallback if the balloon data does not contain the URL
-            h.raw("<a href=\"").attr(text).raw("\">");
+            h.raw("<a href=\"").text(text).raw("\">");
             close_url = true;
         }
 
@@ -1053,7 +1053,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
 
         // Add preview images
         for image in &balloon.images {
-            h.raw("<img src=\"").attr(image);
+            h.raw("<img src=\"").text(image);
             if self.config.options.no_lazy {
                 h.raw("\" onerror=\"this.style.display='none'\">");
             } else {
@@ -1114,7 +1114,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         // Add preview section
         if let Some(preview) = balloon.preview {
             h.raw("<audio controls src=\"")
-                .attr(preview)
+                .text(preview)
                 .raw("\"> </audio>");
         }
 
@@ -1132,7 +1132,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
 
         // Make the footer clickable so we can interact with the preview
         if let Some(url) = balloon.url {
-            h.raw("<a href=\"").attr(url).raw("\">");
+            h.raw("<a href=\"").text(url).raw("\">");
         }
 
         // Only write the footer if there is data to write
@@ -1180,7 +1180,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
 
         // Make the footer clickable so we can interact with the preview
         if let Some(url) = balloon.url {
-            h.raw("<a href=\"").attr(url).raw("\">");
+            h.raw("<a href=\"").text(url).raw("\">");
         }
 
         // Only write the footer if there is data to write
@@ -1225,7 +1225,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
 
         // Make the footer clickable so we can interact with the preview
         if let Some(url) = balloon.url {
-            h.raw("<a href=\"").attr(url).raw("\">");
+            h.raw("<a href=\"").text(url).raw("\">");
         }
 
         // Only write the footer if there is data to write
@@ -1269,7 +1269,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
 
         // Make the whole bubble clickable
         if let Some(url) = balloon.get_url() {
-            h.raw("<a href=\"").attr(url).raw("\">");
+            h.raw("<a href=\"").text(url).raw("\">");
         }
 
         // Header section
@@ -1550,7 +1550,7 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
     fn format_mention(&self, text: &str, mentioned: &str) -> String {
         let mut h = HtmlBuilder::new();
         h.raw("<span title=\"")
-            .attr(mentioned)
+            .text(mentioned)
             .raw("\"><b>")
             .raw(text)
             .raw("</b></span>");
@@ -1560,7 +1560,7 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
     fn format_link(&self, text: &str, url: &str) -> String {
         let mut h = HtmlBuilder::new();
         h.raw("<a href=\"")
-            .attr(url)
+            .text(url)
             .raw("\">")
             .raw(text)
             .raw("</a>");
@@ -1666,13 +1666,13 @@ impl HTML<'_> {
     ) -> String {
         let mut h = HtmlBuilder::new();
         if let Some(url) = balloon.url {
-            h.raw("<a href=\"").attr(url).raw("\">");
+            h.raw("<a href=\"").text(url).raw("\">");
         }
         h.raw("<div class=\"app_header\">");
 
         // Image
         if let Some(image) = balloon.image {
-            h.raw("<img src=\"").attr(image).raw("\">");
+            h.raw("<img src=\"").text(image).raw("\">");
         } else if let Some(attachment) = attachments.get_mut(0) {
             h.raw(
                 &self
