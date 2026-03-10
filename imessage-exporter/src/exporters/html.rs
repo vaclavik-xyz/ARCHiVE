@@ -192,7 +192,6 @@ impl<'a> Exporter<'a> for HTML<'a> {
                     Vacant(entry) => {
                         let mut path = self.config.options.export_path.clone();
                         path.push(filename);
-                        path.set_extension("html");
 
                         // If the file already exists, don't write the headers again
                         // This can happen if multiple chats use the same group name
