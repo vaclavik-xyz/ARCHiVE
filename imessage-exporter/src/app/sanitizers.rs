@@ -64,8 +64,7 @@ pub fn sanitize_html(input: &'_ str) -> Cow<'_, str> {
 
 /// A builder for constructing HTML strings that escapes dynamic content by default.
 ///
-/// Use `raw()` for trusted HTML structure, `text()` for content between tags,
-/// and `attr()` for values inside attribute quotes.
+/// Use `raw()` for trusted HTML structure and `text()` for content between tags.
 pub(crate) struct HtmlBuilder {
     buf: String,
 }
