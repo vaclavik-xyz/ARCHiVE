@@ -119,11 +119,10 @@ impl ChatToHandle {
         let all_chats = Self::cache(db)?;
 
         // Cache chatroom participants
-        let chatroom_participants = ChatToHandle::cache(db)?;
         let chat_handle_lookup = ChatToHandle::get_chat_lookup_map(db)?;
 
         // Deduplicate chatroom participants
-        let real_chatrooms = ChatToHandle::dedupe(&chatroom_participants, &chat_handle_lookup)?;
+        let real_chatrooms = ChatToHandle::dedupe(&all_chats, &chat_handle_lookup)?;
 
         // Calculate total duplicated chats
         let total_duplicated =
@@ -221,7 +220,7 @@ ORDER BY chat;
     /// use std::collections::HashMap;
     ///
     /// use imessage_database::util::dirs::default_db_path;
-    /// use imessage_database::tables::table::{Cacheable, Deduplicate, get_connection};
+    /// use imessage_database::tables::table::{Cacheable, get_connection};
     /// use imessage_database::tables::chat_handle::ChatToHandle;
     ///
     /// let db_path = default_db_path();
