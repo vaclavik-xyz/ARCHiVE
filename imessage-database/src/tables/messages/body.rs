@@ -180,7 +180,7 @@ pub fn parse_body_typedstream<'a>(
 /// Build a table so that `utf16_to_byte[n]` gives the byte offset
 /// that corresponds to the *n*-th UTF-16 code-unit of `s`.
 fn build_utf16_to_byte_map(s: &str) -> Vec<usize> {
-    let mut map = Vec::with_capacity(s.encode_utf16().count() + 1);
+    let mut map = Vec::with_capacity(s.len() + 1);
     let mut byte = 0;
     for ch in s.chars() {
         // how many UTF-16 units does this scalar use (1 or 2)

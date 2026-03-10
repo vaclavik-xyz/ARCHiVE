@@ -605,9 +605,7 @@ impl Message {
             }
 
             // If neither typedstream nor self.text produced text, fall back to legacy streamtyped
-            if text.is_none()
-                && let Some(body) = self.attributed_body(db)
-            {
+            if text.is_none() {
                 text = Some(streamtyped::parse(body)?);
             }
         }

@@ -156,14 +156,6 @@ pub trait Cacheable {
     fn cache(db: &Connection) -> Result<HashMap<Self::K, Self::V>, TableError>;
 }
 
-/// Defines behavior for deduplicating data in a table
-pub trait Deduplicate {
-    /// The type of data being deduplicated
-    type T;
-    /// Creates a mapping from duplicated IDs to canonical IDs
-    fn dedupe(duplicated_data: &HashMap<i32, Self::T>) -> HashMap<i32, i32>;
-}
-
 // MARK: Database
 /// Get a connection to the iMessage `SQLite` database
 // # Example:

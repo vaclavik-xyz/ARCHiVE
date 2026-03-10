@@ -9,7 +9,7 @@ use crate::{
     error::table::TableError,
     tables::{
         diagnostic::HandleDiagnostic,
-        table::{Cacheable, Deduplicate, HANDLE, ME, Table},
+        table::{Cacheable, HANDLE, ME, Table},
     },
 };
 
@@ -89,9 +89,7 @@ impl Cacheable for Handle {
 }
 
 // MARK: Dedupe
-impl Deduplicate for Handle {
-    type T = String;
-
+impl Handle {
     /// Given the initial set of duplicated handles, deduplicate them
     ///
     /// This returns a new hashmap that maps the real handle ID to a new deduplicated unique handle ID
@@ -103,7 +101,7 @@ impl Deduplicate for Handle {
     ///
     /// ```
     /// use imessage_database::util::dirs::default_db_path;
-    /// use imessage_database::tables::table::{Cacheable, Deduplicate, get_connection};
+    /// use imessage_database::tables::table::{Cacheable, get_connection};
     /// use imessage_database::tables::handle::Handle;
     ///
     /// let db_path = default_db_path();
@@ -111,25 +109,25 @@ impl Deduplicate for Handle {
     /// let handles = Handle::cache(&conn).unwrap();
     /// let deduped_handles = Handle::dedupe(&handles);
     /// ```
-    fn dedupe(duplicated_data: &HashMap<i32, Self::T>) -> HashMap<i32, i32> {
+    pub fn dedupe(duplicated_data: &HashMap<i32, String>) -> HashMap<i32, i32> {
         let mut deduplicated_participants: HashMap<i32, i32> = HashMap::new();
-        let mut participant_to_unique_participant_id: HashMap<Self::T, i32> = HashMap::new();
+        let mut participant_to_unique_participant_id: HashMap<String, i32> = HashMap::new();
 
         // Build cache of each unique set of participants to a new identifier:
         let mut unique_participant_identifier = 0;
 
         // Iterate over the values in a deterministic order
-        let mut sorted_dupes: Vec<(&i32, &Self::T)> = duplicated_data.iter().collect();
+        let mut sorted_dupes: Vec<(&i32, &String)> = duplicated_data.iter().collect();
         sorted_dupes.sort_by(|(a, _), (b, _)| a.cmp(b));
 
         for (participant_id, participant) in sorted_dupes {
             if let Some(id) = participant_to_unique_participant_id.get(participant) {
-                deduplicated_participants.insert(participant_id.to_owned(), id.to_owned());
+                deduplicated_participants.insert(*participant_id, *id);
             } else {
                 participant_to_unique_participant_id
                     .insert(participant.to_owned(), unique_participant_identifier);
                 deduplicated_participants
-                    .insert(participant_id.to_owned(), unique_participant_identifier);
+                    .insert(*participant_id, unique_participant_identifier);
                 unique_participant_identifier += 1;
             }
         }
@@ -257,7 +255,7 @@ impl Handle {
 // MARK: Tests
 #[cfg(test)]
 mod tests {
-    use crate::tables::{handle::Handle, table::Deduplicate};
+    use crate::tables::handle::Handle;
     use std::collections::{HashMap, HashSet};
 
     #[test]

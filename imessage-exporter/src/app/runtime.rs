@@ -18,7 +18,7 @@ use imessage_database::{
         chat_handle::ChatToHandle,
         handle::Handle,
         messages::Message,
-        table::{ATTACHMENTS_DIR, Cacheable, Deduplicate, ME, ORPHANED, UNKNOWN, get_db_size},
+        table::{ATTACHMENTS_DIR, Cacheable, ME, ORPHANED, UNKNOWN, get_db_size},
     },
     util::{
         dates::{format as format_date, get_local_time, get_offset, readable_diff},
