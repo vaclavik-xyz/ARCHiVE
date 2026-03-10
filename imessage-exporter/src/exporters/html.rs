@@ -2078,7 +2078,7 @@ mod tests {
     #[test]
     fn can_format_html_group_removed() {
         // Create exporter
-        let options = Options::fake_options(ExportType::Txt);
+        let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
         config.participants.insert(1, Name::fake_name("Other"));
@@ -2105,7 +2105,7 @@ mod tests {
     #[test]
     fn can_format_html_group_removed_other() {
         // Create exporter
-        let options = Options::fake_options(ExportType::Txt);
+        let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
         config.participants.insert(1, Name::fake_name("Other"));
@@ -2135,7 +2135,7 @@ mod tests {
     #[test]
     fn can_format_html_group_changed_number() {
         // Create exporter
-        let options = Options::fake_options(ExportType::Txt);
+        let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
         config.participants.insert(1, Name::fake_name("Other"));
@@ -2163,7 +2163,7 @@ mod tests {
     #[test]
     fn can_format_html_group_added() {
         // Create exporter
-        let options = Options::fake_options(ExportType::Txt);
+        let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
         config.participants.insert(1, Name::fake_name("Other"));
@@ -2190,7 +2190,7 @@ mod tests {
     #[test]
     fn can_format_html_group_left() {
         // Create exporter
-        let options = Options::fake_options(ExportType::Txt);
+        let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
         config.real_participants.insert(0, 0);
@@ -2213,7 +2213,7 @@ mod tests {
     #[test]
     fn can_format_html_group_icon_removed() {
         // Create exporter
-        let options = Options::fake_options(ExportType::Txt);
+        let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
         config.real_participants.insert(0, 0);
@@ -2237,7 +2237,7 @@ mod tests {
     #[test]
     fn can_format_html_group_icon_added() {
         // Create exporter
-        let options = Options::fake_options(ExportType::Txt);
+        let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
         config.real_participants.insert(0, 0);
@@ -2261,7 +2261,7 @@ mod tests {
     #[test]
     fn can_format_html_chat_background_removed() {
         // Create exporter
-        let options = Options::fake_options(ExportType::Txt);
+        let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
         config.real_participants.insert(0, 0);
@@ -2285,7 +2285,7 @@ mod tests {
     #[test]
     fn can_format_html_chat_background_added() {
         // Create exporter
-        let options = Options::fake_options(ExportType::Txt);
+        let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
         config.real_participants.insert(0, 0);
@@ -2309,7 +2309,7 @@ mod tests {
     #[test]
     fn can_format_html_audio_message_kept() {
         // Create exporter
-        let options = Options::fake_options(ExportType::Txt);
+        let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
         config.real_participants.insert(0, 0);
