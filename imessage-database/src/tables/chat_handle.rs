@@ -87,7 +87,7 @@ impl ChatToHandle {
     ///
     /// let db_path = default_db_path();
     /// let conn = get_connection(&db_path).unwrap();
-    /// let diagnostic = ChatToHandle::run_diagnostic(&conn);
+    /// ChatToHandle::run_diagnostic(&conn);
     /// ```
     pub fn run_diagnostic(db: &Connection) -> Result<ChatHandleDiagnostic, TableError> {
         // Get the Chat IDs that are associated with messages

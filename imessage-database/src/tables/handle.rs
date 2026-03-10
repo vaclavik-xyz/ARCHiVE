@@ -156,7 +156,7 @@ impl Handle {
     ///
     /// let db_path = default_db_path();
     /// let conn = get_connection(&db_path).unwrap();
-    /// let diagnostic = Handle::run_diagnostic(&conn);
+    /// Handle::run_diagnostic(&conn);
     /// ```
     pub fn run_diagnostic(db: &Connection) -> Result<HandleDiagnostic, TableError> {
         let query = concat!(
@@ -166,7 +166,10 @@ impl Handle {
         );
 
         let handles_with_multiple_ids = if let Ok(mut rows) = db.prepare(query) {
-            rows.query_row([], |r| r.get(0)).unwrap_or(0)
+            rows.query_row([], |r| r.get::<_, i64>(0))
+                .ok()
+                .and_then(|count| usize::try_from(count).ok())
+                .unwrap_or(0)
         } else {
             0
         };

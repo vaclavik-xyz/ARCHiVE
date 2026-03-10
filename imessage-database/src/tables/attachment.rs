@@ -380,8 +380,6 @@ impl Attachment {
         }
     }
 
-    /// Emit diagnostic data for the Attachments table
-    ///
     /// Compute diagnostic data for the Attachments table
     ///
     /// Counts the number of attachments that are missing, either because the path is missing from the
@@ -396,7 +394,7 @@ impl Attachment {
     ///
     /// let db_path = default_db_path();
     /// let conn = get_connection(&db_path).unwrap();
-    /// let diagnostic = Attachment::run_diagnostic(&conn, &db_path, &Platform::macOS);
+    /// Attachment::run_diagnostic(&conn, &db_path, &Platform::macOS);
     /// ```
     ///
     /// `db_path` is the path to the root of the backup directory.
@@ -406,8 +404,8 @@ impl Attachment {
         db_path: &Path,
         platform: &Platform,
     ) -> Result<AttachmentDiagnostic, TableError> {
-        let mut total_attachments = 0;
-        let mut no_path_provided = 0;
+        let mut total_attachments = 0usize;
+        let mut no_path_provided = 0usize;
         let mut total_bytes_on_disk: u64 = 0;
         let mut statement_paths = db.prepare(&format!("SELECT filename FROM {ATTACHMENT}"))?;
         let paths = statement_paths.query_map([], |r| Ok(r.get(0)))?;

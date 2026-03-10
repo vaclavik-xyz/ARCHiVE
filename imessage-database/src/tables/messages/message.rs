@@ -295,7 +295,7 @@ impl Message {
     ///
     /// let db_path = default_db_path();
     /// let conn = get_connection(&db_path).unwrap();
-    /// let diagnostic = Message::run_diagnostic(&conn);
+    /// Message::run_diagnostic(&conn);
     /// ```
     pub fn run_diagnostic(db: &Connection) -> Result<MessageDiagnostic, TableError> {
         let mut messages_without_chat = db.prepare(&format!(
@@ -312,8 +312,10 @@ impl Message {
             "
         ))?;
 
-        let messages_without_chat: i32 = messages_without_chat
-            .query_row([], |r| r.get(0))
+        let messages_without_chat = messages_without_chat
+            .query_row([], |r| r.get::<_, i64>(0))
+            .ok()
+            .and_then(|count| usize::try_from(count).ok())
             .unwrap_or(0);
 
         let mut messages_in_more_than_one_chat_q = db.prepare(&format!(
@@ -331,8 +333,10 @@ impl Message {
             "
         ))?;
 
-        let messages_in_multiple_chats: i32 = messages_in_more_than_one_chat_q
-            .query_row([], |r| r.get(0))
+        let messages_in_multiple_chats = messages_in_more_than_one_chat_q
+            .query_row([], |r| r.get::<_, i64>(0))
+            .ok()
+            .and_then(|count| usize::try_from(count).ok())
             .unwrap_or(0);
 
         let mut messages_count = db.prepare(&format!(
@@ -344,12 +348,18 @@ impl Message {
             "
         ))?;
 
-        let total_messages: i64 = messages_count.query_row([], |r| r.get(0)).unwrap_or(0);
+        let total_messages = messages_count
+            .query_row([], |r| r.get::<_, i64>(0))
+            .ok()
+            .and_then(|count| usize::try_from(count).ok())
+            .unwrap_or(0);
 
         // Count recoverable (recently deleted) messages
-        let recoverable_messages: i64 = db
+        let recoverable_messages = db
             .prepare(&format!("SELECT COUNT(*) FROM {RECENTLY_DELETED}"))
-            .and_then(|mut s| s.query_row([], |r| r.get(0)))
+            .and_then(|mut s| s.query_row([], |r| r.get::<_, i64>(0)))
+            .ok()
+            .and_then(|count| usize::try_from(count).ok())
             .unwrap_or(0);
 
         // Get the date range of messages in the database
