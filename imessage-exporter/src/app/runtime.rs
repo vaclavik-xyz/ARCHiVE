@@ -148,9 +148,10 @@ impl Config {
         let mut filename = match &chatroom.display_name() {
             // If there is a display name, use that
             Some(name) => {
+                let truncated_len = name.floor_char_boundary(min(max_len, name.len()));
                 format!(
                     "{} - {}",
-                    &name[..min(max_len, name.len())],
+                    &name[..truncated_len],
                     // Get the deduplicated chat ID to ensure the filename is unique, even if the group name is not
                     self.real_chatrooms
                         .get(&chatroom.rowid)
@@ -208,9 +209,12 @@ impl Config {
                 let extra = format!(", and {} others", participants.len() - added);
                 let space_remaining = extra.len() + out_s.len();
                 if space_remaining >= max_len {
-                    out_s.replace_range((max_len - extra.len()).., &extra);
+                    let start = out_s.floor_char_boundary(max_len.saturating_sub(extra.len()));
+                    out_s.replace_range(start.., &extra);
                 } else if out_s.is_empty() {
-                    out_s.push_str(&participant_details[..max_len]);
+                    let truncated_len = participant_details
+                        .floor_char_boundary(min(max_len, participant_details.len()));
+                    out_s.push_str(&participant_details[..truncated_len]);
                 } else {
                     out_s.push_str(&extra);
                 }
@@ -913,6 +917,89 @@ mod filename_tests {
         // Get filename
         let filename = app.filename(&chat);
         assert_eq!(filename, "Default.html");
+    }
+
+    #[test]
+    fn can_get_filename_chat_display_name_truncated_emoji() {
+        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let app = Config::fake_app(options);
+
+        // Create a display name that is exactly at the boundary with a multi-byte emoji
+        // Each 🤠 is 4 bytes. Fill enough to force truncation at an emoji boundary.
+        let emoji_name: String = "🤠".repeat(60); // 240 bytes, exceeds MAX_LENGTH
+        let mut chat = fake_chat();
+        chat.display_name = Some(emoji_name);
+
+        // Should not panic, and the result should be valid UTF-8
+        let filename = app.filename(&chat);
+        assert!(filename.len() <= MAX_LENGTH + 20); // suffix " - 0.html" adds some
+        // Verify it's valid UTF-8 (would fail to compile/run if not)
+        assert!(filename.ends_with(".html"));
+    }
+
+    #[test]
+    fn can_get_filename_single_long_emoji() {
+        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let mut app = Config::fake_app(options);
+
+        // Create a participant with a name full of 4-byte emoji
+        let emoji_name: String = "🌍".repeat(60); // 240 bytes
+        app.participants.insert(10, Name::fake_name(&emoji_name));
+        app.real_participants.insert(10, 10);
+
+        let mut people = BTreeSet::new();
+        people.insert(10);
+
+        // Should not panic and should produce valid UTF-8
+        let filename = app.filename_from_participants(&people);
+        assert!(filename.len() <= MAX_LENGTH);
+        // Verify the truncation happened on a char boundary
+        for c in filename.chars() {
+            assert!(c == '🌍');
+        }
+    }
+
+    #[test]
+    fn can_get_filename_multiple_long_emoji() {
+        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let mut app = Config::fake_app(options);
+
+        // Create participants with emoji names long enough to trigger the "and N others" truncation
+        for i in 10..18 {
+            let emoji_name: String = "🎵".repeat(30); // 120 bytes each
+            app.participants.insert(i, Name::fake_name(&emoji_name));
+            app.real_participants.insert(i, i);
+        }
+
+        let mut people = BTreeSet::new();
+        for i in 10..18 {
+            people.insert(i);
+        }
+
+        // Should not panic and should produce valid UTF-8 within the length limit
+        let filename = app.filename_from_participants(&people);
+        assert!(filename.len() <= MAX_LENGTH);
+    }
+
+    #[test]
+    fn can_get_filename_cjk_truncation() {
+        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let mut app = Config::fake_app(options);
+
+        // CJK characters are 3 bytes each; test truncation mid-character
+        let cjk_name: String = "你".repeat(80); // 240 bytes
+        app.participants.insert(10, Name::fake_name(&cjk_name));
+        app.real_participants.insert(10, 10);
+
+        let mut people = BTreeSet::new();
+        people.insert(10);
+
+        let filename = app.filename_from_participants(&people);
+        assert!(filename.len() <= MAX_LENGTH);
+        // All characters should be valid
+        for c in filename.chars() {
+            assert!(c == '你');
+        }
     }
 }
 
