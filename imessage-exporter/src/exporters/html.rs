@@ -184,11 +184,11 @@ impl<'a> Exporter<'a> for HTML<'a> {
         match self.config.conversation(message) {
             Some((chatroom, _)) => {
                 let filename = self.config.filename(chatroom);
-                match self.files.entry(filename) {
+                match self.files.entry(filename.clone()) {
                     Occupied(entry) => Ok(entry.into_mut()),
                     Vacant(entry) => {
                         let mut path = self.config.options.export_path.clone();
-                        path.push(self.config.filename(chatroom));
+                        path.push(filename);
                         path.set_extension("html");
 
                         // If the file already exists, don't write the headers again
@@ -387,7 +387,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                                 // Render the translated text as the message body
                                 self.add_line(
                                     &mut formatted_message,
-                                    &translation.translated_text,
+                                    &sanitize_html(&translation.translated_text),
                                     "<span class=\"bubble\">",
                                     "</span>",
                                 );
@@ -529,8 +529,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                         "",
                     );
                     self.add_line(&mut formatted_message, &formatted_tapbacks, "", "");
+                    self.add_line(&mut formatted_message, "</div>", "", "");
                 }
-                self.add_line(&mut formatted_message, "</div>", "", "");
             }
 
             // Handle Replies
@@ -1028,7 +1028,12 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                             .who(msg.handle_id, msg.is_from_me(), &msg.destination_caller_id)
                     };
 
-                    match msg.date(self.config.offset).ok().zip(msg.date_edited(self.config.offset).ok()).and_then(|(s, e)| readable_diff(&s, &e)) {
+                    match msg
+                        .date(self.config.offset)
+                        .ok()
+                        .zip(msg.date_edited(self.config.offset).ok())
+                        .and_then(|(s, e)| readable_diff(&s, &e))
+                    {
                         Some(diff) => {
                             let _ = write!(
                                 out_s,
@@ -3108,7 +3113,7 @@ mod tests {
             .unwrap();
 
         let actual = exporter.format_message(&message, 0).unwrap();
-        let expected = "<div class=\"message\">\n<div class=\"received\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=56FE94B9-2345-4A3C-A57F-949BDDDDF9FF\">Dec 31, 2000  4:00:00 PM</a> </span>\n<span class=\"sender\">Unknown</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Oh, il a traduit ce que j'ai envoyé !</span>\n<div class=\"translated\"><span class=\"bubble\">Oh it translated what I sent!</span></div>\n</div>\n</div>\n</div>\n";
+        let expected = "<div class=\"message\">\n<div class=\"received\">\n<p><span class=\"timestamp\"><a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=56FE94B9-2345-4A3C-A57F-949BDDDDF9FF\">Dec 31, 2000  4:00:00 PM</a> </span>\n<span class=\"sender\">Unknown</span></p>\n<hr><div class=\"message_part\">\n<span class=\"bubble\">Oh, il a traduit ce que j&apos;ai envoyé !</span>\n<div class=\"translated\"><span class=\"bubble\">Oh it translated what I sent!</span></div>\n</div>\n</div>\n</div>\n";
 
         assert_eq!(actual, expected);
     }
