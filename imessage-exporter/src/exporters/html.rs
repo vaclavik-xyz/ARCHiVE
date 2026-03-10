@@ -886,7 +886,10 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         if who == ME {
             who = self.config.options.custom_name.as_deref().unwrap_or("You");
         }
-        let timestamp = format(&msg.date(self.config.offset));
+        let timestamp = match msg.date(self.config.offset) {
+            Ok(d) => format(&d),
+            Err(why) => why.to_string(),
+        };
 
         match msg.get_announcement() {
             Some(announcement) => {
@@ -993,9 +996,14 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                             match previous_timestamp {
                                 None => out_s.push_str(&self.edited_to_html("", &clean_text, last)),
                                 Some(prev_timestamp) => {
-                                    let end = get_local_time(event.date, self.config.offset);
-                                    let start = get_local_time(*prev_timestamp, self.config.offset);
-                                    let diff = readable_diff(start, end).unwrap_or_default();
+                                    let diff = if let (Ok(start), Ok(end)) = (
+                                        get_local_time(*prev_timestamp, self.config.offset),
+                                        get_local_time(event.date, self.config.offset),
+                                    ) {
+                                        readable_diff(&start, &end).unwrap_or_default()
+                                    } else {
+                                        String::new()
+                                    };
 
                                     out_s.push_str(&self.edited_to_html(
                                         &format!("Edited {diff} later"),
@@ -1020,10 +1028,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                             .who(msg.handle_id, msg.is_from_me(), &msg.destination_caller_id)
                     };
 
-                    match readable_diff(
-                        msg.date(self.config.offset),
-                        msg.date_edited(self.config.offset),
-                    ) {
+                    match msg.date(self.config.offset).ok().zip(msg.date_edited(self.config.offset).ok()).and_then(|(s, e)| readable_diff(&s, &e)) {
                         Some(diff) => {
                             let _ = write!(
                                 out_s,
@@ -1544,46 +1549,49 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         if let Some(date_str) = metadata.get("estimatedEndTime") {
             // Parse the estimated end time from the message's query string
             let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
-            let date_time = get_local_time(date_stamp, 0);
-            let date_string = format(&date_time);
+            if let Ok(date_time) = get_local_time(date_stamp, 0) {
+                let date_string = format(&date_time);
 
-            out_s.push_str("<div class=\"app_footer\">");
+                out_s.push_str("<div class=\"app_footer\">");
 
-            out_s.push_str("<div class=\"caption\">Expected around ");
-            out_s.push_str(&date_string);
-            out_s.push_str("</div>");
+                out_s.push_str("<div class=\"caption\">Expected around ");
+                out_s.push_str(&date_string);
+                out_s.push_str("</div>");
 
-            out_s.push_str("</div>");
+                out_s.push_str("</div>");
+            }
         }
         // Expired check-in
         else if let Some(date_str) = metadata.get("triggerTime") {
             // Parse the estimated end time from the message's query string
             let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
-            let date_time = get_local_time(date_stamp, 0);
-            let date_string = format(&date_time);
+            if let Ok(date_time) = get_local_time(date_stamp, 0) {
+                let date_string = format(&date_time);
 
-            out_s.push_str("<div class=\"app_footer\">");
+                out_s.push_str("<div class=\"app_footer\">");
 
-            out_s.push_str("<div class=\"caption\">Was expected around ");
-            out_s.push_str(&date_string);
-            out_s.push_str("</div>");
+                out_s.push_str("<div class=\"caption\">Was expected around ");
+                out_s.push_str(&date_string);
+                out_s.push_str("</div>");
 
-            out_s.push_str("</div>");
+                out_s.push_str("</div>");
+            }
         }
         // Accepted check-in
         else if let Some(date_str) = metadata.get("sendDate") {
             // Parse the estimated end time from the message's query string
             let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
-            let date_time = get_local_time(date_stamp, 0);
-            let date_string = format(&date_time);
+            if let Ok(date_time) = get_local_time(date_stamp, 0) {
+                let date_string = format(&date_time);
 
-            out_s.push_str("<div class=\"app_footer\">");
+                out_s.push_str("<div class=\"app_footer\">");
 
-            out_s.push_str("<div class=\"caption\">Checked in at ");
-            out_s.push_str(&date_string);
-            out_s.push_str("</div>");
+                out_s.push_str("<div class=\"caption\">Checked in at ");
+                out_s.push_str(&date_string);
+                out_s.push_str("</div>");
 
-            out_s.push_str("</div>");
+                out_s.push_str("</div>");
+            }
         }
 
         out_s

@@ -725,11 +725,11 @@ impl Message {
     pub fn time_until_read(&self, offset: i64) -> Option<String> {
         // Message we received
         if !self.is_from_me && self.date_read != 0 && self.date != 0 {
-            return readable_diff(self.date(offset), self.date_read(offset));
+            return readable_diff(&self.date(offset).ok()?, &self.date_read(offset).ok()?);
         }
         // Message we sent
         else if self.is_from_me && self.date_delivered != 0 && self.date != 0 {
-            return readable_diff(self.date(offset), self.date_delivered(offset));
+            return readable_diff(&self.date(offset).ok()?, &self.date_delivered(offset).ok()?);
         }
         None
     }

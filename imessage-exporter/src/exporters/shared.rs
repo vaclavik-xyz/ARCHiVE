@@ -40,7 +40,10 @@ pub(super) fn format_expressive(msg: &Message) -> &str {
 /// Returns `(formatted_date, read_receipt)` where `read_receipt` is
 /// empty if there is no read receipt data.
 pub(super) fn message_time(config: &Config, message: &Message) -> (String, String) {
-    let date = format(&message.date(config.offset));
+    let date = match message.date(config.offset) {
+        Ok(d) => format(&d),
+        Err(why) => why.to_string(),
+    };
     let mut read_receipt = String::new();
     if let Some(time) = message.time_until_read(config.offset)
         && !time.is_empty()
