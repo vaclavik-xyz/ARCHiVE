@@ -14,7 +14,13 @@ pub enum AttachmentError {
     Unreadable(String, Error),
 }
 
-impl std::error::Error for AttachmentError {}
+impl std::error::Error for AttachmentError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            AttachmentError::Unreadable(_, e) => Some(e),
+        }
+    }
+}
 
 impl Display for AttachmentError {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> Result {

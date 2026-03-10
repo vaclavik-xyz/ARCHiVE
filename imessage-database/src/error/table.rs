@@ -70,8 +70,24 @@ impl Display for TableError {
     }
 }
 
-impl std::error::Error for TableError {}
-impl std::error::Error for TableConnectError {}
+impl std::error::Error for TableError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            TableError::QueryError(e) => Some(e),
+            TableError::CannotConnect(e) => Some(e),
+            TableError::CannotRead(e) => Some(e),
+        }
+    }
+}
+
+impl std::error::Error for TableConnectError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            TableConnectError::Permissions(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl From<std::io::Error> for TableError {
     fn from(err: std::io::Error) -> Self {

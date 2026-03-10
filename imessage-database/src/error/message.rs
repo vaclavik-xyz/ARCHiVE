@@ -49,7 +49,16 @@ impl Display for MessageError {
     }
 }
 
-impl std::error::Error for MessageError {}
+impl std::error::Error for MessageError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            MessageError::StreamTypedParseError(e) => Some(e),
+            MessageError::TypedStreamError(e) => Some(e),
+            MessageError::PlistParseError(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl From<StreamTypedError> for MessageError {
     fn from(err: StreamTypedError) -> Self {

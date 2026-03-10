@@ -77,7 +77,16 @@ impl Display for PlistParseError {
     }
 }
 
-impl std::error::Error for PlistParseError {}
+impl std::error::Error for PlistParseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            PlistParseError::StreamTypedError(e) => Some(e),
+            PlistParseError::TypedStreamError(e) => Some(e),
+            PlistParseError::HandwritingError(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl From<TypedStreamError> for PlistParseError {
     fn from(error: TypedStreamError) -> Self {
