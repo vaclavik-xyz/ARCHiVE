@@ -346,10 +346,25 @@ impl Message {
 
         let total_messages: i64 = messages_count.query_row([], |r| r.get(0)).unwrap_or(0);
 
+        // Count recoverable (recently deleted) messages
+        let recoverable_messages: i64 = db
+            .prepare(&format!("SELECT COUNT(*) FROM {RECENTLY_DELETED}"))
+            .and_then(|mut s| s.query_row([], |r| r.get(0)))
+            .unwrap_or(0);
+
+        // Get the date range of messages in the database
+        let mut date_range = db.prepare(&format!("SELECT MIN(date), MAX(date) FROM {MESSAGE}"))?;
+        let (first_message_date, last_message_date): (Option<i64>, Option<i64>) = date_range
+            .query_row([], |r| Ok((r.get(0).ok(), r.get(1).ok())))
+            .unwrap_or((None, None));
+
         Ok(MessageDiagnostic {
             total_messages,
             messages_without_chat,
             messages_in_multiple_chats,
+            recoverable_messages,
+            first_message_date,
+            last_message_date,
         })
     }
 }

@@ -22,6 +22,12 @@ pub struct MessageDiagnostic {
     pub messages_without_chat: i32,
     /// The number of messages that belong to more than one chat
     pub messages_in_multiple_chats: i32,
+    /// The number of recently deleted messages that are still recoverable
+    pub recoverable_messages: i64,
+    /// The raw `date` value of the earliest message, or `None` if the table is empty
+    pub first_message_date: Option<i64>,
+    /// The raw `date` value of the most recent message, or `None` if the table is empty
+    pub last_message_date: Option<i64>,
 }
 
 /// Diagnostic data for the `attachment` table

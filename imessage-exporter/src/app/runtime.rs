@@ -20,7 +20,10 @@ use imessage_database::{
         messages::Message,
         table::{ATTACHMENTS_DIR, Cacheable, Deduplicate, ME, ORPHANED, UNKNOWN, get_db_size},
     },
-    util::{dates::get_offset, size::format_file_size},
+    util::{
+        dates::{format as format_date, get_local_time, get_offset},
+        size::format_file_size,
+    },
 };
 
 use crate::{
@@ -427,6 +430,22 @@ impl Config {
             println!(
                 "    Messages belonging to more than one chat: {}",
                 message_diag.messages_in_multiple_chats
+            );
+        }
+        if message_diag.recoverable_messages > 0 {
+            println!(
+                "    Recoverable deleted messages: {}",
+                message_diag.recoverable_messages
+            );
+        }
+        if let (Some(first), Some(last)) = (
+            message_diag.first_message_date,
+            message_diag.last_message_date,
+        ) {
+            println!(
+                "    Date range: {} to {}",
+                format_date(&get_local_time(first, self.offset)),
+                format_date(&get_local_time(last, self.offset)),
             );
         }
 
