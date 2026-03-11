@@ -98,7 +98,6 @@ pub fn format(date: &DateTime<Local>) -> String {
 /// ```
 #[must_use]
 pub fn readable_diff(start: &DateTime<Local>, end: &DateTime<Local>) -> Option<String> {
-
     // Calculate diff
     let seconds = end.timestamp() - start.timestamp();
 
