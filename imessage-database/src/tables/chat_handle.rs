@@ -240,9 +240,11 @@ ORDER BY chat;
             uf.make_set(*chat_id);
         }
 
-        // Merge chats that the chat_lookup table says are the same conversation
+        // Merge chats that the chat_lookup table says are the same conversation.
+        // The canonical may not exist in duplicated_data (e.g., a chat with no handle rows),
+        // but it still serves as a bridge so that all chats mapping to it are unified.
         for (chat_id, canonical) in chat_lookup_map {
-            if duplicated_data.contains_key(chat_id) && duplicated_data.contains_key(canonical) {
+            if duplicated_data.contains_key(chat_id) {
                 uf.union(*chat_id, *canonical);
             }
         }
@@ -543,5 +545,31 @@ mod tests {
             "All three service-split chats should merge into one conversation, got {:?}",
             output
         );
+    }
+
+    #[test]
+    fn lookup_merges_through_missing_canonical() {
+        // Chats 10 and 20 both map to canonical 99, but 99 has no handle rows
+        // and is therefore absent from duplicated_data. They should still merge
+        // because the canonical bridges them in the union-find.
+        let mut input: HashMap<i32, BTreeSet<i32>> = HashMap::new();
+        input.insert(10, BTreeSet::from([1]));
+        input.insert(20, BTreeSet::from([2]));
+
+        let mut chat_lookup_map: HashMap<i32, i32> = HashMap::new();
+        chat_lookup_map.insert(10, 99);
+        chat_lookup_map.insert(20, 99);
+
+        let output = ChatToHandle::dedupe(&input, &chat_lookup_map).unwrap();
+
+        // Both chats should merge through the missing canonical
+        assert_eq!(
+            output.get(&10),
+            output.get(&20),
+            "Chats sharing a canonical absent from duplicated_data should still merge"
+        );
+        // Only duplicated_data keys should appear in the output
+        assert_eq!(output.len(), 2);
+        assert!(!output.contains_key(&99));
     }
 }
