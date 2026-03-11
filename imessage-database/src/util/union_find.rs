@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 /// Disjoint set data structure for computing equivalence classes of chat IDs.
 ///
-/// Used by [`ChatToHandle::dedupe`] to merge chats that are related by
+/// Used by [`crate::tables::chat_handle::ChatToHandle::dedupe`] to merge chats that are related by
 /// either shared participants or the `chat_lookup` table.
 pub struct UnionFind {
     parent: BTreeMap<i32, i32>,
