@@ -14,6 +14,7 @@ pub struct UnionFind {
 }
 
 impl UnionFind {
+    /// Create a new empty union-find structure.
     pub fn new() -> Self {
         UnionFind {
             parent: BTreeMap::new(),
@@ -21,11 +22,13 @@ impl UnionFind {
         }
     }
 
+    /// Add a new element to the union-find structure, initializing it as its own set.
     pub fn make_set(&mut self, x: i32) {
         self.parent.entry(x).or_insert(x);
         self.rank.entry(x).or_insert(0);
     }
 
+    /// Find the representative element of the set containing `x`, with path compression.
     pub fn find(&mut self, mut x: i32) -> i32 {
         let mut root = x;
         while self.parent[&root] != root {
@@ -39,6 +42,7 @@ impl UnionFind {
         root
     }
 
+    /// Union the sets containing `x` and `y` using union by rank.
     pub fn union(&mut self, x: i32, y: i32) {
         let rx = self.find(x);
         let ry = self.find(y);
