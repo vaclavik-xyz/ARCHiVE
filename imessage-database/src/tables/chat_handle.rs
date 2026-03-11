@@ -240,17 +240,20 @@ ORDER BY chat;
             uf.make_set(*chat_id);
         }
 
-        // Merge chats that the chat_lookup table says are the same conversation.
+        // Merge chats that the chat_lookup table says are the same conversation,
+        // iterating in sorted order so union-by-rank picks deterministic representatives.
         // The canonical may not exist in duplicated_data (e.g., a chat with no handle rows),
         // but it still serves as a bridge so that all chats mapping to it are unified.
-        for (chat_id, canonical) in chat_lookup_map {
+        let mut sorted_lookup: Vec<(&i32, &i32)> = chat_lookup_map.iter().collect();
+        sorted_lookup.sort_by_key(|(chat_id, _)| *chat_id);
+        for (chat_id, canonical) in sorted_lookup {
             if duplicated_data.contains_key(chat_id) {
                 uf.union(*chat_id, *canonical);
             }
         }
 
-        // Merge chats that share the same participant set, processing in
-        // sorted order so the representative chosen is deterministic
+        // Merge chats that share the same participant set, iterating in
+        // sorted order so union-by-rank picks deterministic representatives
         let mut sorted_chats: Vec<(&i32, &BTreeSet<i32>)> = duplicated_data.iter().collect();
         sorted_chats.sort_by_key(|(id, _)| *id);
 
@@ -355,6 +358,49 @@ mod tests {
             .into_iter()
             .collect::<Vec<(i32, i32)>>();
         let mut output_3 = ChatToHandle::dedupe(&input_3, &HashMap::new())
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<(i32, i32)>>();
+
+        output_1.sort_unstable();
+        output_2.sort_unstable();
+        output_3.sort_unstable();
+
+        assert_eq!(output_1, output_2);
+        assert_eq!(output_1, output_3);
+        assert_eq!(output_2, output_3);
+    }
+
+    #[test]
+    fn test_same_values_with_lookup() {
+        // Simulate 3 runs with chat_lookup to ensure that dedup IDs are
+        // deterministic even when both merge relations are active
+        fn build_input() -> HashMap<i32, BTreeSet<i32>> {
+            let mut input: HashMap<i32, BTreeSet<i32>> = HashMap::new();
+            input.insert(0, BTreeSet::from([1]));
+            input.insert(1, BTreeSet::from([1]));
+            input.insert(2, BTreeSet::from([3]));
+            input.insert(4, BTreeSet::from([2]));
+            input.insert(5, BTreeSet::from([1]));
+            input
+        }
+
+        fn build_lookup() -> HashMap<i32, i32> {
+            let mut lookup: HashMap<i32, i32> = HashMap::new();
+            lookup.insert(2, 5);
+            lookup.insert(4, 0);
+            lookup
+        }
+
+        let mut output_1 = ChatToHandle::dedupe(&build_input(), &build_lookup())
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<(i32, i32)>>();
+        let mut output_2 = ChatToHandle::dedupe(&build_input(), &build_lookup())
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<(i32, i32)>>();
+        let mut output_3 = ChatToHandle::dedupe(&build_input(), &build_lookup())
             .unwrap()
             .into_iter()
             .collect::<Vec<(i32, i32)>>();
