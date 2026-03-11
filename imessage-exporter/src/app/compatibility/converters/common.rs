@@ -2,7 +2,7 @@
  Defines routines common across all converters.
 */
 use std::{
-    fs::{FileTimes, OpenOptions, copy, create_dir_all, metadata, read_dir},
+    fs::{File, FileTimes, copy, create_dir_all, metadata, read_dir},
     path::Path,
     process::{Command, Stdio},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -122,7 +122,14 @@ pub(crate) fn update_file_metadata(from: &Path, to: &Path, message: &Message, co
         let atime = metadata.accessed().ok();
 
         if let (Some(atime), Some(mtime)) = (atime, mtime) {
-            match OpenOptions::new().write(true).open(to) {
+            // On Unix, `set_times` uses `futimens`, which does not require the file
+            // descriptor to have write access. On Windows, `SetFileTime` requires
+            // `FILE_WRITE_ATTRIBUTES`, so the file must be opened with write access.
+            #[cfg(unix)]
+            let file_result = File::open(to);
+            #[cfg(not(unix))]
+            let file_result = File::options().write(true).open(to);
+            match file_result {
                 Ok(file) => {
                     let file_times = FileTimes::new().set_accessed(atime).set_modified(mtime);
                     if let Err(why) = file.set_times(file_times) {
