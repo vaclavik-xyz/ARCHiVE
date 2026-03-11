@@ -29,7 +29,10 @@ impl UnionFind {
     }
 
     /// Find the representative element of the set containing `x`, with path compression.
+    ///
+    /// If `x` has not been added via [`make_set`], it is lazily initialized as its own set.
     pub fn find(&mut self, mut x: i32) -> i32 {
+        self.make_set(x);
         let mut root = x;
         while self.parent[&root] != root {
             root = self.parent[&root];
