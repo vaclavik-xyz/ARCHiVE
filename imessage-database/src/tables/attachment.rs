@@ -7,6 +7,7 @@ use rusqlite::{CachedStatement, Connection, Error, Result, Row};
 use sha1::{Digest, Sha1};
 
 use std::{
+    borrow::Cow,
     fmt::Write,
     fs::File,
     io::Read,
@@ -361,7 +362,8 @@ impl Attachment {
         if matches!(platform, Platform::macOS)
             && let Some(custom_attachment_path) = custom_attachment_root
         {
-            path_str = Attachment::apply_custom_root(&path_str, custom_attachment_path);
+            path_str =
+                Attachment::apply_custom_root(&path_str, custom_attachment_path).into_owned();
         }
 
         match platform {
@@ -462,7 +464,7 @@ impl Attachment {
     }
 
     /// Replace the default Messages or SMS root prefix with a custom attachment root.
-    fn apply_custom_root(path: &str, custom_root: &str) -> String {
+    fn apply_custom_root<'a>(path: &'a str, custom_root: &str) -> Cow<'a, str> {
         let prefix = if path.starts_with(DEFAULT_MESSAGES_ROOT) {
             Some(DEFAULT_MESSAGES_ROOT)
         } else if path.starts_with(DEFAULT_SMS_ROOT) {
@@ -471,8 +473,8 @@ impl Attachment {
             None
         };
         match prefix {
-            Some(old) => path.replacen(old, custom_root, 1),
-            None => path.to_string(),
+            Some(old) => Cow::Owned(path.replacen(old, custom_root, 1)),
+            None => Cow::Borrowed(path),
         }
     }
 
