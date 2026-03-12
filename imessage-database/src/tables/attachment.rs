@@ -409,13 +409,12 @@ impl Attachment {
                 if let Ok(filepath) = path {
                     match platform {
                         Platform::macOS => {
-                            let resolved = match custom_attachment_root {
-                                Some(custom_root) => {
-                                    Attachment::apply_custom_root(filepath, custom_root)
-                                }
-                                None => filepath.to_string(),
+                            let path = match custom_attachment_root {
+                                Some(custom_root) => Attachment::gen_macos_attachment(
+                                    &Attachment::apply_custom_root(filepath, custom_root),
+                                ),
+                                None => Attachment::gen_macos_attachment(filepath),
                             };
-                            let path = Attachment::gen_macos_attachment(&resolved);
                             let file = Path::new(&path);
                             match file.metadata() {
                                 Ok(metadata) => {
