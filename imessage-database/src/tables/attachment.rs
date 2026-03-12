@@ -361,17 +361,7 @@ impl Attachment {
         if matches!(platform, Platform::macOS)
             && let Some(custom_attachment_path) = custom_attachment_root
         {
-            let prefix = if path_str.starts_with(DEFAULT_MESSAGES_ROOT) {
-                Some(DEFAULT_MESSAGES_ROOT)
-            } else if path_str.starts_with(DEFAULT_SMS_ROOT) {
-                Some(DEFAULT_SMS_ROOT)
-            } else {
-                None
-            };
-
-            if let Some(old) = prefix {
-                path_str = path_str.replacen(old, custom_attachment_path, 1);
-            }
+            path_str = Attachment::apply_custom_root(&path_str, custom_attachment_path);
         }
 
         match platform {
@@ -394,7 +384,7 @@ impl Attachment {
     ///
     /// let db_path = default_db_path();
     /// let conn = get_connection(&db_path).unwrap();
-    /// Attachment::run_diagnostic(&conn, &db_path, &Platform::macOS);
+    /// Attachment::run_diagnostic(&conn, &db_path, &Platform::macOS, None);
     /// ```
     ///
     /// `db_path` is the path to the root of the backup directory.
@@ -403,6 +393,7 @@ impl Attachment {
         db: &Connection,
         db_path: &Path,
         platform: &Platform,
+        custom_attachment_root: Option<&str>,
     ) -> Result<AttachmentDiagnostic, TableError> {
         let mut total_attachments = 0usize;
         let mut no_path_provided = 0usize;
@@ -418,7 +409,13 @@ impl Attachment {
                 if let Ok(filepath) = path {
                     match platform {
                         Platform::macOS => {
-                            let path = Attachment::gen_macos_attachment(filepath);
+                            let resolved = match custom_attachment_root {
+                                Some(custom_root) => {
+                                    Attachment::apply_custom_root(filepath, custom_root)
+                                }
+                                None => filepath.to_string(),
+                            };
+                            let path = Attachment::gen_macos_attachment(&resolved);
                             let file = Path::new(&path);
                             match file.metadata() {
                                 Ok(metadata) => {
@@ -463,6 +460,21 @@ impl Attachment {
             missing_files,
             no_path_provided,
         })
+    }
+
+    /// Replace the default Messages or SMS root prefix with a custom attachment root.
+    fn apply_custom_root(path: &str, custom_root: &str) -> String {
+        let prefix = if path.starts_with(DEFAULT_MESSAGES_ROOT) {
+            Some(DEFAULT_MESSAGES_ROOT)
+        } else if path.starts_with(DEFAULT_SMS_ROOT) {
+            Some(DEFAULT_SMS_ROOT)
+        } else {
+            None
+        };
+        match prefix {
+            Some(old) => path.replacen(old, custom_root, 1),
+            None => path.to_string(),
+        }
     }
 
     /// Generate a macOS path for an attachment
