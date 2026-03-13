@@ -462,6 +462,7 @@ impl Config {
             self.data_source.db(),
             &self.options.db_path,
             &self.options.platform,
+            self.options.attachment_root.as_deref(),
         )?;
         if attach_diag.total_attachments > 0 {
             println!("Attachment diagnostic data:");
