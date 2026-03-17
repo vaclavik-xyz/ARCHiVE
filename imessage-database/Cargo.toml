@@ -12,13 +12,13 @@ version = "0.0.0"
 [dependencies]
 chrono = "=0.4.44"
 plist = "=1.8.0"
-rusqlite = { version = "=0.38.0", features = ["blob", "bundled"] }
+rusqlite = { version = "=0.39.0", features = ["blob", "bundled"] }
 sha1 = "=0.10.6"
 protobuf = "=3.7.2"
 lzma-rs = "=0.3.0"
 crabstep = "=0.3.2"
-base64 = "0.22.1"
-jzon = "0.12.5"
+base64 = "=0.22.1"
+jzon = "=0.12.5"
 
 [features]
 proto-regen = ["dep:protobuf-codegen"]
