@@ -26,7 +26,7 @@ use plist::{Dictionary, Value};
 
 use crate::error::plist::PlistParseError;
 
-/// Serialize a message's `payload_data` BLOB in the [`NSKeyedArchiver`](https://developer.apple.com/documentation/foundation/nskeyedarchiver) format to a [`Dictionary`]
+/// Deserialize a message's `payload_data` BLOB in the [`NSKeyedArchiver`](https://developer.apple.com/documentation/foundation/nskeyedarchiver) format to a [`Value`]
 /// that follows the references in the XML document's UID pointers. First, we find the root of the
 /// document, then walk the structure, promoting values to the places where their pointers are stored.
 ///
@@ -45,7 +45,7 @@ use crate::error::plist::PlistParseError;
 /// </array>
 /// ```
 ///
-/// Will serialize to a dictionary that looks like:
+/// Will be parsed into a dictionary that looks like:
 ///
 /// ```json
 /// {
@@ -240,13 +240,13 @@ pub fn extract_bytes_key<'a>(body: &'a Dictionary, key: &str) -> Result<&'a [u8]
         .ok_or_else(|| PlistParseError::InvalidType(key.to_string(), "data".to_string()))
 }
 
-/// Extract an int from a specific key in a collection
+/// Extract a real value as an `i64` from a specific key in a collection
 pub fn extract_int_key(body: &Dictionary, key: &str) -> Result<i64, PlistParseError> {
     Ok(body
         .get(key)
         .ok_or_else(|| PlistParseError::MissingKey(key.to_string()))?
         .as_real()
-        .ok_or_else(|| PlistParseError::InvalidType(key.to_string(), "int".to_string()))?
+        .ok_or_else(|| PlistParseError::InvalidType(key.to_string(), "real".to_string()))?
         as i64)
 }
 
@@ -292,7 +292,7 @@ pub fn get_owned_string_from_dict<'a>(payload: &'a Value, key: &'a str) -> Optio
     get_string_from_dict(payload, key).map(String::from)
 }
 
-/// Extract an inner dict from a key-value pair that looks like `{key: {key2: val}}`
+/// Extract a value from a key-value pair that looks like `{key: val}`
 #[must_use]
 pub fn get_value_from_dict<'a>(payload: &'a Value, key: &'a str) -> Option<&'a Value> {
     payload.as_dictionary()?.get(key)

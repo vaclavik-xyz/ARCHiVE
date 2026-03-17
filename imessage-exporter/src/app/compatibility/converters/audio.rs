@@ -14,6 +14,7 @@ use crate::app::compatibility::{
 /// Copy an audio file, converting if possible
 ///
 /// - Attachment `CAF` files convert to `MP4`
+/// - Attachment `AMR` files convert to `MP4`
 /// - Fallback to the original format
 pub(crate) fn audio_copy_convert(
     from: &Path,

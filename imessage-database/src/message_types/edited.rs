@@ -88,11 +88,11 @@ impl Default for EditedMessagePart {
 /// # Internal Representation
 ///
 /// Edited or unsent messages are stored with a `NULL` `text` field.
-/// Edited messages include `message_summary_info` that contains an array of
-/// [`typedstream`](crate::util::typedstream) data where each array item contains the edited
-/// message. The order in the array represents the order the messages
-/// were edited in, i.e. item `0` was the original and the last item is
-/// the current message.
+/// Edited messages include `message_summary_info` that contains a dictionary
+/// with message body part data, including [`typedstream`](crate::util::typedstream)-encoded
+/// edit history. The order of entries in the edit history represents the order
+/// the messages were edited in, i.e. item `0` was the original and the last
+/// item is the current message.
 ///
 /// ## Message Body Parts
 ///

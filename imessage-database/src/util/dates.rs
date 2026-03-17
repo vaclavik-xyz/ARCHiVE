@@ -1,7 +1,7 @@
 /*!
  Contains date parsing functions for iMessage dates.
 
- Most dates are stored as nanosecond-precision unix timestamps with an epoch of `1/1/2001 00:00:00` in the local time zone.
+ Most dates are stored as nanosecond-precision unix timestamps with an epoch of `1/1/2001 00:00:00` in UTC.
 */
 use std::fmt::Write;
 
@@ -24,7 +24,7 @@ pub const TIMESTAMP_FACTOR: i64 = 1_000_000_000;
 /// Get the date offset for the iMessage Database
 ///
 /// This offset is used to adjust the unix timestamps stored in the iMessage database
-/// with a non-standard epoch of `2001-01-01 00:00:00` in the current machine's local time zone.
+/// with a non-standard epoch of `2001-01-01 00:00:00` in UTC.
 ///
 /// # Example
 ///

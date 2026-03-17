@@ -41,7 +41,7 @@
 
  # Making Custom Message Queries
 
- In addition columns from the `messages` table, there are several additional fields represented
+ In addition to columns from the `message` table, there are several additional fields represented
  by [`Message`]  that are not present in the database:
 
  - [`Message::chat_id`]
@@ -226,11 +226,11 @@ pub struct Message {
     pub date_edited: i64,
     /// If present, this is the emoji associated with a custom emoji tapback
     pub associated_message_emoji: Option<String>,
-    /// The [`identifier`](crate::tables::chat::Chat::chat_identifier) of the chat the message belongs to
+    /// The [`rowid`](crate::tables::chat::Chat::rowid) of the chat the message belongs to
     pub chat_id: Option<i32>,
     /// The number of attached files included in the message
     pub num_attachments: i32,
-    /// The [`identifier`](crate::tables::chat::Chat::chat_identifier) of the chat the message was deleted from
+    /// The [`rowid`](crate::tables::chat::Chat::rowid) of the chat the message was deleted from
     pub deleted_from: Option<i32>,
     /// The number of replies to the message
     pub num_replies: i32,
@@ -711,8 +711,8 @@ impl Message {
     /// - You received a message, then waited to read it
     /// - You sent a message, and the recipient waited to read it
     ///
-    /// In the former case, this subtracts the date read column (`date_read`) from the date received column (`date`).
-    /// In the latter case, this subtracts the date delivered column (`date_delivered`) from the date received column (`date`).
+    /// In the former case, this computes the difference from the date received (`date`) to the date read (`date_read`).
+    /// In the latter case, this computes the difference from the date sent (`date`) to the date delivered (`date_delivered`).
     ///
     /// Not all messages get tagged with the read properties.
     /// If more than one message has been sent in a thread before getting read,
@@ -1071,7 +1071,7 @@ impl Message {
     ///
     /// let messages = statement.query_map([], |row| Ok(Message::from_row(row))).unwrap();
     ///
-    /// messages.map(|msg| println!("{:#?}", Message::extract(msg)));
+    /// messages.for_each(|msg| println!("{:#?}", Message::extract(msg)));
     /// ```
     pub fn stream_rows<'a>(
         db: &'a Connection,

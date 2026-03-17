@@ -139,7 +139,7 @@ impl Table for Attachment {
 impl Attachment {
     /// Gets a Vector of attachments associated with a single message
     ///
-    /// The order of the attachments aligns with the order of the [`BubbleComponent::Attachment`](crate::tables::messages::models::BubbleComponent::Attachment)s in the message's [`body()`](crate::tables::messages::message::Message::attributed_body).
+    /// The order of the attachments aligns with the order of the [`BubbleComponent::Attachment`](crate::tables::messages::models::BubbleComponent::Attachment)s in the message's [`attributed_body()`](crate::tables::messages::message::Message::attributed_body).
     pub fn from_message(db: &Connection, msg: &Message) -> Result<Vec<Attachment>, TableError> {
         let mut out_l = vec![];
         if msg.has_attachments() {

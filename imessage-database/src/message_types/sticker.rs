@@ -32,9 +32,9 @@ impl StickerSource {
     /// # Example
     ///
     /// ```rust
-    /// use imessage_database::message_types::sticker::StickerSource;;
+    /// use imessage_database::message_types::sticker::StickerSource;
     ///
-    /// println!("{:?}", StickerSource::from_bundle_id("com.apple.messages.genmoji")); // StickerSource::Genmoji
+    /// println!("{:?}", StickerSource::from_bundle_id("com.apple.messages.genmoji")); // Some(Genmoji)
     /// ```
     #[must_use]
     pub fn from_bundle_id(bundle_id: &str) -> Option<Self> {

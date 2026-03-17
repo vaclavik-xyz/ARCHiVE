@@ -12,7 +12,7 @@ use imessage_database::tables::messages::Message;
 
 use crate::app::runtime::Config;
 
-/// Run a command, ignoring output; returning [`None`] on failure.
+/// Run a command, ignoring output; returning [`None`] if the process cannot be spawned or waited on.
 pub(super) fn run_command(command: &str, args: Vec<&str>) -> Option<()> {
     match Command::new(command)
         .args(args)
