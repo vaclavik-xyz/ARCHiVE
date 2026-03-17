@@ -1,5 +1,5 @@
 /*!
- Errors that can happen when parsing `typedstream` data. This module is for the new `typedstream` deserializer.
+ Errors that can happen when parsing `typedstream` data. This module is for the legacy `typedstream` deserializer; the current one is in the `crabstep` crate.
 */
 
 use std::{

@@ -7,7 +7,7 @@
 pub struct HandleDiagnostic {
     /// The total number of handles in the table
     pub total_handles: usize,
-    /// The number of handles that share a `person_centric_id` with at least one other handle
+    /// The number of distinct `person_centric_id` values in the handle table
     pub handles_with_multiple_ids: usize,
     /// The number of handles that were deduplicated into canonical handles
     pub total_duplicated: usize,

@@ -31,7 +31,7 @@ use crate::{
 ///
 /// ## Technical detail
 ///
-/// The index specified by the prefix maps to the index of the body part given by [`Message::body()`](crate::tables::messages::Message#method.body).
+/// The index specified by the prefix maps to the index of the body part given by [`Message::parse_body()`](crate::tables::messages::Message::parse_body).
 ///
 /// - `bp:` GUID prefix for bubble message tapbacks (url previews, apps, etc).
 /// - `p:0/` GUID prefix for normal messages (body text, attachments).
@@ -160,7 +160,7 @@ pub enum Variant<'a> {
     Edited,
     /// A [tapback](https://support.apple.com/guide/messages/react-with-tapbacks-icht504f698a/mac)
     ///
-    /// The `usize` indicates the index of the message's [`body()`](crate::tables::messages::Message#method.body) the tapback is applied to.
+    /// The `usize` indicates the index of the message's [`parse_body()`](crate::tables::messages::Message::parse_body) the tapback is applied to.
     Tapback(usize, TapbackAction, Tapback<'a>),
     /// An [iMessage app](https://support.apple.com/en-us/HT206906) generated message
     App(CustomBalloon<'a>),

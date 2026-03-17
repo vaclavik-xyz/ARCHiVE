@@ -15,7 +15,7 @@ use crate::{
 pub struct Placemark<'a> {
     /// The name of the placemark
     pub name: Option<&'a str>,
-    /// The full address formatted associated with the placemark
+    /// The full formatted address associated with the placemark
     pub address: Option<&'a str>,
     /// The state or province associated with the placemark
     pub state: Option<&'a str>,

@@ -64,7 +64,7 @@ impl<'a> BalloonProvider<'a> for AppMessage<'a> {
 }
 
 impl AppMessage<'_> {
-    /// Parse key/value pairs from the query string in the balloon's a URL
+    /// Parse key/value pairs from the query string in the balloon's URL
     #[must_use]
     pub fn parse_query_string(&self) -> HashMap<&str, &str> {
         let mut map = HashMap::new();

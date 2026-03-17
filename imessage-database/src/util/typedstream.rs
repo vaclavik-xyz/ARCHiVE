@@ -75,7 +75,7 @@ pub fn as_unsigned_integer<'a>(property: &'a Property<'a, 'a>) -> Option<u64> {
 }
 
 // MARK: f64
-/// Converts a `Property` to an `Option<f64>` if it is an unsigned integer or similar structure.
+/// Converts a `Property` to an `Option<f64>` if it is a double or similar numeric structure.
 #[must_use]
 #[inline(always)]
 pub fn as_float<'a>(property: &'a Property<'a, 'a>) -> Option<f64> {
@@ -113,7 +113,7 @@ pub fn as_nsstring<'a>(property: &'a mut Property<'a, 'a>) -> Option<&'a str> {
 }
 
 // MARK: Dict
-/// Converts a `Property` to `Vec<Property>` if it is a `NSDictionary`
+/// Converts a `Property` to a `PropertyIterator` if it is a `NSDictionary`
 #[inline(always)]
 pub fn as_ns_dictionary<'a>(
     property: &'a mut Property<'a, 'a>,

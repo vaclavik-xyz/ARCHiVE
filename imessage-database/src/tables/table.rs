@@ -158,7 +158,7 @@ pub trait Cacheable {
 
 // MARK: Database
 /// Get a connection to the iMessage `SQLite` database
-// # Example:
+/// # Example:
 ///
 /// ```
 /// use imessage_database::{
@@ -196,7 +196,7 @@ pub fn get_connection(path: &Path) -> Result<Connection, TableError> {
 }
 
 /// Get the size of the database on the disk
-// # Example:
+/// # Example:
 ///
 /// ```
 /// use imessage_database::{
@@ -235,7 +235,7 @@ pub const RECENTLY_DELETED: &str = "chat_recoverable_message_join";
 pub const MESSAGE_PAYLOAD: &str = "payload_data";
 /// The message summary info column contains `plist`-encoded edited message information
 pub const MESSAGE_SUMMARY_INFO: &str = "message_summary_info";
-/// The `attributedBody` column contains [`typedstream`](crate::util::typedstream)-encoded a message's body text with many other attributes
+/// The `attributedBody` column contains [`typedstream`](crate::util::typedstream)-encoded message body text with many other attributes
 pub const ATTRIBUTED_BODY: &str = "attributedBody";
 /// The sticker user info column contains `plist`-encoded metadata for sticker attachments
 pub const STICKER_USER_INFO: &str = "sticker_user_info";

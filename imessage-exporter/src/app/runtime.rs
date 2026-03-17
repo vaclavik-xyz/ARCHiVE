@@ -65,7 +65,7 @@ pub struct Config {
 }
 
 impl Config {
-    /// Get a deduplicated chat ID or a default value
+    /// Get the chatroom and its deduplicated ID for a message, if available
     pub fn conversation(&self, message: &Message) -> Option<(&Chat, &i32)> {
         match message.chat_id.or(message.deleted_from) {
             Some(chat_id) => {
@@ -227,18 +227,6 @@ impl Config {
     // MARK: Init
     /// Create a new instance of the application
     ///
-    /// # Example:
-    ///
-    /// ```
-    /// use crate::app::{
-    ///    options::{from_command_line, Options},
-    ///    runtime::Config,
-    /// };
-    ///
-    /// let args = from_command_line();
-    /// let options = Options::from_args(&args);
-    /// let app = Config::new(options).unwrap();
-    /// ```
     pub fn new(options: Options) -> Result<Config, RuntimeError> {
         let data_source = DataSource::from(&options)?;
 
@@ -282,7 +270,7 @@ impl Config {
 
     // MARK: Filters
     /// Convert comma separated list of participant strings into table chat IDs using
-    ///   1) filter `self.participant` keys based on the values (by comparing to user values)
+    ///   1) filter `self.participants` values based on name matches with the user-provided filter strings
     ///   2) get the chat IDs keys from `self.chatroom_participants` for values that contain the selected `handle_ids`
     ///   3) send those chat and handle IDs to the query context so they are included in the message table filters
     pub(crate) fn resolve_filtered_handles(&mut self) {
@@ -539,20 +527,6 @@ impl Config {
     // MARK: Startup
     /// Start the app given the provided set of options. This will either run
     /// diagnostic tests on the database or export data to the specified file type.
-    ///
-    /// # Example:
-    ///
-    /// ```
-    /// use crate::app::{
-    ///    options::{from_command_line, Options},
-    ///    runtime::Config,
-    /// };
-    ///
-    /// let args = from_command_line();
-    /// let options = Options::from_args(&args);
-    /// let app = Config::new(options).unwrap();
-    /// app.start();
-    /// ```
     pub fn start(&self) -> Result<(), RuntimeError> {
         if self.options.diagnostic {
             self.run_diagnostic()?;

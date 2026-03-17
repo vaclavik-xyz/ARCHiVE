@@ -73,9 +73,9 @@ const STYLE: &str = include_str!("resources/style.css");
 /// [`EventType`] is used to track the start and end of HTML text attributes
 /// so we can render them correctly in the HTML output.
 enum EventType<'a> {
-    /// Start event for text attributes, contains the index of the text part
+    /// Start event for text attributes, contains the index of the attribute
     Start(usize, &'a [TextEffect]),
-    /// End event for text attributes, contains the index of the text part
+    /// End event for text attributes, contains the index of the attribute
     End(usize),
 }
 
