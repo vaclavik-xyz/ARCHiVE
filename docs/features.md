@@ -25,8 +25,9 @@ This tool targets the current latest public release for Messages.app. It may wor
   - Parses `typedstream` message body data using [`crabstep`](https://github.com/ReagentX/crabstep)
   - Detects the service a message was sent from
     - In HTML exports, balloons are colored correctly for the service they were sent with
-    - Supports iMessage, SMS, MMS, and RCS
-  - Displays translated message content
+    - Supports iMessage, SMS, MMS, RCS, and Satellite (iMessage Lite)
+  - Displays translated message content alongside the original text
+  - Resolves contact names from the Contacts database when available
 - Formatted Text
   - Parses formatted text ranges from `typedstream` message body data
   - Supports all iMessage text format ranges:
@@ -44,6 +45,7 @@ This tool targets the current latest public release for Messages.app. It may wor
       - Edited messages received before Ventura display as normal messages without history
     - Unsent messages
       - No content, but are noted in context
+  - Recently deleted messages are recovered when available
 - Multi-part messages
   - iMessages can have multiple parts, denoted by ranges in `typedstream` message body data
   - Parts are displayed as
@@ -65,6 +67,7 @@ This tool targets the current latest public release for Messages.app. It may wor
     - Animated Sticker `HEICS` (HEIC sequence) files convert to `GIF`
     - Video `MOV` files convert to `mp4`
     - Audio `CAF` files convert to `mp4`
+    - Audio `AMR` files convert to `mp4`
   - Attachments are displayed as
     - File paths in TXT exports
     - Embeds in HTML exports (including `<img>`, `<video>`, and `<audio>`)
@@ -85,8 +88,9 @@ This tool targets the current latest public release for Messages.app. It may wor
   - For multi-part messages, stickers are placed under the correct message part
   - Sticker effects are annotated in all exports
   - Sticker tapbacks are also supported
+  - Genmoji are displayed with their prompt descriptions
 - Apple Pay
-  - Detects the transaction source, amount, and type
+  - Displays Apple Pay transaction (source, amount, type) messages
 - URL previews
   - Parses the `NSKeyedArchiver` payload to extract preview data
     - Extracts cached metadata for each URL
@@ -120,8 +124,10 @@ This tool targets the current latest public release for Messages.app. It may wor
   - On startup:
     - Different handles that belong to the same person are combined
     - Chatrooms that contain identical contacts (i.e., duplicated handles) are combined
+    - Divergent chatrooms that map to the same conversation in the `chat_lookup` table are combined
 - Announcements
   - Handles all types of chatroom announcements
     - Group photo changes
     - Chat participant modifications
+    - Phone number changes
     - Chat background settings
