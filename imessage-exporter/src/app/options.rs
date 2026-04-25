@@ -30,6 +30,7 @@ pub const OPTION_DB_PATH: &str = "db-path";
 pub const OPTION_ATTACHMENT_ROOT: &str = "attachment-root";
 pub const OPTION_ATTACHMENT_MANAGER: &str = "copy-method";
 pub const OPTION_DIAGNOSTIC: &str = "diagnostics";
+pub const OPTION_INTERACTIVE_PASSWORD: &str = "interactive-password";
 pub const OPTION_EXPORT_TYPE: &str = "format";
 pub const OPTION_EXPORT_PATH: &str = "export-path";
 pub const OPTION_START_DATE: &str = "start-date";
@@ -82,8 +83,10 @@ pub struct Options {
     pub ignore_disk_space: bool,
     /// An optional filter for conversation participants
     pub conversation_filter: Option<String>,
-    /// An optional password for encrypted backups
+    /// An optional password for encrypted backups (from command line or interactive prompt)
     pub cleartext_password: Option<String>,
+    /// Whether to prompt for password interactively
+    pub interactive_password: bool,
     /// An optional path to a custom contacts database
     pub contacts_path: Option<PathBuf>,
 }
@@ -106,6 +109,7 @@ impl Options {
         let ignore_disk_space = args.get_flag(OPTION_BYPASS_FREE_SPACE_CHECK);
         let conversation_filter: Option<&String> = args.get_one(OPTION_CONVERSATION_FILTER);
         let cleartext_password: Option<&String> = args.get_one(OPTION_CLEARTEXT_PASSWORD);
+        let interactive_password = args.get_flag(OPTION_INTERACTIVE_PASSWORD);
         let contacts_path: Option<&String> = args.get_one(OPTION_CUSTOM_CONTACTS_DB_PATH);
 
         // Build the export type
@@ -195,8 +199,29 @@ impl Options {
             None => Platform::determine(&db_path)?,
         };
 
-        // Prevent cleartext_password from being set if the source is not an iOS backup
-        if cleartext_password.is_some() && !matches!(platform, Platform::iOS) {
+        // Handle password input (interactive or cleartext)
+        let password = if interactive_password {
+            // Verify that both flags are not set simultaneously
+            if cleartext_password.is_some() {
+                return Err(RuntimeError::InvalidOptions(format!(
+                    "--{OPTION_INTERACTIVE_PASSWORD} and --{OPTION_CLEARTEXT_PASSWORD} cannot both be specified"
+                )));
+            }
+
+            // Verify this is an iOS backup
+            if !matches!(platform, Platform::iOS) {
+                return Err(RuntimeError::InvalidOptions(format!(
+                    "--{OPTION_INTERACTIVE_PASSWORD} can only be used with iOS backups"
+                )));
+            }
+
+            // Prompt for password
+            Some(prompt_for_password()?)
+        } else {
+            cleartext_password.cloned()
+        };
+
+        if password.is_some() && cleartext_password.is_some() && !matches!(platform, Platform::iOS) {
             return Err(RuntimeError::InvalidOptions(format!(
                 "--{OPTION_CLEARTEXT_PASSWORD} is enabled; it can only be used with iOS backups."
             )));
@@ -265,7 +290,8 @@ impl Options {
             platform,
             ignore_disk_space,
             conversation_filter: conversation_filter.cloned(),
-            cleartext_password: cleartext_password.cloned(),
+            cleartext_password: password,
+	    interactive_password,
             contacts_path: contacts_path.cloned().map(PathBuf::from),
         })
     }
@@ -448,11 +474,18 @@ fn get_command() -> Command {
                 .value_name("filter"),
         )
         .arg(
+            Arg::new(OPTION_INTERACTIVE_PASSWORD)
+                .long(OPTION_INTERACTIVE_PASSWORD)
+                .help("Prompt for password interactively for encrypted iOS backups\nThis is more secure than --cleartext-password because the password will not be visible on\nscreen, in the process table or your shell history.\nCannot be used with --cleartext-password.\n")
+                .action(ArgAction::SetTrue)
+                .display_order(14)
+        )
+        .arg(
             Arg::new(OPTION_CLEARTEXT_PASSWORD)
                 .short('x')
                 .long(OPTION_CLEARTEXT_PASSWORD)
-                .help("Optional password for encrypted iOS backups\nThis is only used when the source is an encrypted iOS backup directory\n")
-                .display_order(14)
+                .help("Optional password for encrypted iOS backups\nThis is only used when the source is an encrypted iOS backup directory.\nA password provided with this option is visible on the screen, in the process table and\nyour shell history.\nCannot be used with --interactive-password.")
+                .display_order(15)
                 .value_name("password"),
         )
         .arg(
@@ -460,10 +493,20 @@ fn get_command() -> Command {
                 .short('n')
                 .long(OPTION_CUSTOM_CONTACTS_DB_PATH)
                 .help("Optional custom path for a macOS or iOS contacts database file\nThis should be resolved automatically, but can be manually provided\nHandles from the messages table will be mapped to names in the provided database\nGenerally, one of `AddressBook-v22.abcddb` or `AddressBook.sqlitedb`\n")
-                .display_order(15)
+                .display_order(16)
                 .value_name("path"),
         )
 }
+
+/// Prompt the user for a password interactively (input will not be echoed)
+fn prompt_for_password() -> Result<String, RuntimeError> {
+    use rpassword::prompt_password;
+
+    eprintln!("Enter password for encrypted iOS backup (input will not be echoed):");
+    prompt_password("Password: ")
+        .map_err(|e| RuntimeError::InvalidOptions(format!("Failed to read password: {e}")))
+}
+
 
 #[cfg(test)]
 impl Options {
@@ -487,6 +530,7 @@ impl Options {
             ignore_disk_space: false,
             conversation_filter: None,
             cleartext_password: None,
+	    interactive_password: false,
             contacts_path: None,
         }
     }
@@ -1002,6 +1046,36 @@ mod arg_tests {
         assert!(Options::from_args(&args).is_err());
     }
 
+    #[test]
+    fn cant_build_option_interactive_and_cleartext_password() {
+        let command = get_command();
+        let args = command.get_matches_from([
+            "imessage-exporter",
+            "-a",
+            "ios",
+            "-f",
+            "txt",
+            "--interactive-password",
+            "-x",
+            "password",
+        ]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn cant_build_option_interactive_password_macos() {
+        let command = get_command();
+        let args = command.get_matches_from([
+            "imessage-exporter",
+            "-a",
+            "macos",
+            "-f",
+            "txt",
+            "--interactive-password",
+        ]);
+        assert!(Options::from_args(&args).is_err());
+    }
+    
     #[test]
     fn can_build_option_ignore_disk_space_flag() {
         let args = get_command().get_matches_from(["imessage-exporter", "-f", "txt", "-b"]);
