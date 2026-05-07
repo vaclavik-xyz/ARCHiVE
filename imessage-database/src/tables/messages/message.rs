@@ -288,7 +288,7 @@ impl Message {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::messages::Message;
@@ -1012,7 +1012,7 @@ impl Message {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::messages::Message;
@@ -1057,7 +1057,7 @@ impl Message {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::{messages::Message, table::Table};
@@ -1445,7 +1445,7 @@ impl Message {
     /// Create a message from a given GUID; useful for debugging
     ///
     /// # Example
-    /// ```rust
+    /// ```no_run
     /// use imessage_database::{
     ///     tables::{
     ///         messages::Message,
