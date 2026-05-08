@@ -1,0 +1,6 @@
+{% match body %}{% when PartBody::Empty %}{% when PartBody::Line { text } %}{{ indent }}{{ text }}
+{% when PartBody::Translated { translated, original } %}{{ indent }}{{ translated }}
+{{ indent }}Translated from:
+{{ indent }}{{ original }}
+{% endmatch %}{% if let Some(expressive) = expressive %}{{ indent }}{{ expressive }}
+{% endif %}{% if let Some(tapbacks) = tapbacks %}{{ tapbacks|safe }}{% endif %}{% if let Some(replies) = replies %}{{ replies|safe }}{% endif %}

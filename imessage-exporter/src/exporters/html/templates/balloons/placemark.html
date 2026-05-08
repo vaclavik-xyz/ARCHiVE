@@ -1,0 +1,13 @@
+{%- if let Some(url) = url -%}<a href="{{ url }}">{%- endif -%}
+<div class="app_header">
+{%- if let Some(name) = name -%}<div class="name">{{ name }}</div>{%- endif -%}
+</div>
+{%- if address.is_some() || postal_code.is_some() || country.is_some() || sub_administrative_area.is_some() -%}
+<div class="app_footer">
+{%- if let Some(address) = address -%}<div class="caption">{{ address }}</div>{%- endif -%}
+{%- if let Some(postal_code) = postal_code -%}<div class="trailing_caption">{{ postal_code }}</div>{%- endif -%}
+{%- if let Some(country) = country -%}<div class="subcaption">{{ country }}</div>{%- endif -%}
+{%- if let Some(sub_administrative_area) = sub_administrative_area -%}<div class="trailing_subcaption">{{ sub_administrative_area }}</div>{%- endif -%}
+</div>
+{%- endif -%}
+{%- if url.is_some() -%}</a>{%- endif -%}

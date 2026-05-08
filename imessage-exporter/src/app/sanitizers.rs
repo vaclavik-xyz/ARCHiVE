@@ -62,47 +62,6 @@ pub fn sanitize_html(input: &'_ str) -> Cow<'_, str> {
     Cow::Borrowed(input)
 }
 
-/// A builder for constructing HTML strings that escapes dynamic content by default.
-///
-/// Use `raw()` for trusted HTML structure and `text()` for content between tags.
-pub(crate) struct HtmlBuilder {
-    buf: String,
-}
-
-impl HtmlBuilder {
-    /// Creates a new empty builder
-    pub(crate) fn new() -> Self {
-        Self { buf: String::new() }
-    }
-
-    /// Creates a new builder with pre-allocated capacity
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
-        Self {
-            buf: String::with_capacity(capacity),
-        }
-    }
-
-    /// Appends raw, pre-built HTML (not escaped)
-    #[inline]
-    pub(crate) fn raw(&mut self, html: &str) -> &mut Self {
-        self.buf.push_str(html);
-        self
-    }
-
-    /// Appends HTML-escaped text content
-    #[inline]
-    pub(crate) fn text(&mut self, content: &str) -> &mut Self {
-        self.buf.push_str(&sanitize_html(content));
-        self
-    }
-
-    /// Consumes the builder and returns the HTML string
-    #[inline]
-    pub(crate) fn build(self) -> String {
-        self.buf
-    }
-}
-
 #[cfg(test)]
 mod filename_sanitization_tests {
     use crate::app::sanitizers::sanitize_filename;
@@ -349,51 +308,3 @@ mod html_sanitization_tests {
     }
 }
 
-#[cfg(test)]
-mod html_builder_tests {
-    use crate::app::sanitizers::HtmlBuilder;
-
-    #[test]
-    fn raw_passes_through() {
-        let mut h = HtmlBuilder::new();
-        h.raw("<div class=\"test\">");
-        assert_eq!(h.build(), "<div class=\"test\">");
-    }
-
-    #[test]
-    fn text_escapes_html() {
-        let mut h = HtmlBuilder::new();
-        h.raw("<span>")
-            .text("<script>alert('xss')</script>")
-            .raw("</span>");
-        assert_eq!(
-            h.build(),
-            "<span>&lt;script&gt;alert(&apos;xss&apos;)&lt;/script&gt;</span>"
-        );
-    }
-
-    #[test]
-    fn attr_escapes_quotes() {
-        let mut h = HtmlBuilder::new();
-        h.raw("<a href=\"")
-            .text("javascript:alert(\"xss\")")
-            .raw("\">");
-        assert_eq!(h.build(), "<a href=\"javascript:alert(&quot;xss&quot;)\">");
-    }
-
-    #[test]
-    fn text_no_alloc_for_safe_content() {
-        let mut h = HtmlBuilder::new();
-        h.raw("<div>").text("Hello world").raw("</div>");
-        assert_eq!(h.build(), "<div>Hello world</div>");
-    }
-
-    #[test]
-    fn chaining_works() {
-        let mut h = HtmlBuilder::new();
-        h.raw("<div class=\"name\">")
-            .text("Bob & Alice")
-            .raw("</div>");
-        assert_eq!(h.build(), "<div class=\"name\">Bob &amp; Alice</div>");
-    }
-}

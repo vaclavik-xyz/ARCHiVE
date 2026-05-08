@@ -1,0 +1,4 @@
+{% if let Some(primary) = primary %}{{ indent }}{{ primary }}
+{% endif %}{% if let Some(title) = title %}{{ indent }}{{ title }}
+{% endif %}{% if let Some(summary) = summary %}{{ indent }}{{ summary }}
+{% endif %}

@@ -1,0 +1,9 @@
+{% if let Some(lyrics) = lyrics %}{{ indent }}Lyrics:
+{% for line in lyrics %}{{ indent }}{{ line }}
+{% endfor %}{{ indent }}
+
+{% endif %}{% if let Some(track_name) = track_name %}{{ indent }}{{ track_name }}
+{% endif %}{% if let Some(album) = album %}{{ indent }}{{ album }}
+{% endif %}{% if let Some(artist) = artist %}{{ indent }}{{ artist }}
+{% endif %}{% if let Some(url) = url %}{{ indent }}{{ url }}
+{% endif %}

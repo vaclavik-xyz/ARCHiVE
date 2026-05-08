@@ -1,0 +1,232 @@
+use std::collections::HashMap;
+
+use imessage_database::{
+    message_types::{
+        app::AppMessage, app_store::AppStoreMessage, collaboration::CollaborationMessage,
+        digital_touch::DigitalTouch, handwriting::HandwrittenMessage, music::MusicMessage,
+        placemark::PlacemarkMessage, polls::Poll, url::URLMessage,
+    },
+    tables::{
+        attachment::Attachment,
+        messages::{Message, models::AttachmentMeta},
+    },
+    util::dates::{TIMESTAMP_FACTOR, format, get_local_time},
+};
+
+use askama::Template;
+
+use crate::exporters::exporter::{BalloonFormatter, MessageFormatter};
+
+use super::{
+    HTML,
+    view_model::{
+        AppCardVM, AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, DigitalTouchVM, FindMyVM,
+        MusicVM, PlacemarkVM, PollOptionVM, PollVM, UrlVM,
+    },
+};
+
+// MARK: Balloons
+impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
+    fn format_url(&self, msg: &Message, balloon: &URLMessage, _: &Message) -> String {
+        let balloon_url = balloon.get_url();
+        let msg_text = msg.text.as_deref();
+        UrlVM {
+            wrapper_url: balloon_url.or(msg_text),
+            name: balloon.site_name.or(balloon_url).or(msg_text),
+            images: balloon.images.clone(),
+            lazy: !self.config.options.no_lazy,
+            title: balloon.title,
+            summary: balloon.summary,
+        }
+        .render()
+        .unwrap_or_default()
+    }
+
+    fn format_music(&self, balloon: &MusicMessage, _: &Message) -> String {
+        MusicVM {
+            track_name: balloon.track_name,
+            preview: balloon.preview,
+            lyrics: balloon.lyrics.as_deref(),
+            url: balloon.url,
+            artist: balloon.artist,
+            album: balloon.album,
+        }
+        .render()
+        .unwrap_or_default()
+    }
+
+    fn format_collaboration(&self, balloon: &CollaborationMessage, _: &Message) -> String {
+        CollaborationVM {
+            name: balloon.app_name.or(balloon.bundle_id),
+            wrapper_url: balloon.url,
+            title: balloon.title,
+            footer_url: balloon.get_url(),
+        }
+        .render()
+        .unwrap_or_default()
+    }
+
+    fn format_app_store(&self, balloon: &AppStoreMessage, _: &'a Message) -> String {
+        AppStoreVM {
+            app_name: balloon.app_name,
+            url: balloon.url,
+            description: balloon.description,
+            platform: balloon.platform,
+            genre: balloon.genre,
+        }
+        .render()
+        .unwrap_or_default()
+    }
+
+    fn format_placemark(&self, balloon: &PlacemarkMessage, _: &'a Message) -> String {
+        let url = balloon.get_url();
+        PlacemarkVM {
+            url,
+            name: balloon.place_name.or(url),
+            address: balloon.placemark.address,
+            postal_code: balloon.placemark.postal_code,
+            country: balloon.placemark.country,
+            sub_administrative_area: balloon.placemark.sub_administrative_area,
+        }
+        .render()
+        .unwrap_or_default()
+    }
+
+    fn format_handwriting(&self, _: &Message, balloon: &HandwrittenMessage, _: &Message) -> String {
+        // svg can be embedded directly into the html
+        balloon.render_svg()
+    }
+
+    fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouch, _: &'a Message) -> String {
+        DigitalTouchVM {
+            debug: format!("{balloon:?}"),
+        }
+        .render()
+        .unwrap_or_default()
+    }
+
+    fn format_apple_pay(&self, balloon: &AppMessage, _: &Message) -> String {
+        ApplePayVM {
+            app_name: balloon.app_name,
+            ldtext: balloon.ldtext,
+        }
+        .render()
+        .unwrap_or_default()
+    }
+
+    fn format_fitness(&self, balloon: &AppMessage, message: &Message) -> String {
+        self.balloon_to_html(balloon, "Fitness", &mut [], message)
+    }
+
+    fn format_slideshow(&self, balloon: &AppMessage, message: &Message) -> String {
+        self.balloon_to_html(balloon, "Slideshow", &mut [], message)
+    }
+
+    fn format_find_my(&self, balloon: &AppMessage, _: &'a Message) -> String {
+        FindMyVM {
+            app_name: balloon.app_name,
+            ldtext: balloon.ldtext,
+        }
+        .render()
+        .unwrap_or_default()
+    }
+
+    fn format_check_in(&self, balloon: &AppMessage, _: &Message) -> String {
+        let metadata: HashMap<&str, &str> = balloon.parse_query_string();
+        let footer = if let Some(date_str) = metadata.get("estimatedEndTime") {
+            format_check_in_caption(date_str, "Expected around ")
+        } else if let Some(date_str) = metadata.get("triggerTime") {
+            format_check_in_caption(date_str, "Was expected around ")
+        } else if let Some(date_str) = metadata.get("sendDate") {
+            format_check_in_caption(date_str, "Checked in at ")
+        } else {
+            None
+        };
+
+        CheckInVM {
+            name: balloon.app_name.unwrap_or("Check In"),
+            ldtext: balloon.ldtext,
+            footer,
+        }
+        .render()
+        .unwrap_or_default()
+    }
+
+    fn format_poll(&self, poll: &Poll, _: &'a Message) -> String {
+        let max_votes = poll
+            .order
+            .iter()
+            .filter_map(|option_id| poll.options.get(option_id))
+            .map(|option| option.votes.len())
+            .max()
+            .unwrap_or(0);
+
+        let options = poll
+            .order
+            .iter()
+            .filter_map(|id| poll.options.get(id))
+            .map(|opt| {
+                let vote_count = opt.votes.len();
+                PollOptionVM {
+                    text: &opt.text,
+                    vote_count,
+                    bar_width: (vote_count * 100).checked_div(max_votes).unwrap_or(0),
+                    voters: opt.votes.iter().map(|v| v.voter.as_str()).collect(),
+                }
+            })
+            .collect();
+
+        PollVM { options }.render().unwrap_or_default()
+    }
+
+    fn format_generic_app(
+        &self,
+        balloon: &AppMessage,
+        bundle_id: &str,
+        attachments: &mut Vec<Attachment>,
+        message: &Message,
+    ) -> String {
+        self.balloon_to_html(balloon, bundle_id, attachments, message)
+    }
+}
+
+impl HTML<'_> {
+    fn balloon_to_html(
+        &self,
+        balloon: &AppMessage,
+        bundle_id: &str,
+        attachments: &mut [Attachment],
+        message: &Message,
+    ) -> String {
+        let attachment_html = if balloon.image.is_none() {
+            attachments.get_mut(0).map(|attachment| {
+                self.format_attachment(attachment, message, &AttachmentMeta::default())
+                    .unwrap_or_default()
+            })
+        } else {
+            None
+        };
+
+        AppCardVM {
+            url: balloon.url,
+            image: balloon.image,
+            attachment_html,
+            name: balloon.app_name.unwrap_or(bundle_id),
+            title: balloon.title,
+            subtitle: balloon.subtitle,
+            ldtext: balloon.ldtext,
+            caption: balloon.caption,
+            subcaption: balloon.subcaption,
+            trailing_caption: balloon.trailing_caption,
+            trailing_subcaption: balloon.trailing_subcaption,
+        }
+        .render()
+        .unwrap_or_default()
+    }
+}
+
+fn format_check_in_caption(date_str: &str, prefix: &str) -> Option<String> {
+    let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
+    let date_time = get_local_time(date_stamp, 0).ok()?;
+    Some(format!("{prefix}{}", format(&date_time)))
+}

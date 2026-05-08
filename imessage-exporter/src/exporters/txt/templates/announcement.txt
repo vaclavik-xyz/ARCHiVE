@@ -1,0 +1,5 @@
+{% match kind %}{% when AnnouncementBody::Action { timestamp, who, action_text } %}{{ timestamp }} {{ who }} {{ action_text }}
+
+{% when AnnouncementBody::Unknown %}Unable to format announcement!
+
+{% endmatch %}

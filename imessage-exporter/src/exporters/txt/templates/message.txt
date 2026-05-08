@@ -1,0 +1,9 @@
+{{ indent }}{{ timestamp }}
+{{ indent }}{{ sender }}
+{% if is_deleted %}{{ indent }}This message was deleted from the conversation!
+{% endif %}{% if let Some(subject) = subject %}{{ indent }}{{ subject }}
+{% endif %}{% if let Some(shareplay) = shareplay %}{{ indent }}{{ shareplay }}
+{% endif %}{% if let Some(shared_location) = shared_location %}{{ indent }}{{ shared_location }}
+{% endif %}{% for part in parts %}{{ part|safe }}{% endfor %}{% if trailing_reply_context %}{{ indent }}This message responded to an earlier message.
+{% endif %}{% if top_level %}
+{% endif %}

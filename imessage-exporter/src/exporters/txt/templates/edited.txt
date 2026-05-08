@@ -1,0 +1,7 @@
+{%- match kind -%}
+{%- when EditedKind::Edited { rows } -%}
+{% for row in rows %}{{ row.timestamp_prefix }}{% if let Some(text) = row.text %}{{ indent }}{{ text }}
+{% endif %}{% endfor -%}
+{%- when EditedKind::UnsentWithDiff { who, diff } -%}{{ who }} unsent this message part {{ diff }} after sending!
+{%- when EditedKind::Unsent { who } -%}{{ who }} unsent this message part!
+{%- endmatch -%}

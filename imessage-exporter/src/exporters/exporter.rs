@@ -57,7 +57,13 @@ pub trait Exporter<'a> {
 // MARK: Message
 /// Defines behavior for formatting message instances to the desired output format
 pub(super) trait MessageFormatter<'a> {
-    /// Format a message, including its tapbacks and replies
+    /// Format a message, including its tapbacks and replies.
+    ///
+    /// Production callers (`iter_messages`, recursive replies) bypass this in
+    /// favor of the inherent `format_message_into(&self, ..., &mut String)`
+    /// helpers on each exporter to reuse a buffer; this trait method is kept
+    /// for tests and external consumers.
+    #[allow(dead_code)]
     fn format_message(&self, msg: &Message, indent: usize) -> Result<String, TableError>;
     /// Format an attachment, possibly by reading the disk
     fn format_attachment(

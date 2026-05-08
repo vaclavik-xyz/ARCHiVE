@@ -1,0 +1,4 @@
+{%- match kind -%}
+{%- when AnnouncementBody::Action { timestamp, who, action_text } -%}<div class ="announcement"><p><span class="timestamp">{{ timestamp }}</span> {{ who }} {{ action_text|safe }}</p></div>
+{%- when AnnouncementBody::Unknown -%}<div class ="announcement"><p>Unable to format announcement!</p></div>
+{%- endmatch -%}
