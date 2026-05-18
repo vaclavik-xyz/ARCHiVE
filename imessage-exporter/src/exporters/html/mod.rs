@@ -18,28 +18,18 @@ use crate::{
         progress::ExportProgress, runtime::Config, sanitizers::sanitize_html,
     },
     exporters::{
-        exporter::{
-            ATTACHMENT_NO_FILENAME, BalloonFormatter, Exporter, MessageFormatter,
-            TextEffectFormatter,
-        },
-        shared::{format_expressive, message_time},
+        exporter::{ATTACHMENT_NO_FILENAME, Exporter, MessageFormatter, TextEffectFormatter},
+        shared::{dispatch_app_balloon, format_expressive, message_time},
     },
 };
 
 use imessage_database::{
     error::{message::MessageError, plist::PlistParseError, table::TableError},
     message_types::{
-        app::AppMessage,
-        digital_touch,
         edited::{EditStatus, EditedMessage},
-        handwriting::HandwrittenMessage,
         sticker::StickerSource,
         text_effects::TextEffect,
-        url::URLMessage,
-        variants::{
-            Announcement, BalloonProvider, CustomBalloon, Tapback, TapbackAction, URLOverride,
-            Variant,
-        },
+        variants::{Announcement, Tapback, TapbackAction, Variant},
     },
     tables::{
         attachment::{Attachment, MediaType},
@@ -49,10 +39,7 @@ use imessage_database::{
         },
         table::{FITNESS_RECEIVER, ME, ORPHANED, Table, YOU},
     },
-    util::{
-        dates::{format, get_local_time, readable_diff},
-        plist::parse_ns_keyed_archiver,
-    },
+    util::dates::{format, get_local_time, readable_diff},
 };
 
 mod balloons;
@@ -368,99 +355,22 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         attachments: &mut Vec<Attachment>,
         _: &str,
     ) -> Result<String, MessageError> {
-        if let Variant::App(balloon) = message.variant() {
-            let mut app_bubble = String::new();
-
-            // Handwritten messages use a different payload type, so check that first
-            if message.is_handwriting()
-                && let Some(payload) = message.raw_payload_data(self.config.data_source.db())
-            {
-                return match HandwrittenMessage::from_payload(&payload) {
-                    Ok(bubble) => Ok(self.format_handwriting(message, &bubble, message)),
-                    Err(why) => Err(MessageError::PlistParseError(
-                        PlistParseError::HandwritingError(why),
-                    )),
-                };
-            }
-
-            if message.is_digital_touch()
-                && let Some(payload) = message.raw_payload_data(self.config.data_source.db())
-            {
-                return match digital_touch::from_payload(&payload) {
-                    Some(bubble) => Ok(self.format_digital_touch(message, &bubble, message)),
-                    None => Err(MessageError::PlistParseError(
-                        PlistParseError::DigitalTouchError,
-                    )),
-                };
-            }
-
-            // Poll messages use a different payload type
-            if message.is_poll() {
-                let poll = message.as_poll(self.config.data_source.db())?;
-                return match poll {
-                    Some(poll) => Ok(self.format_poll(&poll, message)),
-                    None => Err(MessageError::PlistParseError(PlistParseError::PollError)),
-                };
-            }
-
-            if let Some(payload) = message.payload_data(self.config.data_source.db()) {
-                let parsed = parse_ns_keyed_archiver(&payload)?;
-
-                let res = if message.is_url() {
-                    let bubble = URLMessage::get_url_message_override(&parsed)?;
-                    match bubble {
-                        URLOverride::Normal(balloon) => self.format_url(message, &balloon, message),
-                        URLOverride::AppleMusic(balloon) => self.format_music(&balloon, message),
-                        URLOverride::Collaboration(balloon) => {
-                            self.format_collaboration(&balloon, message)
-                        }
-                        URLOverride::AppStore(balloon) => self.format_app_store(&balloon, message),
-                        URLOverride::SharedPlacemark(balloon) => {
-                            self.format_placemark(&balloon, message)
-                        }
-                    }
-                } else {
-                    match AppMessage::from_map(&parsed) {
-                        Ok(bubble) => match balloon {
-                            CustomBalloon::Application(bundle_id) => {
-                                self.format_generic_app(&bubble, bundle_id, attachments, message)
-                            }
-                            CustomBalloon::ApplePay => self.format_apple_pay(&bubble, message),
-                            CustomBalloon::Fitness => self.format_fitness(&bubble, message),
-                            CustomBalloon::Slideshow => self.format_slideshow(&bubble, message),
-                            CustomBalloon::CheckIn => self.format_check_in(&bubble, message),
-                            CustomBalloon::FindMy => self.format_find_my(&bubble, message),
-                            CustomBalloon::Polls
-                            | CustomBalloon::Handwriting
-                            | CustomBalloon::DigitalTouch
-                            | CustomBalloon::URL => {
-                                unreachable!()
-                            }
-                        },
-                        Err(why) => {
-                            return Err(MessageError::PlistParseError(why));
-                        }
-                    }
-                };
-                app_bubble.push_str(&res);
-            } else {
-                // Sometimes, URL messages are missing their payloads
-                if message.is_url()
-                    && let Some(text) = &message.text
-                {
-                    let escaped = sanitize_html(text);
-                    return Ok(format!(
-                        "<a href=\"{escaped}\"><div class=\"app_header\"><div class=\"name\">{escaped}</div></div><div class=\"app_footer\"><div class=\"caption\">{escaped}</div></div></a>"
-                    ));
-                }
-                return Err(MessageError::PlistParseError(PlistParseError::NoPayload));
-            }
-            Ok(app_bubble)
-        } else {
-            Err(MessageError::PlistParseError(
-                PlistParseError::WrongMessageType,
-            ))
+        if let Some(rendered) =
+            dispatch_app_balloon(self, message, attachments, message, self.config)?
+        {
+            return Ok(rendered);
         }
+
+        // No payload — URL balloons sometimes lose theirs; fall back to text.
+        if message.is_url()
+            && let Some(text) = &message.text
+        {
+            let escaped = sanitize_html(text);
+            return Ok(format!(
+                "<a href=\"{escaped}\"><div class=\"app_header\"><div class=\"name\">{escaped}</div></div><div class=\"app_footer\"><div class=\"caption\">{escaped}</div></div></a>"
+            ));
+        }
+        Err(MessageError::PlistParseError(PlistParseError::NoPayload))
     }
 
     fn format_tapback(&self, msg: &Message) -> Result<String, TableError> {
@@ -552,7 +462,10 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         let inner = AnnouncementInnerVM {
             kind: AnnouncementBody::Action {
                 timestamp,
-                who: sanitize_html(who).into_owned(),
+                // `who` is rendered with the default escaper in the template,
+                // so no pre-escape is needed here. Pre-escaping would
+                // double-encode any `<` / `&` in participant names.
+                who: who.to_string(),
                 action_text,
             },
         }
@@ -1325,6 +1238,35 @@ mod tests {
     }
 
     #[test]
+    fn html_announcement_who_is_escaped_once() {
+        // Regression: `who` is rendered with the default escaper in the
+        // template, so the formatter must not pre-escape it. Pre-escaping
+        // would produce `&amp;amp;` for an `&` in the name.
+        let mut options = Options::fake_options(ExportType::Html);
+        options.custom_name = Some("Bob & <Alice>".to_string());
+        let mut config = Config::fake_app(options);
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
+
+        let exporter = HTML::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        message.date = 674526582885055488;
+        message.is_from_me = true;
+        message.item_type = 3; // ParticipantLeft
+
+        let actual = exporter.format_announcement(&message);
+        assert!(
+            actual.contains("Bob &amp; &lt;Alice&gt; left the conversation."),
+            "expected single-escaped name, got: {actual}"
+        );
+        assert!(
+            !actual.contains("&amp;amp;") && !actual.contains("&amp;lt;"),
+            "name was double-escaped, got: {actual}"
+        );
+    }
+
+    #[test]
     fn can_format_html_url_no_payload_fallback() {
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
@@ -1394,8 +1336,7 @@ mod tests {
         );
         // TopLevel arrow points "View in thread" → #{guid}
         assert!(
-            actual
-                .contains("<a title=\"View in thread\" href=\"#TOP-GUID\">⇱</a>"),
+            actual.contains("<a title=\"View in thread\" href=\"#TOP-GUID\">⇱</a>"),
             "missing TopLevel arrow, got: {actual}"
         );
         // Trailing reply context only appears for top-level replies
@@ -1436,9 +1377,7 @@ mod tests {
         );
         // InThread arrow points "View in context" → #r-{guid}
         assert!(
-            actual.contains(
-                "<a title=\"View in context\" href=\"#r-INNER-GUID\">⇲</a>"
-            ),
+            actual.contains("<a title=\"View in context\" href=\"#r-INNER-GUID\">⇲</a>"),
             "missing InThread arrow, got: {actual}"
         );
         // No trailing reply_context for nested copies

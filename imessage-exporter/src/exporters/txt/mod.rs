@@ -13,24 +13,17 @@ use crate::{
         progress::ExportProgress, runtime::Config,
     },
     exporters::{
-        exporter::{ATTACHMENT_NO_FILENAME, BalloonFormatter, Exporter, MessageFormatter},
-        shared::{format_expressive, message_time},
+        exporter::{ATTACHMENT_NO_FILENAME, Exporter, MessageFormatter},
+        shared::{dispatch_app_balloon, format_expressive, message_time},
     },
 };
 
 use imessage_database::{
     error::{message::MessageError, plist::PlistParseError, table::TableError},
     message_types::{
-        app::AppMessage,
-        digital_touch,
         edited::{EditStatus, EditedMessage},
-        handwriting::HandwrittenMessage,
         sticker::StickerSource,
-        url::URLMessage,
-        variants::{
-            Announcement, BalloonProvider, CustomBalloon, Tapback, TapbackAction, URLOverride,
-            Variant,
-        },
+        variants::{Announcement, Tapback, TapbackAction, Variant},
     },
     tables::{
         attachment::{Attachment, MediaType},
@@ -40,10 +33,7 @@ use imessage_database::{
         },
         table::{FITNESS_RECEIVER, ME, ORPHANED, Table, YOU},
     },
-    util::{
-        dates::{format, get_local_time, readable_diff},
-        plist::parse_ns_keyed_archiver,
-    },
+    util::dates::{format, get_local_time, readable_diff},
 };
 
 mod balloons;
@@ -229,14 +219,11 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
             message.is_from_me(),
             &message.destination_caller_id,
         );
-        let (path, has_source) = match self.format_attachment(
-            sticker,
-            message,
-            &AttachmentMeta::default(),
-        ) {
-            Ok(p) => (p, true),
-            Err(e) => (e.to_string(), false),
-        };
+        let (path, has_source) =
+            match self.format_attachment(sticker, message, &AttachmentMeta::default()) {
+                Ok(p) => (p, true),
+                Err(e) => (e.to_string(), false),
+            };
 
         let (effect_prefix, suffix) = if has_source {
             match sticker.get_sticker_source(self.config.data_source.db()) {
@@ -288,101 +275,19 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         attachments: &mut Vec<Attachment>,
         indent: &str,
     ) -> Result<String, MessageError> {
-        if let Variant::App(balloon) = message.variant() {
-            let mut app_bubble = String::new();
-
-            // Handwritten messages use a different payload type
-            if message.is_handwriting()
-                && let Some(payload) = message.raw_payload_data(self.config.data_source.db())
-            {
-                return match HandwrittenMessage::from_payload(&payload) {
-                    Ok(bubble) => Ok(self.format_handwriting(message, &bubble, indent)),
-                    Err(why) => Err(MessageError::PlistParseError(
-                        PlistParseError::HandwritingError(why),
-                    )),
-                };
-            }
-
-            // Digital touch messages use a different payload type
-            if message.is_digital_touch()
-                && let Some(payload) = message.raw_payload_data(self.config.data_source.db())
-            {
-                return match digital_touch::from_payload(&payload) {
-                    Some(bubble) => Ok(self.format_digital_touch(message, &bubble, indent)),
-                    None => Err(MessageError::PlistParseError(
-                        PlistParseError::DigitalTouchError,
-                    )),
-                };
-            }
-
-            // Poll messages use a different payload type
-            if message.is_poll() {
-                let poll = message.as_poll(self.config.data_source.db())?;
-                return match poll {
-                    Some(poll) => Ok(self.format_poll(&poll, indent)),
-                    None => Err(MessageError::PlistParseError(
-                        PlistParseError::WrongMessageType,
-                    )),
-                };
-            }
-
-            if let Some(payload) = message.payload_data(self.config.data_source.db()) {
-                // Handle URL messages separately since they are a special case
-                let parsed = parse_ns_keyed_archiver(&payload)?;
-                let res = if message.is_url() {
-                    let bubble = URLMessage::get_url_message_override(&parsed)?;
-                    match bubble {
-                        URLOverride::Normal(balloon) => self.format_url(message, &balloon, indent),
-                        URLOverride::AppleMusic(balloon) => self.format_music(&balloon, indent),
-                        URLOverride::Collaboration(balloon) => {
-                            self.format_collaboration(&balloon, indent)
-                        }
-                        URLOverride::AppStore(balloon) => self.format_app_store(&balloon, indent),
-                        URLOverride::SharedPlacemark(balloon) => {
-                            self.format_placemark(&balloon, indent)
-                        }
-                    }
-                // Handwriting uses a different payload type than the rest of the branches
-                } else {
-                    // Handle the app case
-                    match AppMessage::from_map(&parsed) {
-                        Ok(bubble) => match balloon {
-                            CustomBalloon::Application(bundle_id) => {
-                                self.format_generic_app(&bubble, bundle_id, attachments, indent)
-                            }
-                            CustomBalloon::ApplePay => self.format_apple_pay(&bubble, indent),
-                            CustomBalloon::Fitness => self.format_fitness(&bubble, indent),
-                            CustomBalloon::Slideshow => self.format_slideshow(&bubble, indent),
-                            CustomBalloon::CheckIn => self.format_check_in(&bubble, indent),
-                            CustomBalloon::FindMy => self.format_find_my(&bubble, indent),
-                            CustomBalloon::Polls
-                            | CustomBalloon::Handwriting
-                            | CustomBalloon::DigitalTouch
-                            | CustomBalloon::URL => {
-                                unreachable!()
-                            }
-                        },
-                        Err(why) => {
-                            return Err(MessageError::PlistParseError(why));
-                        }
-                    }
-                };
-                app_bubble.push_str(&res);
-            } else {
-                // Sometimes, URL messages are missing their payloads
-                if message.is_url()
-                    && let Some(text) = &message.text
-                {
-                    return Ok(text.clone());
-                }
-                return Err(MessageError::PlistParseError(PlistParseError::NoPayload));
-            }
-            Ok(app_bubble)
-        } else {
-            Err(MessageError::PlistParseError(
-                PlistParseError::WrongMessageType,
-            ))
+        if let Some(rendered) =
+            dispatch_app_balloon(self, message, attachments, indent, self.config)?
+        {
+            return Ok(rendered);
         }
+
+        // No payload — URL balloons sometimes lose theirs; fall back to text.
+        if message.is_url()
+            && let Some(text) = &message.text
+        {
+            return Ok(text.clone());
+        }
+        Err(MessageError::PlistParseError(PlistParseError::NoPayload))
     }
 
     fn format_tapback(&self, msg: &Message) -> Result<String, TableError> {
@@ -443,8 +348,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
 
         let action_text = match announcement {
             Announcement::GroupAction(action) => match action {
-                GroupAction::ParticipantAdded(person)
-                | GroupAction::ParticipantRemoved(person) => {
+                GroupAction::ParticipantAdded(person) | GroupAction::ParticipantRemoved(person) => {
                     let resolved_person =
                         self.config
                             .who(Some(person), false, &msg.destination_caller_id);
@@ -579,7 +483,6 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
     }
 }
 
-
 // MARK: Impl
 impl TXT<'_> {
     fn get_time(&self, message: &Message) -> String {
@@ -678,12 +581,12 @@ impl TXT<'_> {
                 };
                 if message.is_part_edited(idx) {
                     return match &message.edited_parts {
-                        Some(edited_parts) => match self
-                            .format_edited(message, edited_parts, idx, indent)
-                        {
-                            Some(edited) => PartBody::Line { text: edited },
-                            None => PartBody::Empty,
-                        },
+                        Some(edited_parts) => {
+                            match self.format_edited(message, edited_parts, idx, indent) {
+                                Some(edited) => PartBody::Line { text: edited },
+                                None => PartBody::Empty,
+                            }
+                        }
                         None => PartBody::Empty,
                     };
                 }
@@ -738,11 +641,12 @@ impl TXT<'_> {
                 },
             },
             BubbleComponent::Retracted => match &message.edited_parts {
-                Some(edited_parts) => match self.format_edited(message, edited_parts, idx, indent)
-                {
-                    Some(edited) => PartBody::Line { text: edited },
-                    None => PartBody::Empty,
-                },
+                Some(edited_parts) => {
+                    match self.format_edited(message, edited_parts, idx, indent) {
+                        Some(edited) => PartBody::Line { text: edited },
+                        None => PartBody::Empty,
+                    }
+                }
                 None => PartBody::Empty,
             },
         }

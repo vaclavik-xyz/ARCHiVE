@@ -10,12 +10,14 @@ use imessage_database::{
         attachment::Attachment,
         messages::{Message, models::AttachmentMeta},
     },
-    util::dates::{TIMESTAMP_FACTOR, format, get_local_time},
 };
 
 use askama::Template;
 
-use crate::exporters::exporter::{BalloonFormatter, MessageFormatter};
+use crate::exporters::{
+    exporter::{BalloonFormatter, MessageFormatter},
+    shared::format_check_in_caption,
+};
 
 use super::{
     HTML,
@@ -223,10 +225,4 @@ impl HTML<'_> {
         .render()
         .unwrap_or_default()
     }
-}
-
-fn format_check_in_caption(date_str: &str, prefix: &str) -> Option<String> {
-    let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
-    let date_time = get_local_time(date_stamp, 0).ok()?;
-    Some(format!("{prefix}{}", format(&date_time)))
 }
