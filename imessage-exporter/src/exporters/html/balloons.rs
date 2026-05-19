@@ -169,10 +169,13 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
             .filter_map(|id| poll.options.get(id))
             .map(|opt| {
                 let vote_count = opt.votes.len();
+                let bar_width = (vote_count * 100).checked_div(max_votes).unwrap_or(0);
                 PollOptionVM {
                     text: &opt.text,
                     vote_count,
-                    bar_width: (vote_count * 100).checked_div(max_votes).unwrap_or(0),
+                    bar_html: format!(
+                        "<div class=\"vote-bar\" style=\"width: {bar_width}%;\"></div>"
+                    ),
                     voters: opt.votes.iter().map(|v| v.voter.as_str()).collect(),
                 }
             })
