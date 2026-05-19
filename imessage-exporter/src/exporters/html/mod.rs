@@ -4,10 +4,7 @@ use std::{
         Ordering::{Equal, Greater, Less},
         min,
     },
-    collections::{
-        HashMap,
-        hash_map::Entry::{Occupied, Vacant},
-    },
+    collections::HashMap,
     fs::File,
     io::BufWriter,
 };
@@ -19,15 +16,20 @@ use crate::{
     },
     exporters::{
         exporter::{ATTACHMENT_NO_FILENAME, Exporter, MessageFormatter, TextEffectFormatter},
-        shared::{dispatch_app_balloon, format_expressive, message_time},
+        shared::{
+            announcement::resolve_announcement,
+            balloon::dispatch_app_balloon,
+            driver::{MessageWriter, get_or_create_file_for, run_export},
+            edited::{EditDiff, NormalizedEdit, normalize_edited},
+            format::{format_expressive, message_time},
+        },
     },
 };
 
 use imessage_database::{
     error::{message::MessageError, plist::PlistParseError, table::TableError},
     message_types::{
-        edited::{EditStatus, EditedMessage},
-        sticker::StickerSource,
+        edited::EditedMessage,
         text_effects::TextEffect,
         variants::{Announcement, Tapback, TapbackAction, Variant},
     },
@@ -35,11 +37,10 @@ use imessage_database::{
         attachment::{Attachment, MediaType},
         messages::{
             Message,
-            models::{AttachmentMeta, BubbleComponent, GroupAction, Service, TextAttributes},
+            models::{AttachmentMeta, BubbleComponent, TextAttributes},
         },
-        table::{FITNESS_RECEIVER, ME, ORPHANED, Table, YOU},
+        table::{FITNESS_RECEIVER, ORPHANED, YOU},
     },
-    util::dates::{format, get_local_time, readable_diff},
 };
 
 mod balloons;
@@ -50,8 +51,8 @@ mod view_model;
 use askama::Template;
 use view_model::{
     AnnouncementBody, AnnouncementInnerVM, AttachmentVM, AttachmentVariant, EditedKind, EditedRow,
-    EditedVM, MessagePartVM, MessageVM, PartBody, ReplyAnchorKind, StickerSuffix, StickerSuffixVM,
-    TapbackKind, TapbackVM,
+    EditedVM, MessagePartVM, MessageVM, PartBody, ReplyAnchorKind, StickerSuffixVM, TapbackKind,
+    TapbackVM,
 };
 
 // MARK: HTML
@@ -98,115 +99,48 @@ impl<'a> Exporter<'a> for HTML<'a> {
     }
 
     fn iter_messages(&mut self) -> Result<(), RuntimeError> {
-        // Tell the user what we are doing
-        eprintln!(
-            "Exporting to {} as html...",
-            self.config.options.export_path.display()
-        );
-
-        // Write orphaned file headers
-        HTML::write_headers(&mut self.orphaned)?;
-
-        // Keep track of current message ROWID
-        let mut current_message_row = -1;
-
-        // Set up progress bar
-        let mut current_message = 0;
-        let total_messages = Message::get_count(
-            self.config.data_source.db(),
-            &self.config.options.query_context,
-        )?;
-        self.pb.start(total_messages);
-
-        let mut statement = Message::stream_rows(
-            self.config.data_source.db(),
-            &self.config.options.query_context,
-        )?;
-
-        let messages = statement
-            .query_map([], |row| Ok(Message::from_row(row)))
-            .map_err(|err| RuntimeError::DatabaseError(TableError::QueryError(err)))?;
-
-        // Reused across iterations so each message doesn't allocate a fresh
-        // output buffer. Capacity grows naturally to fit the largest message
-        // and `clear()` retains it.
-        let mut msg_buf = String::with_capacity(2048);
-        for message in messages {
-            let mut msg = Message::extract(message)?;
-
-            // Early escape if we try and render the same message GUID twice
-            // See https://github.com/ReagentX/imessage-exporter/issues/135 for rationale
-            if msg.rowid == current_message_row {
-                current_message += 1;
-                continue;
-            }
-            current_message_row = msg.rowid;
-
-            // Parse and apply the message body
-            if let Ok(body) = msg.parse_body(self.config.data_source.db()) {
-                msg.apply_body(body);
-            }
-
-            // Render the announcement in-line
-            if msg.is_announcement() {
-                let announcement = self.format_announcement(&msg);
-                HTML::write_to_file(self.get_or_create_file(&msg)?, &announcement)?;
-            }
-            // Message tapbacks and poll votes are rendered in context, so no need to render them separately
-            else if !msg.is_tapback() && !msg.is_poll_vote() && !msg.is_poll_update() {
-                msg_buf.clear();
-                self.format_message_into(&msg, 0, &mut msg_buf)?;
-                HTML::write_to_file(self.get_or_create_file(&msg)?, &msg_buf)?;
-            }
-            current_message += 1;
-            if current_message % 99 == 0 {
-                self.pb.set_position(current_message);
-            }
-        }
-        self.pb.finish();
-
-        eprintln!("Writing HTML footers...");
-        for buf in self.files.values_mut() {
-            HTML::write_to_file(buf, FOOTER)?;
-        }
-        HTML::write_to_file(&mut self.orphaned, FOOTER)?;
-
-        Ok(())
+        run_export(self)
     }
 
-    /// Create a file for the given chat, caching it so we don't need to build it later
     fn get_or_create_file(
         &mut self,
         message: &Message,
     ) -> Result<&mut BufWriter<File>, RuntimeError> {
-        match self.config.conversation(message) {
-            Some((chatroom, _)) => {
-                let filename = self.config.filename(chatroom);
-                match self.files.entry(filename.clone()) {
-                    Occupied(entry) => Ok(entry.into_mut()),
-                    Vacant(entry) => {
-                        let mut path = self.config.options.export_path.clone();
-                        path.push(filename);
+        get_or_create_file_for(self, message)
+    }
+}
 
-                        // If the file already exists, don't write the headers again
-                        // This can happen if multiple chats use the same group name
-                        let file_exists = path.exists();
+// MARK: Driver hooks
+impl<'a> MessageWriter<'a> for HTML<'a> {
+    const LABEL: &'static str = "html";
+    const BUFFER_CAPACITY: usize = 2048;
 
-                        let file = File::options().append(true).create(true).open(&path)?;
+    fn config(&self) -> &'a Config {
+        self.config
+    }
 
-                        let mut buf = BufWriter::new(file);
+    fn pb(&self) -> &ExportProgress {
+        &self.pb
+    }
 
-                        // Write headers if the file does not exist
-                        if !file_exists {
-                            let _ = HTML::write_headers(&mut buf);
-                        }
+    fn files_mut(&mut self) -> &mut HashMap<String, BufWriter<File>> {
+        &mut self.files
+    }
 
-                        Ok(entry.insert(buf))
-                    }
-                }
-            }
-            None => Ok(&mut self.orphaned),
-        }
+    fn orphaned_mut(&mut self) -> &mut BufWriter<File> {
+        &mut self.orphaned
+    }
+
+    fn write_file_header(file: &mut BufWriter<File>) -> Result<(), RuntimeError> {
+        HTML::write_headers(file)
+    }
+
+    fn write_file_footer(file: &mut BufWriter<File>) -> Result<(), RuntimeError> {
+        HTML::write_to_file(file, FOOTER)
+    }
+
+    fn footer_notice() -> Option<&'static str> {
+        Some("Writing HTML footers...")
     }
 }
 
@@ -308,34 +242,12 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 Err(embed) => return embed.to_string(),
             };
 
-        let Some(sticker_source) = sticker.get_sticker_source(self.config.data_source.db()) else {
-            return sticker_embed;
-        };
-
-        let suffix = match sticker_source {
-            StickerSource::Genmoji => sticker
-                .emoji_description
-                .as_deref()
-                .map(|prompt| StickerSuffix::GenmojiPrompt(prompt.to_string())),
-            StickerSource::Memoji => Some(StickerSuffix::Memoji),
-            StickerSource::UserGenerated => sticker
-                .get_sticker_effect(
-                    &self.config.options.platform,
-                    &self.config.options.db_path,
-                    self.config.options.attachment_root.as_deref(),
-                )
-                .ok()
-                .flatten()
-                .map(|effect| StickerSuffix::Effect(effect.to_string())),
-            StickerSource::App(bundle_id) => {
-                let raw_app_name = sticker
-                    .get_sticker_source_application_name(self.config.data_source.db())
-                    .unwrap_or(bundle_id);
-                Some(StickerSuffix::AppName(raw_app_name))
-            }
-        };
-
-        if let Some(kind) = suffix {
+        if let Some(kind) = sticker.get_sticker_decoration(
+            self.config.data_source.db(),
+            &self.config.options.platform,
+            &self.config.options.db_path,
+            self.config.options.attachment_root.as_deref(),
+        ) {
             let suffix_html = StickerSuffixVM { kind }.render().unwrap_or_default();
             sticker_embed.push_str(&suffix_html);
         }
@@ -390,7 +302,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 }
             }
             other => TapbackKind::Reaction {
-                tapback: other.to_string(),
+                tapback: other,
                 who,
             },
         };
@@ -401,21 +313,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         format_expressive(msg)
     }
 
-    fn format_announcement(&self, msg: &'a Message) -> String {
-        let mut who = self
-            .config
-            .who(msg.handle_id, msg.is_from_me(), &msg.destination_caller_id);
-
-        // Rename yourself so we render the proper grammar here
-        if who == ME {
-            who = self.config.options.custom_name.as_deref().unwrap_or("You");
-        }
-        let timestamp = match msg.date(self.config.offset) {
-            Ok(d) => format(&d),
-            Err(why) => why.to_string(),
-        };
-
-        let Some(announcement) = msg.get_announcement() else {
+    fn format_announcement(&self, msg: &Message) -> String {
+        let Some(resolved) = resolve_announcement(msg, self.config, YOU) else {
             let inner = AnnouncementInnerVM {
                 kind: AnnouncementBody::Unknown,
             }
@@ -424,49 +323,19 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             return format!("\n{inner}\n");
         };
 
-        let action_text = match &announcement {
-            Announcement::GroupAction(action) => match action {
-                GroupAction::ParticipantAdded(person) | GroupAction::ParticipantRemoved(person) => {
-                    let resolved_person = sanitize_html(self.config.who(
-                        Some(*person),
-                        false,
-                        &msg.destination_caller_id,
-                    ));
-                    let added = matches!(action, GroupAction::ParticipantAdded(_));
-                    let action_word = if added { "added" } else { "removed" };
-                    let preposition = if added { "to" } else { "from" };
-                    format!("{action_word} {resolved_person} {preposition} the conversation.")
-                }
-                GroupAction::NameChange(name) => {
-                    let clean_name = sanitize_html(name);
-                    format!("named the conversation <b>{clean_name}</b>")
-                }
-                GroupAction::ParticipantLeft => "left the conversation.".to_string(),
-                GroupAction::GroupIconChanged => "changed the group photo.".to_string(),
-                GroupAction::GroupIconRemoved => "removed the group photo.".to_string(),
-                GroupAction::ChatBackgroundChanged => "changed the chat background.".to_string(),
-                GroupAction::ChatBackgroundRemoved => "removed the chat background.".to_string(),
-                GroupAction::PhoneNumberChanged(_) => "changed their phone number.".to_string(),
-            },
-            Announcement::AudioMessageKept => "kept an audio message.".to_string(),
-            Announcement::FullyUnsent => "unsent a message.".to_string(),
-            Announcement::Unknown(num) => format!("performed unknown action {num}"),
-        };
-
+        let is_fully_unsent = matches!(resolved.announcement, Announcement::FullyUnsent);
         let inner = AnnouncementInnerVM {
             kind: AnnouncementBody::Action {
-                timestamp,
-                // `who` is rendered with the default escaper in the template,
-                // so no pre-escape is needed here. Pre-escaping would
-                // double-encode any `<` / `&` in participant names.
-                who: who.to_string(),
-                action_text,
+                timestamp: resolved.timestamp,
+                who: resolved.who,
+                announcement: resolved.announcement,
+                participant_name: resolved.participant_name,
             },
         }
         .render()
         .unwrap_or_default();
 
-        if matches!(announcement, Announcement::FullyUnsent) {
+        if is_fully_unsent {
             inner
         } else {
             format!("\n{inner}\n")
@@ -494,52 +363,35 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         message_part_idx: usize,
         _: &str,
     ) -> Option<String> {
-        let part = edited_message.part(message_part_idx)?;
+        let normalized = normalize_edited(msg, edited_message, message_part_idx, self.config)?;
 
-        let kind = match part.status {
-            EditStatus::Original => return None,
-            EditStatus::Edited => {
-                let history_len = part.edit_history.len();
-                let mut rows = Vec::with_capacity(history_len);
-                let mut previous_timestamp: Option<i64> = None;
-
-                for (idx, event) in part.edit_history.iter().enumerate() {
-                    let Some(text) = event.text.as_deref() else {
-                        previous_timestamp = Some(event.date);
-                        continue;
-                    };
-                    let last = idx == history_len - 1;
-                    let rendered_text =
-                        if let Some(BubbleComponent::Text(attributes)) = event.components.first() {
-                            self.format_attributes(text, attributes)
+        let kind = match normalized {
+            NormalizedEdit::Edited(events) => {
+                let rows = events
+                    .into_iter()
+                    .map(|event| {
+                        let rendered_text = if let Some(BubbleComponent::Text(attributes)) =
+                            event.components.first()
+                        {
+                            self.format_attributes(event.text, attributes)
                         } else {
-                            sanitize_html(text).into_owned()
+                            sanitize_html(event.text).into_owned()
                         };
-                    let timestamp = match previous_timestamp {
-                        None => String::new(),
-                        Some(prev) => {
-                            let diff = if let (Ok(start), Ok(end)) = (
-                                get_local_time(prev, self.config.offset),
-                                get_local_time(event.date, self.config.offset),
-                            ) {
-                                readable_diff(&start, &end).unwrap_or_default()
-                            } else {
-                                String::new()
-                            };
-                            format!("Edited {diff} later")
+                        let timestamp = match event.diff_since_previous {
+                            EditDiff::First => String::new(),
+                            EditDiff::Failed => "Edited later".to_string(),
+                            EditDiff::Computed(diff) => format!("Edited {diff} later"),
+                        };
+                        EditedRow {
+                            tag: if event.is_last { "tfoot" } else { "tbody" },
+                            timestamp,
+                            text: rendered_text,
                         }
-                    };
-                    rows.push(EditedRow {
-                        tag: if last { "tfoot" } else { "tbody" },
-                        timestamp,
-                        text: rendered_text,
-                    });
-                    previous_timestamp = Some(event.date);
-                }
-
+                    })
+                    .collect();
                 EditedKind::Edited { rows }
             }
-            EditStatus::Unsent => {
+            NormalizedEdit::Unsent { diff } => {
                 let who = if msg.is_from_me() {
                     self.config.options.custom_name.as_deref().unwrap_or(YOU)
                 } else {
@@ -547,12 +399,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                         .who(msg.handle_id, msg.is_from_me(), &msg.destination_caller_id)
                 }
                 .to_string();
-                match msg
-                    .date(self.config.offset)
-                    .ok()
-                    .zip(msg.date_edited(self.config.offset).ok())
-                    .and_then(|(s, e)| readable_diff(&s, &e))
-                {
+                match diff {
                     Some(diff) => EditedKind::UnsentWithDiff { who, diff },
                     None => EditedKind::Unsent { who },
                 }
@@ -617,6 +464,86 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         }
         result
     }
+
+    /// Render `message` directly into `out`. The trait's `format_message`
+    /// wraps this, allocating a fresh `String` per call; hot callers
+    /// (`run_export`, `build_replies`) reuse a single buffer instead so
+    /// each message doesn't pay for a heap allocation.
+    fn format_message_into(
+        &self,
+        message: &Message,
+        indent_size: usize,
+        out: &mut String,
+    ) -> Result<(), TableError> {
+        let mut attachments = Attachment::from_message(self.config.data_source.db(), message)?;
+        let mut replies_map = message.get_replies(self.config.data_source.db())?;
+        let mut attachment_index: usize = 0;
+
+        let mut parts = Vec::with_capacity(message.components.len());
+        for (idx, message_part) in message.components.iter().enumerate() {
+            let body = self.build_part_body(
+                message,
+                idx,
+                message_part,
+                &mut attachments,
+                &mut attachment_index,
+            );
+
+            parts.push(MessagePartVM {
+                body,
+                expressive: self.build_expressive(message),
+                tapbacks: self.build_tapbacks(message, idx)?,
+                replies: self.build_replies(replies_map.get_mut(&idx))?,
+            });
+        }
+
+        let (date, read_after) = self.get_time(message);
+        let reply_anchor = if message.is_reply() {
+            Some(if indent_size > 0 {
+                ReplyAnchorKind::InThread
+            } else {
+                ReplyAnchorKind::TopLevel
+            })
+        } else {
+            None
+        };
+
+        let vm = MessageVM {
+            guid: &message.guid,
+            anchor_id: message.is_reply() && indent_size == 0,
+            is_from_me: message.is_from_me(),
+            service: message.service(),
+            date,
+            read_after,
+            reply_anchor,
+            sender: self.config.who(
+                message.handle_id,
+                message.is_from_me(),
+                &message.destination_caller_id,
+            ),
+            is_deleted: message.is_deleted(),
+            subject: message.subject.as_deref(),
+            shareplay: if message.is_shareplay() {
+                Some(self.format_shareplay())
+            } else {
+                None
+            },
+            shared_location: if message.started_sharing_location()
+                || message.stopped_sharing_location()
+            {
+                Some(self.format_shared_location(message))
+            } else {
+                None
+            },
+            parts,
+            trailing_reply_context: message.is_reply() && indent_size == 0,
+        };
+        let _ = vm.render_into(out);
+        // Askama strips a single trailing newline from the template file; the
+        // legacy output ends with `\n` after the closing `</div>`.
+        out.push('\n');
+        Ok(())
+    }
 }
 
 // MARK: Impl
@@ -667,93 +594,6 @@ impl HTML<'_> {
         }
 
         result
-    }
-
-    /// Render `message` directly into `out`. The trait's `format_message`
-    /// wraps this, allocating a fresh `String` per call; hot callers
-    /// (`iter_messages`, `build_replies`) reuse a single buffer instead so
-    /// each message doesn't pay for a heap allocation.
-    fn format_message_into(
-        &self,
-        message: &Message,
-        indent_size: usize,
-        out: &mut String,
-    ) -> Result<(), TableError> {
-        let mut attachments = Attachment::from_message(self.config.data_source.db(), message)?;
-        let mut replies_map = message.get_replies(self.config.data_source.db())?;
-        let mut attachment_index: usize = 0;
-
-        let mut parts = Vec::with_capacity(message.components.len());
-        for (idx, message_part) in message.components.iter().enumerate() {
-            let body = self.build_part_body(
-                message,
-                idx,
-                message_part,
-                &mut attachments,
-                &mut attachment_index,
-            );
-
-            parts.push(MessagePartVM {
-                body,
-                expressive: self.build_expressive(message),
-                tapbacks: self.build_tapbacks(message, idx)?,
-                replies: self.build_replies(replies_map.get_mut(&idx))?,
-            });
-        }
-
-        let (date, read_after) = self.get_time(message);
-        let reply_anchor = if message.is_reply() {
-            Some(if indent_size > 0 {
-                ReplyAnchorKind::InThread
-            } else {
-                ReplyAnchorKind::TopLevel
-            })
-        } else {
-            None
-        };
-
-        let vm = MessageVM {
-            guid: &message.guid,
-            anchor_id: message.is_reply() && indent_size == 0,
-            is_from_me: message.is_from_me(),
-            service: match message.service() {
-                Service::iMessage => "iMessage",
-                Service::SMS => "SMS",
-                Service::RCS => "RCS",
-                Service::Satellite => "Satellite",
-                Service::Other(s) => s,
-                Service::Unknown => "Unknown",
-            },
-            date,
-            read_after,
-            reply_anchor,
-            sender: self.config.who(
-                message.handle_id,
-                message.is_from_me(),
-                &message.destination_caller_id,
-            ),
-            is_deleted: message.is_deleted(),
-            subject: message.subject.as_deref(),
-            shareplay: if message.is_shareplay() {
-                Some(self.format_shareplay())
-            } else {
-                None
-            },
-            shared_location: if message.started_sharing_location()
-                || message.stopped_sharing_location()
-            {
-                Some(self.format_shared_location(message))
-            } else {
-                None
-            },
-            parts,
-            trailing_reply_context: message.is_reply() && indent_size == 0,
-        };
-        let _ = vm.render_into(out);
-        // Askama strips a single trailing newline from the template file; the
-        // legacy output ends with `\n` after the closing `</div>`.
-        out.push('\n');
-        Ok(())
     }
 
     fn build_part_body(

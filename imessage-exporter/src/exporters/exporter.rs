@@ -56,7 +56,7 @@ pub trait Exporter<'a> {
 
 // MARK: Message
 /// Defines behavior for formatting message instances to the desired output format
-pub(super) trait MessageFormatter<'a> {
+pub(crate) trait MessageFormatter<'a> {
     /// Format an attachment, possibly by reading the disk
     fn format_attachment(
         &self,
@@ -78,7 +78,7 @@ pub(super) trait MessageFormatter<'a> {
     /// Format an expressive message
     fn format_expressive(&self, msg: &'a Message) -> &'a str;
     /// Format an announcement message
-    fn format_announcement(&self, msg: &'a Message) -> String;
+    fn format_announcement(&self, msg: &Message) -> String;
     /// Format a `SharePlay` message
     fn format_shareplay(&self) -> &str;
     /// Format a legacy Shared Location message
@@ -93,11 +93,19 @@ pub(super) trait MessageFormatter<'a> {
     ) -> Option<String>;
     /// Format all [`TextAttributes`]s applied to a given set of text
     fn format_attributes(&'a self, text: &'a str, attributes: &'a [TextAttributes]) -> String;
+    /// Render `message` directly into `out`. Permits reuse of a single buffer to
+    /// avoid allocating per-message.
+    fn format_message_into(
+        &self,
+        message: &Message,
+        indent_size: usize,
+        out: &mut String,
+    ) -> Result<(), TableError>;
 }
 
 // MARK: Balloon
 /// Defines behavior for formatting custom balloons to the desired output format
-pub(super) trait BalloonFormatter<T> {
+pub(crate) trait BalloonFormatter<T> {
     /// Format a URL message
     fn format_url(&self, msg: &Message, balloon: &URLMessage, indent: T) -> String;
     /// Format an Apple Music message

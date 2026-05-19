@@ -16,7 +16,7 @@ use askama::Template;
 
 use crate::exporters::{
     exporter::{BalloonFormatter, MessageFormatter},
-    shared::format_check_in_caption,
+    shared::format::format_check_in_caption,
 };
 
 use super::{

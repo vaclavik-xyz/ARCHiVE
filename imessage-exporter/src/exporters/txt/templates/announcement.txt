@@ -1,4 +1,20 @@
-{% match kind %}{% when AnnouncementBody::Action { timestamp, who, action_text } %}{{ timestamp }} {{ who }} {{ action_text }}
+{% match kind %}{% when AnnouncementBody::Action { timestamp, who, announcement, participant_name } %}{{ timestamp }} {{ who }} {% match announcement -%}
+{%- when Announcement::AudioMessageKept -%}kept an audio message.
+{%- when Announcement::FullyUnsent -%}unsent a message!
+{%- when Announcement::Unknown(num) -%}performed unknown action {{ num }}
+{%- when Announcement::GroupAction(group) -%}
+{%- match group -%}
+{%- when GroupAction::ParticipantAdded(_) -%}added {{ participant_name.unwrap_or("someone") }} to the conversation.
+{%- when GroupAction::ParticipantRemoved(_) -%}removed {{ participant_name.unwrap_or("someone") }} from the conversation.
+{%- when GroupAction::NameChange(name) -%}renamed the conversation to {{ name }}
+{%- when GroupAction::ParticipantLeft -%}left the conversation.
+{%- when GroupAction::GroupIconChanged -%}changed the group photo.
+{%- when GroupAction::GroupIconRemoved -%}removed the group photo.
+{%- when GroupAction::ChatBackgroundChanged -%}changed the chat background.
+{%- when GroupAction::ChatBackgroundRemoved -%}removed the chat background.
+{%- when GroupAction::PhoneNumberChanged(_) -%}changed their phone number.
+{%- endmatch -%}
+{%- endmatch %}
 
 {% when AnnouncementBody::Unknown %}Unable to format announcement!
 

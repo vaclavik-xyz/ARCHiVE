@@ -1,5 +1,13 @@
 use askama::Template;
 
+use imessage_database::{
+    message_types::{
+        sticker::StickerDecoration,
+        variants::{Announcement, Tapback},
+    },
+    tables::messages::models::{GroupAction, Service},
+};
+
 #[derive(Template)]
 #[template(path = "balloons/digital_touch.html")]
 pub(super) struct DigitalTouchVM {
@@ -165,25 +173,18 @@ pub(super) enum AttachmentVariant<'a> {
 #[derive(Template)]
 #[template(path = "attachments/sticker_suffix.html")]
 pub(super) struct StickerSuffixVM {
-    pub kind: StickerSuffix,
-}
-
-pub(super) enum StickerSuffix {
-    GenmojiPrompt(String),
-    Memoji,
-    Effect(String),
-    AppName(String),
+    pub kind: StickerDecoration,
 }
 
 #[derive(Template)]
 #[template(path = "tapback.html")]
-pub(super) struct TapbackVM {
-    pub kind: TapbackKind,
+pub(super) struct TapbackVM<'a> {
+    pub kind: TapbackKind<'a>,
 }
 
-pub(super) enum TapbackKind {
-    /// Standard reaction — `tapback` is the rendered Display name (e.g. "Loved").
-    Reaction { tapback: String, who: String },
+pub(super) enum TapbackKind<'a> {
+    /// Standard reaction
+    Reaction { tapback: Tapback<'a>, who: String },
     /// Sticker tapback whose attachment was found and rendered.
     Sticker {
         /// Pre-rendered sticker HTML (already escaped).
@@ -216,16 +217,18 @@ pub(super) struct EditedRow {
 
 #[derive(Template)]
 #[template(path = "announcement_inner.html")]
-pub(super) struct AnnouncementInnerVM {
-    pub kind: AnnouncementBody,
+pub(super) struct AnnouncementInnerVM<'a> {
+    pub kind: AnnouncementBody<'a>,
 }
 
-pub(super) enum AnnouncementBody {
+pub(super) enum AnnouncementBody<'a> {
     Action {
         timestamp: String,
-        who: String,
-        /// May contain HTML (e.g., `<b>` from `NameChange`) — emitted with `|safe`.
-        action_text: String,
+        who: &'a str,
+        announcement: Announcement<'a>,
+        /// Resolved display name for the participant in `ParticipantAdded`
+        /// / `ParticipantRemoved`. `None` for every other variant.
+        participant_name: Option<&'a str>,
     },
     Unknown,
 }
@@ -238,8 +241,7 @@ pub(super) struct MessageVM<'a> {
     pub anchor_id: bool,
     /// True for `<div class="sent {service}">`, false for `<div class="received">`.
     pub is_from_me: bool,
-    /// Service label (`iMessage`, `SMS`, …) — only emitted when `is_from_me`.
-    pub service: &'a str,
+    pub service: Service<'a>,
     pub date: String,
     pub read_after: String,
     pub reply_anchor: Option<ReplyAnchorKind>,

@@ -15,7 +15,7 @@ use crate::{
     app::compatibility::attachment_manager::AttachmentManagerMode,
     exporters::{
         exporter::BalloonFormatter,
-        shared::{format_check_in_caption, render_trimmed},
+        shared::format::{format_check_in_caption, render_trimmed},
     },
 };
 

@@ -1,29 +1,18 @@
 use askama::Template;
 
 use imessage_database::{
-    error::{message::MessageError, plist::PlistParseError},
-    message_types::{
-        app::AppMessage,
-        digital_touch,
-        expressives::{BubbleEffect, Expressive, ScreenEffect},
-        handwriting::HandwrittenMessage,
-        url::URLMessage,
-        variants::{BalloonProvider, CustomBalloon, URLOverride, Variant},
-    },
-    tables::{attachment::Attachment, messages::Message},
-    util::{
-        dates::{TIMESTAMP_FACTOR, format, get_local_time},
-        plist::parse_ns_keyed_archiver,
-    },
+    message_types::expressives::{BubbleEffect, Expressive, ScreenEffect},
+    tables::messages::Message,
+    util::dates::{TIMESTAMP_FACTOR, format, get_local_time},
 };
 
-use crate::{app::runtime::Config, exporters::exporter::BalloonFormatter};
+use crate::app::runtime::Config;
 
 // MARK: Expressive
 
 /// Format the expressive send style for a message. This is identical
 /// across all export formats.
-pub(super) fn format_expressive(msg: &Message) -> &str {
+pub fn format_expressive(msg: &Message) -> &str {
     match msg.get_expressive() {
         Expressive::Screen(effect) => match effect {
             ScreenEffect::Confetti => "Sent with Confetti",
@@ -52,7 +41,7 @@ pub(super) fn format_expressive(msg: &Message) -> &str {
 /// Compute the formatted timestamp and read receipt for a message.
 /// Returns `(formatted_date, read_receipt)` where `read_receipt` is
 /// empty if there is no read receipt data.
-pub(super) fn message_time(config: &Config, message: &Message) -> (String, String) {
+pub fn message_time(config: &Config, message: &Message) -> (String, String) {
     let date = match message.date(config.offset) {
         Ok(d) => format(&d),
         Err(why) => why.to_string(),
@@ -74,9 +63,10 @@ pub(super) fn message_time(config: &Config, message: &Message) -> (String, Strin
 // MARK: Templates
 
 /// Render an Askama template and strip a single trailing newline, if present.
-/// TXT balloon templates emit a `\n` after their final block so they can be
-/// chained, but callers embed them mid-stream and don't want that newline.
-pub(super) fn render_trimmed<T: Template>(template: &T) -> String {
+/// Templates that emit a `\n` after their final block (so they can be
+/// chained) can be embedded mid-stream by callers that don't want that
+/// newline.
+pub fn render_trimmed<T: Template>(template: &T) -> String {
     let mut out = template.render().unwrap_or_default();
     if out.ends_with('\n') {
         out.pop();
@@ -89,120 +79,16 @@ pub(super) fn render_trimmed<T: Template>(template: &T) -> String {
 /// Parse a Check In timestamp from a `parse_query_string` value and render it
 /// with the given prefix (e.g. `"Checked in at "`). Returns `None` if the
 /// value is unparseable.
-pub(super) fn format_check_in_caption(date_str: &str, prefix: &str) -> Option<String> {
+pub fn format_check_in_caption(date_str: &str, prefix: &str) -> Option<String> {
     let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
     let date_time = get_local_time(date_stamp, 0).ok()?;
     Some(format!("{prefix}{}", format(&date_time)))
 }
 
-// MARK: App Dispatch
-
-/// Drive the App-balloon decision tree shared by both exporters: pick the
-/// right payload source (raw vs keyed-archiver), parse it, and dispatch to
-/// the matching [`BalloonFormatter`] method.
-///
-/// Returns `Ok(None)` when the message has no payload data; callers handle
-/// that case themselves (HTML wraps the message text in an `<a>` card, TXT
-/// just emits the text).
-pub(super) fn dispatch_app_balloon<T, F>(
-    formatter: &F,
-    message: &Message,
-    attachments: &mut Vec<Attachment>,
-    context: T,
-    config: &Config,
-) -> Result<Option<String>, MessageError>
-where
-    T: Copy,
-    F: BalloonFormatter<T>,
-{
-    let Variant::App(balloon) = message.variant() else {
-        return Err(MessageError::PlistParseError(
-            PlistParseError::WrongMessageType,
-        ));
-    };
-
-    // Handwritten messages use a different payload type
-    if message.is_handwriting()
-        && let Some(payload) = message.raw_payload_data(config.data_source.db())
-    {
-        return match HandwrittenMessage::from_payload(&payload) {
-            Ok(bubble) => Ok(Some(
-                formatter.format_handwriting(message, &bubble, context),
-            )),
-            Err(why) => Err(MessageError::PlistParseError(
-                PlistParseError::HandwritingError(why),
-            )),
-        };
-    }
-
-    // Digital touch messages use a different payload type
-    if message.is_digital_touch()
-        && let Some(payload) = message.raw_payload_data(config.data_source.db())
-    {
-        return match digital_touch::from_payload(&payload) {
-            Some(bubble) => Ok(Some(
-                formatter.format_digital_touch(message, &bubble, context),
-            )),
-            None => Err(MessageError::PlistParseError(
-                PlistParseError::DigitalTouchError,
-            )),
-        };
-    }
-
-    // Poll messages use a different payload type
-    if message.is_poll() {
-        let poll = message.as_poll(config.data_source.db())?;
-        return match poll {
-            Some(poll) => Ok(Some(formatter.format_poll(&poll, context))),
-            None => Err(MessageError::PlistParseError(PlistParseError::PollError)),
-        };
-    }
-
-    let Some(payload) = message.payload_data(config.data_source.db()) else {
-        return Ok(None);
-    };
-
-    let parsed = parse_ns_keyed_archiver(&payload)?;
-
-    let rendered = if message.is_url() {
-        let bubble = URLMessage::get_url_message_override(&parsed)?;
-        match bubble {
-            URLOverride::Normal(b) => formatter.format_url(message, &b, context),
-            URLOverride::AppleMusic(b) => formatter.format_music(&b, context),
-            URLOverride::Collaboration(b) => formatter.format_collaboration(&b, context),
-            URLOverride::AppStore(b) => formatter.format_app_store(&b, context),
-            URLOverride::SharedPlacemark(b) => formatter.format_placemark(&b, context),
-        }
-    } else {
-        match AppMessage::from_map(&parsed) {
-            Ok(bubble) => match balloon {
-                CustomBalloon::Application(bundle_id) => {
-                    formatter.format_generic_app(&bubble, bundle_id, attachments, context)
-                }
-                CustomBalloon::ApplePay => formatter.format_apple_pay(&bubble, context),
-                CustomBalloon::Fitness => formatter.format_fitness(&bubble, context),
-                CustomBalloon::Slideshow => formatter.format_slideshow(&bubble, context),
-                CustomBalloon::CheckIn => formatter.format_check_in(&bubble, context),
-                CustomBalloon::FindMy => formatter.format_find_my(&bubble, context),
-                CustomBalloon::Polls
-                | CustomBalloon::Handwriting
-                | CustomBalloon::DigitalTouch
-                | CustomBalloon::URL => unreachable!(),
-            },
-            Err(why) => return Err(MessageError::PlistParseError(why)),
-        }
-    };
-
-    Ok(Some(rendered))
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::{
-        Config, Options,
-        app::export_type::ExportType,
-        exporters::shared::{format_expressive, message_time},
-    };
+    use super::{format_expressive, message_time};
+    use crate::{Config, Options, app::export_type::ExportType};
 
     fn make_config_with_custom_name(custom_name: Option<&str>) -> Config {
         let mut options = Options::fake_options(ExportType::Html);

@@ -1,5 +1,10 @@
 use askama::Template;
 
+use imessage_database::{
+    message_types::variants::{Announcement, Tapback},
+    tables::messages::models::GroupAction,
+};
+
 #[derive(Template)]
 #[template(path = "apple_pay.txt")]
 pub(super) struct ApplePayVM<'a> {
@@ -170,8 +175,8 @@ pub(super) struct TapbackVM<'a> {
 }
 
 pub(super) enum TapbackKind<'a> {
-    /// Standard reaction — `tapback` is the rendered Display name (e.g. `"Loved"`).
-    Reaction { tapback: String, who: &'a str },
+    /// Standard tapbacks
+    Reaction { tapback: Tapback<'a>, who: &'a str },
     /// Sticker tapback whose attachment was found and rendered.
     Sticker {
         /// Pre-rendered sticker text.
@@ -199,7 +204,7 @@ pub(super) struct EditedRow<'a> {
     /// Either `"{absolute_timestamp} "` for the first edit, or
     /// `"{indent}Edited {diff} later: "` for subsequent edits.
     pub timestamp_prefix: String,
-    pub text: Option<&'a str>,
+    pub text: &'a str,
 }
 
 #[derive(Template)]
@@ -212,7 +217,10 @@ pub(super) enum AnnouncementBody<'a> {
     Action {
         timestamp: String,
         who: &'a str,
-        action_text: String,
+        announcement: Announcement<'a>,
+        /// Resolved display name for the participant in `ParticipantAdded`
+        /// / `ParticipantRemoved`. `None` for every other variant.
+        participant_name: Option<&'a str>,
     },
     Unknown,
 }
