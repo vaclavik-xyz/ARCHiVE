@@ -1,12 +1,13 @@
 <div class="app_header">
-{%- if let Some(app_name) = app_name -%}<div class="name">{{ app_name }}</div>{%- endif -%}
+    {%- if let Some(app_name) = app_name -%}<div class="name">{{ app_name }}</div>{%- endif -%}
 </div>
 {%- if let Some(url) = url -%}<a href="{{ url }}">{%- endif -%}
-{%- if description.is_some() || genre.is_some() -%}
-<div class="app_footer">
-{%- if let Some(description) = description -%}<div class="caption">{{ description }}</div>{%- endif -%}
-{%- if let Some(platform) = platform -%}<div class="subcaption">{{ platform }}</div>{%- endif -%}
-{%- if let Some(genre) = genre -%}<div class="trailing_subcaption">{{ genre }}</div>{%- endif -%}
-</div>
-{%- endif -%}
-{%- if url.is_some() -%}</a>{%- endif -%}
+    {%- if description.is_some() || genre.is_some() -%}
+    <div class="app_footer">
+        {%- if let Some(description) = description -%}<div class="caption">{{ description }}</div>{%- endif -%}
+        {%- if let Some(platform) = platform -%}<div class="subcaption">{{ platform }}</div>{%- endif -%}
+        {%- if let Some(genre) = genre -%}<div class="trailing_subcaption">{{ genre }}</div>{%- endif -%}
+    </div>
+    {%- endif -%}
+    {%- if url.is_some() -%}
+</a>{%- endif -%}

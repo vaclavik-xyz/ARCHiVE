@@ -1,9 +1,14 @@
 {%- match kind -%}
 {%- when EditedKind::Edited { rows } -%}
 <table>
-{%- for row in rows -%}
-<{{ row.tag }}><tr><td><span class="timestamp">{{ row.timestamp }}</span></td><td>{{ row.text|safe }}</td></tr></{{ row.tag }}>
-{%- endfor -%}
+    {%- for row in rows -%}
+    <{{ row.tag }}>
+        <tr>
+            <td><span class="timestamp">{{ row.timestamp }}</span></td>
+            <td>{{ row.text|safe }}</td>
+        </tr>
+    </{{ row.tag }}>
+    {%- endfor -%}
 </table>
 {%- when EditedKind::UnsentWithDiff { who, diff } -%}
 <span class="unsent">{{ who }} unsent this message part {{ diff }} after sending!</span>
