@@ -121,7 +121,11 @@ pub(super) struct PollVM<'a> {
 pub(super) struct PollOptionVM<'a> {
     pub text: &'a str,
     pub vote_count: usize,
-    pub bar_width: usize,
+    /// Pre-rendered `<div class="vote-bar" style="…">` element. Rendered in
+    /// Rust because keeping `{{ }}` inside a `style=` attribute trips the
+    /// CSS linter no matter what value-shape we use; emitting the entire
+    /// element as a `|safe` string keeps the template's source clean.
+    pub bar_html: String,
     pub voters: Vec<&'a str>,
 }
 

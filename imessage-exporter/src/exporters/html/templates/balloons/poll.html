@@ -4,7 +4,7 @@
         <div class="option-header"><span>{{ option.text }}</span><span class="vote-count">{{ option.vote_count }}</span>
         </div>
         <div class="vote-bar-container">
-            <div class="vote-bar" style="width: {{ option.bar_width }}%;"></div>
+            {{ option.bar_html|safe }}
         </div>
         {%- if !option.voters.is_empty() -%}
         <div class="voters-list">
