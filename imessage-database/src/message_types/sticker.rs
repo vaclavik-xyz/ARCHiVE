@@ -52,6 +52,25 @@ impl StickerSource {
     }
 }
 
+/// Format-agnostic description of a sticker's source, ready for rendering by
+/// an exporter. Produced by [`Attachment::get_sticker_decoration`](crate::tables::attachment::Attachment::get_sticker_decoration).
+///
+/// `None` from `get_sticker_decoration` means the sticker either has no
+/// source row or the source can't supply a decoration (e.g.,
+/// [`StickerSource::UserGenerated`] with no readable effect).
+#[derive(Debug, PartialEq, Eq)]
+pub enum StickerDecoration {
+    /// A [`StickerSource::Genmoji`] with the user-supplied prompt.
+    GenmojiPrompt(String),
+    /// A [`StickerSource::Memoji`]; no further data.
+    Memoji,
+    /// A [`StickerSource::UserGenerated`] sticker with the parsed [`StickerEffect`].
+    Effect(StickerEffect),
+    /// A [`StickerSource::App`] sticker; the string is the resolved app name
+    /// or, if that lookup fails, the bundle id.
+    AppName(String),
+}
+
 /// Represents different types of [sticker effects](https://www.macrumors.com/how-to/add-effects-to-stickers-in-messages/) that can be applied to sticker iMessage balloons.
 #[derive(Debug, PartialEq, Eq, Default)]
 pub enum StickerEffect {
