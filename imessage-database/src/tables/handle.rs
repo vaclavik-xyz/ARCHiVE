@@ -118,7 +118,7 @@ impl Handle {
 
         // Iterate over the values in a deterministic order
         let mut sorted_dupes: Vec<(&i32, &String)> = duplicated_data.iter().collect();
-        sorted_dupes.sort_by(|(a, _), (b, _)| a.cmp(b));
+        sorted_dupes.sort_by_key(|(a, _)| *a);
 
         for (participant_id, participant) in sorted_dupes {
             if let Some(id) = participant_to_unique_participant_id.get(participant) {
@@ -126,8 +126,7 @@ impl Handle {
             } else {
                 participant_to_unique_participant_id
                     .insert(participant.to_owned(), unique_participant_identifier);
-                deduplicated_participants
-                    .insert(*participant_id, unique_participant_identifier);
+                deduplicated_participants.insert(*participant_id, unique_participant_identifier);
                 unique_participant_identifier += 1;
             }
         }
