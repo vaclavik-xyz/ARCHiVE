@@ -16,20 +16,18 @@ use crate::{app::runtime::Config, exporters::exporter::BalloonFormatter};
 /// Drive the App-balloon decision tree: pick the right payload source
 /// (raw vs keyed-archiver), parse it, and dispatch to the matching
 /// [`BalloonFormatter`] method.
-///
-/// Returns `Ok(None)` when the message has no payload data; callers handle
-/// that case themselves (typically by falling back to the message's text).
 pub fn dispatch_app_balloon<T, F>(
     formatter: &F,
     message: &Message,
     attachments: &mut Vec<Attachment>,
     context: T,
     config: &Config,
-) -> Result<Option<String>, MessageError>
+) -> Result<String, MessageError>
 where
     T: Copy,
     F: BalloonFormatter<T>,
 {
+    // First, determine if is a balloon message; if it is not, bail out early
     let Variant::App(balloon) = message.variant() else {
         return Err(MessageError::PlistParseError(
             PlistParseError::WrongMessageType,
@@ -41,9 +39,7 @@ where
         && let Some(payload) = message.raw_payload_data(config.data_source.db())
     {
         return match HandwrittenMessage::from_payload(&payload) {
-            Ok(bubble) => Ok(Some(
-                formatter.format_handwriting(message, &bubble, context),
-            )),
+            Ok(bubble) => Ok(formatter.format_handwriting(message, &bubble, context)),
             Err(why) => Err(MessageError::PlistParseError(
                 PlistParseError::HandwritingError(why),
             )),
@@ -55,9 +51,7 @@ where
         && let Some(payload) = message.raw_payload_data(config.data_source.db())
     {
         return match digital_touch::from_payload(&payload) {
-            Some(bubble) => Ok(Some(
-                formatter.format_digital_touch(message, &bubble, context),
-            )),
+            Some(bubble) => Ok(formatter.format_digital_touch(message, &bubble, context)),
             None => Err(MessageError::PlistParseError(
                 PlistParseError::DigitalTouchError,
             )),
@@ -68,14 +62,15 @@ where
     if message.is_poll() {
         let poll = message.as_poll(config.data_source.db())?;
         return match poll {
-            Some(poll) => Ok(Some(formatter.format_poll(&poll, context))),
+            Some(poll) => Ok(formatter.format_poll(&poll, context)),
             None => Err(MessageError::PlistParseError(PlistParseError::PollError)),
         };
     }
 
-    let Some(payload) = message.payload_data(config.data_source.db()) else {
-        return Ok(None);
-    };
+    // Otherwise, we expect an NSKeyedArchiver payload
+    let payload = message
+        .payload_data(config.data_source.db())
+        .ok_or(MessageError::PlistParseError(PlistParseError::NoPayload))?;
 
     let parsed = parse_ns_keyed_archiver(&payload)?;
 
@@ -108,5 +103,5 @@ where
         }
     };
 
-    Ok(Some(rendered))
+    Ok(rendered)
 }

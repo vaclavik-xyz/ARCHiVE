@@ -27,7 +27,7 @@ use crate::{
 };
 
 use imessage_database::{
-    error::{message::MessageError, plist::PlistParseError, table::TableError},
+    error::{message::MessageError, table::TableError},
     message_types::{
         edited::EditedMessage,
         text_effects::TextEffect,
@@ -261,22 +261,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         attachments: &mut Vec<Attachment>,
         _: &str,
     ) -> Result<String, MessageError> {
-        if let Some(rendered) =
-            dispatch_app_balloon(self, message, attachments, message, self.config)?
-        {
-            return Ok(rendered);
-        }
-
-        // No payload — URL balloons sometimes lose theirs; fall back to text.
-        if message.is_url()
-            && let Some(text) = &message.text
-        {
-            let escaped = sanitize_html(text);
-            return Ok(format!(
-                "<a href=\"{escaped}\"><div class=\"app_header\"><div class=\"name\">{escaped}</div></div><div class=\"app_footer\"><div class=\"caption\">{escaped}</div></div></a>"
-            ));
-        }
-        Err(MessageError::PlistParseError(PlistParseError::NoPayload))
+        dispatch_app_balloon(self, message, attachments, message, self.config)
     }
 
     fn format_tapback(&self, msg: &Message) -> Result<String, TableError> {
@@ -539,9 +524,6 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             trailing_reply_context: message.is_reply() && indent_size == 0,
         };
         let _ = vm.render_into(out);
-        // Askama strips a single trailing newline from the template file; the
-        // legacy output ends with `\n` after the closing `</div>`.
-        out.push('\n');
         Ok(())
     }
 }
@@ -1114,47 +1096,6 @@ mod tests {
         assert!(
             !actual.contains("&amp;amp;") && !actual.contains("&amp;lt;"),
             "name was double-escaped, got: {actual}"
-        );
-    }
-
-    #[test]
-    fn can_format_html_url_no_payload_fallback() {
-        let options = Options::fake_options(ExportType::Html);
-        let config = Config::fake_app(options);
-        let exporter = HTML::new(&config).unwrap();
-
-        let mut message = Config::fake_message();
-        // Pick a rowid unlikely to exist in the test fixture so payload_data
-        // returns None, forcing the no-payload branch in format_app.
-        message.rowid = i32::MAX;
-        message.associated_message_type = Some(0);
-        message.balloon_bundle_id = Some("com.apple.messages.URLBalloonProvider".to_string());
-        message.text = Some("https://example.com/<foo>".to_string());
-
-        let actual = exporter
-            .format_app(&message, &mut vec![], "")
-            .expect("format_app should fall back when payload is missing");
-        let expected = "<a href=\"https://example.com/&lt;foo&gt;\"><div class=\"app_header\"><div class=\"name\">https://example.com/&lt;foo&gt;</div></div><div class=\"app_footer\"><div class=\"caption\">https://example.com/&lt;foo&gt;</div></div></a>";
-
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn can_format_html_url_no_payload_no_text_errors() {
-        let options = Options::fake_options(ExportType::Html);
-        let config = Config::fake_app(options);
-        let exporter = HTML::new(&config).unwrap();
-
-        let mut message = Config::fake_message();
-        message.rowid = i32::MAX;
-        message.associated_message_type = Some(0);
-        message.balloon_bundle_id = Some("com.apple.messages.URLBalloonProvider".to_string());
-        message.text = None;
-
-        let result = exporter.format_app(&message, &mut vec![], "");
-        assert!(
-            result.is_err(),
-            "URL message without payload or text should error, got {result:?}"
         );
     }
 

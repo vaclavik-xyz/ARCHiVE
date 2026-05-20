@@ -18,7 +18,7 @@ use crate::{
 };
 
 use imessage_database::{
-    error::{message::MessageError, plist::PlistParseError, table::TableError},
+    error::{message::MessageError, table::TableError},
     message_types::{
         edited::EditedMessage,
         sticker::StickerDecoration,
@@ -208,19 +208,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         attachments: &mut Vec<Attachment>,
         indent: &str,
     ) -> Result<String, MessageError> {
-        if let Some(rendered) =
-            dispatch_app_balloon(self, message, attachments, indent, self.config)?
-        {
-            return Ok(rendered);
-        }
-
-        // No payload — URL balloons sometimes lose theirs; fall back to text.
-        if message.is_url()
-            && let Some(text) = &message.text
-        {
-            return Ok(text.clone());
-        }
-        Err(MessageError::PlistParseError(PlistParseError::NoPayload))
+        dispatch_app_balloon(self, message, attachments, indent, self.config)
     }
 
     fn format_tapback(&self, msg: &Message) -> Result<String, TableError> {
@@ -893,47 +881,6 @@ mod tests {
         let expected = "May 17, 2022  5:29:42 PM Name renamed the conversation to Hello world\n\n";
 
         assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn can_format_txt_url_no_payload_fallback() {
-        let options = Options::fake_options(ExportType::Txt);
-        let config = Config::fake_app(options);
-        let exporter = TXT::new(&config).unwrap();
-
-        let mut message = Config::fake_message();
-        // Pick a rowid unlikely to exist in the test fixture so payload_data
-        // returns None, forcing the no-payload branch in format_app.
-        message.rowid = i32::MAX;
-        message.associated_message_type = Some(0);
-        message.balloon_bundle_id = Some("com.apple.messages.URLBalloonProvider".to_string());
-        message.text = Some("https://example.com/<foo>".to_string());
-
-        let actual = exporter
-            .format_app(&message, &mut vec![], "")
-            .expect("format_app should fall back when payload is missing");
-        let expected = "https://example.com/<foo>";
-
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn can_format_txt_url_no_payload_no_text_errors() {
-        let options = Options::fake_options(ExportType::Txt);
-        let config = Config::fake_app(options);
-        let exporter = TXT::new(&config).unwrap();
-
-        let mut message = Config::fake_message();
-        message.rowid = i32::MAX;
-        message.associated_message_type = Some(0);
-        message.balloon_bundle_id = Some("com.apple.messages.URLBalloonProvider".to_string());
-        message.text = None;
-
-        let result = exporter.format_app(&message, &mut vec![], "");
-        assert!(
-            result.is_err(),
-            "URL message without payload or text should error, got {result:?}"
-        );
     }
 
     #[test]
