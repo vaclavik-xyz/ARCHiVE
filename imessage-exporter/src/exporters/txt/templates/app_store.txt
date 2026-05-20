@@ -1,4 +1,4 @@
-{{ indent }}{% if let Some(app_name) = app_name %}{{ indent }}{{ app_name }}
+{% if let Some(app_name) = app_name %}{{ indent }}{{ app_name }}
 {% endif %}{% if let Some(description) = description %}{{ indent }}{{ description }}
 {% endif %}{% if let Some(platform) = platform %}{{ indent }}{{ platform }}
 {% endif %}{% if let Some(genre) = genre %}{{ indent }}{{ genre }}

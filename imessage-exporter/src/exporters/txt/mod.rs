@@ -2071,6 +2071,56 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_txt_app_store_nested() {
+        // Locks in single-indent on every line when called with a non-empty
+        // indent (e.g. inside a reply). The legacy `String::from(indent)` +
+        // `add_line(indent + content)` pattern produced a doubled indent on
+        // the first emitted line.
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = AppStoreMessage {
+            url: Some("url"),
+            app_name: Some("app_name"),
+            original_url: Some("original_url"),
+            description: Some("description"),
+            platform: Some("platform"),
+            genre: Some("genre"),
+        };
+
+        let expected = exporter.format_app_store(&balloon, "    ");
+        let actual =
+            "    app_name\n    description\n    platform\n    genre\n    url";
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn can_format_txt_app_store_partial_fields_nested() {
+        // Skipped fields must not emit a stray indent-only line. Before the
+        // template fix, a leading `{{ indent }}` outside the conditionals
+        // would have left whitespace-only lines wherever a field was None.
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = AppStoreMessage {
+            url: None,
+            app_name: None,
+            original_url: None,
+            description: Some("description"),
+            platform: None,
+            genre: Some("genre"),
+        };
+
+        let expected = exporter.format_app_store(&balloon, "    ");
+        let actual = "    description\n    genre";
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
     fn can_format_txt_placemark() {
         // Create exporter
         let options = Options::fake_options(Txt);
@@ -2097,6 +2147,37 @@ mod balloon_format_tests {
 
         let expected = exporter.format_placemark(&balloon, "");
         let actual = "Name\nurl\nname\naddress\nstate\ncity\niso_country_code\npostal_code\ncountry\nstreet\nsub_administrative_area\nsub_locality";
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn can_format_txt_placemark_nested() {
+        // Single-indent on every line, no doubled indent on the first.
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = PlacemarkMessage {
+            url: Some("url"),
+            original_url: Some("original_url"),
+            place_name: Some("Name"),
+            placemark: Placemark {
+                name: Some("name"),
+                address: Some("address"),
+                state: Some("state"),
+                city: Some("city"),
+                iso_country_code: Some("iso_country_code"),
+                postal_code: Some("postal_code"),
+                country: Some("country"),
+                street: Some("street"),
+                sub_administrative_area: Some("sub_administrative_area"),
+                sub_locality: Some("sub_locality"),
+            },
+        };
+
+        let expected = exporter.format_placemark(&balloon, "    ");
+        let actual = "    Name\n    url\n    name\n    address\n    state\n    city\n    iso_country_code\n    postal_code\n    country\n    street\n    sub_administrative_area\n    sub_locality";
 
         assert_eq!(expected, actual);
     }
@@ -2164,6 +2245,62 @@ mod balloon_format_tests {
         let expected = exporter.format_poll(&poll, "");
         let actual =
             "- Rust (1)\n  - carol\n- Go (2)\n  - alice\n  - bob\n- Python (1)\n  - dave\n";
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn can_format_txt_poll_nested() {
+        // Option lines get the caller's indent; voter lines get the caller's
+        // indent plus two spaces of visual list nesting. Before the template
+        // fix, the first option line was doubled-indented.
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut poll_options: HashMap<PollOptionID, PollOption> = HashMap::new();
+
+        let id1: PollOptionID = "1".to_string();
+        let id2: PollOptionID = "2".to_string();
+
+        poll_options.insert(
+            id1.clone(),
+            PollOption {
+                text: "Rust".to_string(),
+                creator: "alice".to_string(),
+                votes: vec![PollVote {
+                    voter: "carol".to_string(),
+                    option_id: id1.clone(),
+                }],
+            },
+        );
+
+        poll_options.insert(
+            id2.clone(),
+            PollOption {
+                text: "Go".to_string(),
+                creator: "bob".to_string(),
+                votes: vec![
+                    PollVote {
+                        voter: "alice".to_string(),
+                        option_id: id2.clone(),
+                    },
+                    PollVote {
+                        voter: "bob".to_string(),
+                        option_id: id2.clone(),
+                    },
+                ],
+            },
+        );
+
+        let poll = Poll {
+            options: poll_options,
+            order: vec![id1, id2],
+        };
+
+        let expected = exporter.format_poll(&poll, "    ");
+        let actual =
+            "    - Rust (1)\n      - carol\n    - Go (2)\n      - alice\n      - bob\n";
 
         assert_eq!(expected, actual);
     }
@@ -2390,8 +2527,8 @@ mod balloon_format_tests {
             order: vec![],
         };
 
-        // Empty poll: the for-loop body doesn't execute, and the only output
-        // from the template is the leading {{ indent }}.
+        // Empty poll: the for-loop body doesn't execute, so the template
+        // emits nothing at all.
         let actual = exporter.format_poll(&poll, "");
         let expected = "";
 

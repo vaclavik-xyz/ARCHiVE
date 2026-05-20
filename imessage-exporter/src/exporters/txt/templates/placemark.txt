@@ -1,4 +1,4 @@
-{{ indent }}{% if let Some(place_name) = place_name %}{{ indent }}{{ place_name }}
+{% if let Some(place_name) = place_name %}{{ indent }}{{ place_name }}
 {% endif %}{% if let Some(url) = url %}{{ indent }}{{ url }}
 {% endif %}{% if let Some(name) = name %}{{ indent }}{{ name }}
 {% endif %}{% if let Some(address) = address %}{{ indent }}{{ address }}
