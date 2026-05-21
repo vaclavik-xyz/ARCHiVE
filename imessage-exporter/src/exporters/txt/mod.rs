@@ -297,7 +297,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                             EditDiff::First => format!("{} ", event.absolute_time),
                             // Diff calculation failed; suppress the prefix to match legacy behavior.
                             EditDiff::Failed => String::new(),
-                            EditDiff::Computed(diff) => format!("{indent}Edited {diff} later: "),
+                            EditDiff::Computed(diff) => format!("Edited {diff} later: "),
                         };
                         EditedRow {
                             timestamp_prefix,
@@ -364,7 +364,6 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 message,
                 idx,
                 message_part,
-                &indent,
                 &mut attachments,
                 &mut attachment_index,
             );
@@ -431,7 +430,6 @@ impl TXT<'_> {
         message: &Message,
         idx: usize,
         message_part: &BubbleComponent,
-        indent: &str,
         attachments: &mut Vec<Attachment>,
         attachment_index: &mut usize,
     ) -> PartBody {
@@ -443,7 +441,10 @@ impl TXT<'_> {
                 if message.is_part_edited(idx) {
                     return match &message.edited_parts {
                         Some(edited_parts) => {
-                            match self.format_edited(message, edited_parts, idx, indent) {
+                            // Pass empty indent: message_part.txt indents every
+                            // line of the result, so balloon/edit helpers must
+                            // return unindented content.
+                            match self.format_edited(message, edited_parts, idx, "") {
                                 Some(edited) => PartBody::Line { text: edited },
                                 None => PartBody::Empty,
                             }
@@ -495,19 +496,17 @@ impl TXT<'_> {
                 *attachment_index += 1;
                 body
             }
-            BubbleComponent::App => match self.format_app(message, attachments, indent) {
+            BubbleComponent::App => match self.format_app(message, attachments, "") {
                 Ok(ok_bubble) => PartBody::Line { text: ok_bubble },
                 Err(why) => PartBody::Line {
                     text: format!("Unable to format app message: {why}"),
                 },
             },
             BubbleComponent::Retracted => match &message.edited_parts {
-                Some(edited_parts) => {
-                    match self.format_edited(message, edited_parts, idx, indent) {
-                        Some(edited) => PartBody::Line { text: edited },
-                        None => PartBody::Empty,
-                    }
-                }
+                Some(edited_parts) => match self.format_edited(message, edited_parts, idx, "") {
+                    Some(edited) => PartBody::Line { text: edited },
+                    None => PartBody::Empty,
+                },
                 None => PartBody::Empty,
             },
         }
@@ -1752,6 +1751,34 @@ mod tests {
         let expected = "Dec 31, 2000  4:00:00 PM\nUnknown\nOh, il a traduit ce que j'ai envoyé !\nTranslated from:\nOh it translated what I sent!\n\n";
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn balloon_indent_matches_header_in_reply_context() {
+        let options = Options::fake_options(ExportType::Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut msg = Config::fake_message();
+        msg.date = 674526582885055488;
+        msg.is_from_me = true;
+        msg.chat_id = Some(0);
+        msg.balloon_bundle_id = Some("com.apple.messages.URLBalloonProvider".to_string());
+        msg.text = Some("https://example.com".to_string());
+        msg.rowid = i32::MAX;
+        msg.components = vec![BubbleComponent::App];
+
+        let mut out = String::new();
+        exporter.format_message_into(&msg, 4, &mut out).unwrap();
+
+        // Every non-blank line should start with exactly four spaces.
+        for line in out.lines().filter(|l| !l.is_empty()) {
+            let leading = line.chars().take_while(|c| *c == ' ').count();
+            assert_eq!(
+                leading, 4,
+                "expected 4-space indent on every non-blank line, got {leading} on: {line:?}\nfull output:\n{out}"
+            );
+        }
     }
 
     #[test]

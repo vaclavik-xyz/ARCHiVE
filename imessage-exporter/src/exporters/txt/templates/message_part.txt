@@ -1,5 +1,5 @@
-{% match body %}{% when PartBody::Empty %}{% when PartBody::Line { text } %}{{ indent }}{{ text }}
-{% when PartBody::Translated { translated, original } %}{{ indent }}{{ translated }}
+{% match body %}{% when PartBody::Empty %}{% when PartBody::Line { text } %}{% for line in text.lines() %}{{ indent }}{{ line }}
+{% endfor %}{% when PartBody::Translated { translated, original } %}{{ indent }}{{ translated }}
 {{ indent }}Translated from:
 {{ indent }}{{ original }}
 {% endmatch %}{% if let Some(expressive) = expressive %}{{ indent }}{{ expressive }}
