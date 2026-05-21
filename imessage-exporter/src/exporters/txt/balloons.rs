@@ -13,10 +13,7 @@ use imessage_database::{
 
 use crate::{
     app::compatibility::attachment_manager::AttachmentManagerMode,
-    exporters::{
-        exporter::BalloonFormatter,
-        shared::format::{format_check_in_caption, render_trimmed},
-    },
+    exporters::{exporter::BalloonFormatter, shared::balloon::format_check_in_caption},
 };
 
 use super::{
@@ -26,6 +23,18 @@ use super::{
         GenericAppVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, SlideshowVM, UrlVM,
     },
 };
+
+/// Render an Askama template and strip a single trailing newline, if present.
+/// TXT balloon templates emit a `\n` after their final block (so they can be
+/// chained) but the call site embeds them mid-stream, so the newline has to
+/// come off.
+fn render_trimmed<T: Template>(template: &T) -> String {
+    let mut out = template.render().unwrap_or_default();
+    if out.ends_with('\n') {
+        out.pop();
+    }
+    out
+}
 
 // MARK: Balloon
 impl BalloonFormatter for TXT<'_> {

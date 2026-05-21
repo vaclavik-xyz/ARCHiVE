@@ -6,7 +6,7 @@ use imessage_database::{
     },
 };
 
-use crate::{app::runtime::Config, exporters::shared::format::format_message_date};
+use crate::{app::runtime::Config, exporters::shared::time::format_message_date};
 
 /// Display name used in `ParticipantAdded` / `ParticipantRemoved`
 /// announcements when the handle can't be resolved.

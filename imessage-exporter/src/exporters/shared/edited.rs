@@ -43,7 +43,7 @@ pub struct NormalizedEditEvent<'a> {
     pub diff_since_previous: EditDiff,
     /// Raw iMessage timestamp for this event. Renderers that need the
     /// absolute time (TXT, on the `First` arm) format it via
-    /// [`format_timestamp`](super::format::format_timestamp); HTML reads
+    /// [`format_timestamp`](super::time::format_timestamp); HTML reads
     /// only `diff_since_previous`, so the formatting is deferred.
     pub date: i64,
 }

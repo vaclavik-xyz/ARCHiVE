@@ -7,11 +7,20 @@ use imessage_database::{
         url::URLMessage,
         variants::{BalloonProvider, CustomBalloon, URLOverride, Variant},
     },
-    tables::{attachment::Attachment, messages::Message},
-    util::plist::parse_ns_keyed_archiver,
+    tables::{
+        attachment::Attachment,
+        messages::Message,
+        table::{FITNESS_RECEIVER, YOU},
+    },
+    util::{
+        dates::{TIMESTAMP_FACTOR, format, get_local_time},
+        plist::parse_ns_keyed_archiver,
+    },
 };
 
 use crate::{app::runtime::Config, exporters::exporter::BalloonFormatter};
+
+// MARK: Dispatch
 
 /// Drive the App-balloon decision tree: pick the right payload source
 /// (raw vs keyed-archiver), parse it, and dispatch to the matching
@@ -104,4 +113,28 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
     };
 
     Ok(rendered)
+}
+
+// MARK: Fitness
+
+/// Replace the leading [`FITNESS_RECEIVER`] sentinel emitted by Fitness app
+/// messages with [`YOU`] so the rendered string reads in first person.
+/// Returns the input unchanged if the sentinel isn't present.
+pub fn rewrite_fitness_receiver(text: String) -> String {
+    if text.starts_with(FITNESS_RECEIVER) {
+        text.replace(FITNESS_RECEIVER, YOU)
+    } else {
+        text
+    }
+}
+
+// MARK: Check In
+
+/// Parse a Check In timestamp from a `parse_query_string` value and render it
+/// with the given prefix (e.g. `"Checked in at "`). Returns `None` if the
+/// value is unparseable.
+pub fn format_check_in_caption(date_str: &str, prefix: &str) -> Option<String> {
+    let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
+    let date_time = get_local_time(date_stamp, 0).ok()?;
+    Some(format!("{prefix}{}", format(&date_time)))
 }

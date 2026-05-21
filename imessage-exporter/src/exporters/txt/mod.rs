@@ -9,10 +9,10 @@ use crate::{
         exporter::{ATTACHMENT_NO_FILENAME, MessageFormatter, RenderContext},
         shared::{
             announcement::resolve_announcement,
-            balloon::dispatch_app_balloon,
+            balloon::{dispatch_app_balloon, rewrite_fitness_receiver},
             driver::{ExportState, MessageWriter, apply_body},
             edited::{EditDiff, NormalizedEdit, normalize_edited},
-            format::{format_timestamp, message_time, rewrite_fitness_receiver},
+            time::{format_timestamp, message_time},
         },
     },
 };

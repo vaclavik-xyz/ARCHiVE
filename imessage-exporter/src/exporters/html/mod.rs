@@ -17,10 +17,10 @@ use crate::{
         exporter::{ATTACHMENT_NO_FILENAME, MessageFormatter, RenderContext, TextEffectFormatter},
         shared::{
             announcement::resolve_announcement,
-            balloon::dispatch_app_balloon,
+            balloon::{dispatch_app_balloon, rewrite_fitness_receiver},
             driver::{ExportState, MessageWriter, apply_body},
             edited::{EditDiff, NormalizedEdit, normalize_edited},
-            format::{message_time, rewrite_fitness_receiver},
+            time::message_time,
         },
     },
 };

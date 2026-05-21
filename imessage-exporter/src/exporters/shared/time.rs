@@ -1,16 +1,9 @@
-use askama::Template;
-
 use imessage_database::{
-    tables::{
-        messages::Message,
-        table::{FITNESS_RECEIVER, YOU},
-    },
-    util::dates::{TIMESTAMP_FACTOR, format, get_local_time},
+    tables::messages::Message,
+    util::dates::{format, get_local_time},
 };
 
 use crate::app::runtime::Config;
-
-// MARK: Time
 
 /// Format `message`'s timestamp via [`format`], falling back to the
 /// timestamp error's `Display` output. Centralizes the `Ok/Err → String`
@@ -51,44 +44,6 @@ pub fn message_time(config: &Config, message: &Message) -> (String, String) {
     (date, read_receipt)
 }
 
-// MARK: Templates
-
-/// Render an Askama template and strip a single trailing newline, if present.
-/// Templates that emit a `\n` after their final block (so they can be
-/// chained) can be embedded mid-stream by callers that don't want that
-/// newline.
-pub fn render_trimmed<T: Template>(template: &T) -> String {
-    let mut out = template.render().unwrap_or_default();
-    if out.ends_with('\n') {
-        out.pop();
-    }
-    out
-}
-
-// MARK: Fitness
-
-/// Replace the leading [`FITNESS_RECEIVER`] sentinel emitted by Fitness app
-/// messages with [`YOU`] so the rendered string reads in first person.
-/// Returns the input unchanged if the sentinel isn't present.
-pub fn rewrite_fitness_receiver(text: String) -> String {
-    if text.starts_with(FITNESS_RECEIVER) {
-        text.replace(FITNESS_RECEIVER, YOU)
-    } else {
-        text
-    }
-}
-
-// MARK: Check In
-
-/// Parse a Check In timestamp from a `parse_query_string` value and render it
-/// with the given prefix (e.g. `"Checked in at "`). Returns `None` if the
-/// value is unparseable.
-pub fn format_check_in_caption(date_str: &str, prefix: &str) -> Option<String> {
-    let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
-    let date_time = get_local_time(date_stamp, 0).ok()?;
-    Some(format!("{prefix}{}", format(&date_time)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::message_time;
@@ -99,8 +54,6 @@ mod tests {
         options.custom_name = custom_name.map(str::to_string);
         Config::fake_app(options)
     }
-
-    // MARK: message_time
 
     #[test]
     fn message_time_no_read_receipt() {
