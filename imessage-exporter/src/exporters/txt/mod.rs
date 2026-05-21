@@ -537,21 +537,9 @@ impl TXT<'_> {
 
 // MARK: Tests
 
-/// Test-only convenience: allocate a buffer and forward to
-/// `format_message_into`. Production paths (`run_export`, `build_replies`)
-/// use the buffer-reusing API directly.
-#[cfg(test)]
-fn format_message(exporter: &TXT<'_>, message: &Message) -> Result<String, TableError> {
-    let mut out = String::with_capacity(1024);
-    exporter.format_message_into(message, RenderContext::TopLevel, &mut out)?;
-    Ok(out)
-}
-
 #[cfg(test)]
 mod tests {
     use std::env::current_dir;
-
-    use crate::exporters::txt::format_message;
 
     use crate::{
         Config, Options, TXT,
@@ -635,7 +623,10 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nHello world\n\n";
 
         assert_eq!(actual, expected);
@@ -658,7 +649,10 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nHello world\nSent with Confetti\n\n";
 
         assert_eq!(actual, expected);
@@ -681,7 +675,10 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nThis message was deleted from the conversation!\nHello world\n\n";
 
         assert_eq!(actual, expected);
@@ -705,7 +702,10 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected =
             "May 17, 2022  5:29:42 PM (Read by them after 1 hour, 49 seconds)\nMe\nHello world\n\n";
 
@@ -732,7 +732,10 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nSample Contact\nHello world\n\n";
 
         assert_eq!(actual, expected);
@@ -762,7 +765,10 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM (Read by you after 1 hour, 49 seconds)\nSample Contact\nHello world\n\n";
 
         assert_eq!(actual, expected);
@@ -793,7 +799,10 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM (Read by Name after 1 hour, 49 seconds)\nSample Contact\nHello world\n\n";
 
         assert_eq!(actual, expected);
@@ -814,7 +823,10 @@ mod tests {
         message.date = 674526582885055488;
         message.item_type = 6;
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nSharePlay Message\nEnded\n\n";
 
         assert_eq!(actual, expected);
@@ -883,7 +895,10 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let standalone = format_message(&exporter, &message).unwrap();
+        let mut standalone = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut standalone)
+            .unwrap();
 
         let prefix = "PREV MSG\n\n";
         let mut buf = String::with_capacity(1024);
@@ -1334,7 +1349,10 @@ mod tests {
         message.share_direction = Some(false);
         message.item_type = 4;
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "Dec 31, 2000  4:00:00 PM\nMe\nStarted sharing location!\n\n";
 
         assert_eq!(actual, expected);
@@ -1354,7 +1372,10 @@ mod tests {
         message.share_direction = Some(false);
         message.item_type = 4;
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "Dec 31, 2000  4:00:00 PM\nMe\nStopped sharing location!\n\n";
 
         assert_eq!(actual, expected);
@@ -1375,7 +1396,10 @@ mod tests {
         message.share_direction = Some(false);
         message.item_type = 4;
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "Dec 31, 2000  4:00:00 PM\nUnknown\nStarted sharing location!\n\n";
 
         assert_eq!(actual, expected);
@@ -1396,7 +1420,10 @@ mod tests {
         message.share_direction = Some(false);
         message.item_type = 4;
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "Dec 31, 2000  4:00:00 PM\nUnknown\nStopped sharing location!\n\n";
 
         assert_eq!(actual, expected);
@@ -1704,7 +1731,10 @@ mod tests {
         let body = message.parse_body(config.data_source.db()).unwrap();
         message.apply_body(body);
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
 
         assert_eq!(
             actual,
@@ -1732,7 +1762,10 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "Dec 31, 2000  4:00:00 PM\nUnknown\nOh, il a traduit ce que j'ai envoyé !\nTranslated from:\nOh it translated what I sent!\n\n";
 
         assert_eq!(actual, expected);
@@ -1877,7 +1910,10 @@ mod tests {
         message.text = Some("https://example.com".to_string());
         message.components = vec![BubbleComponent::App];
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nhttps://example.com\n\n";
 
         assert_eq!(actual, expected);
@@ -2529,8 +2565,9 @@ mod text_effect_tests {
     };
 
     use crate::{
-        Config, Options, TXT, app::export_type::ExportType,
-        exporters::txt::format_message,
+        Config, Options, TXT,
+        app::export_type::ExportType,
+        exporters::exporter::{MessageFormatter, RenderContext},
     };
 
     #[test]
@@ -2554,7 +2591,10 @@ mod text_effect_tests {
             TextAttributes::new(23, 30, vec![TextEffect::Default]),
         ])];
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nUnderline normal jitter normal\n\n";
 
         assert_eq!(actual, expected);
@@ -2586,7 +2626,10 @@ mod text_effect_tests {
             ],
         )])];
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nhttps://github.com/ReagentX/imessage-exporter/discussions/553\n\n";
 
         assert_eq!(actual, expected);
@@ -2613,7 +2656,10 @@ mod text_effect_tests {
             TextAttributes::new(12, 21, vec![TextEffect::Styles(vec![Style::Underline])]),
         ])];
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\n🅱️Bold_Underline\n\n";
 
         assert_eq!(actual, expected);
@@ -2662,7 +2708,10 @@ mod text_effect_tests {
             ),
         ])];
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\n8:00 pm\n\n";
 
         assert_eq!(actual, expected);
@@ -2682,7 +2731,7 @@ mod edited_tests {
     use crate::{
         Config, Options, TXT,
         app::{contacts::Name, export_type::ExportType::Txt},
-        exporters::{exporter::MessageFormatter, txt::format_message},
+        exporters::exporter::{MessageFormatter, RenderContext},
     };
 
     #[test]
@@ -2735,7 +2784,10 @@ mod edited_tests {
             BubbleComponent::Retracted,
         ];
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nFrom arbitrary byte stream:\r\nAttachment missing!\nTo native Rust data structures:\r\nYou unsent this message part 1 hour, 49 seconds after sending!\n\n";
 
         assert_eq!(actual, expected);
@@ -2769,7 +2821,10 @@ mod edited_tests {
         });
         message.components = vec![BubbleComponent::Retracted];
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         assert!(
             actual.contains(
                 "Sample Contact unsent this message part 1 hour, 49 seconds after sending!"
@@ -2811,7 +2866,10 @@ mod edited_tests {
             BubbleComponent::Retracted,
         ];
 
-        let actual = format_message(&exporter, &message).unwrap();
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nFrom arbitrary byte stream:\r\nAttachment missing!\nTo native Rust data structures:\r\n\n";
 
         assert_eq!(actual, expected);
