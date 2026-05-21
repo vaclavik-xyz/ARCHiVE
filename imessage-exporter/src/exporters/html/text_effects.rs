@@ -40,26 +40,41 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
     }
 
     fn format_styles(&self, text: &str, styles: &[Style]) -> String {
-        let (prefix, suffix): (String, String) = styles.iter().rev().fold(
-            (String::new(), String::new()),
-            |(mut prefix, mut suffix), style| {
-                let (open, close) = match style {
-                    Style::Bold => ("<b>", "</b>"),
-                    Style::Italic => ("<i>", "</i>"),
-                    Style::Strikethrough => ("<s>", "</s>"),
-                    Style::Underline => ("<u>", "</u>"),
-                };
-                prefix.push_str(open);
-                suffix.insert_str(0, close);
-                (prefix, suffix)
-            },
-        );
-
-        format!("{prefix}{text}{suffix}")
+        // Estimate: 7 bytes covers the longest open+close tag pair (`<b></b>`).
+        let mut out = String::with_capacity(text.len() + styles.len() * 7);
+        // styles[0] is the outermost wrap, so opens go in reverse order and
+        // closes go in forward order — one pre-allocated buffer instead of
+        // the prior `insert_str(0, …)` per close (O(K²) on stacked styles).
+        for style in styles.iter().rev() {
+            out.push_str(open_tag(style));
+        }
+        out.push_str(text);
+        for style in styles {
+            out.push_str(close_tag(style));
+        }
+        out
     }
 
     fn format_animated(&self, text: &str, animation: &Animation) -> String {
         // animation:? is a Rust enum variant name (safe), text is pre-sanitized
         format!("<span class=\"animation{animation:?}\">{text}</span>")
+    }
+}
+
+fn open_tag(style: &Style) -> &'static str {
+    match style {
+        Style::Bold => "<b>",
+        Style::Italic => "<i>",
+        Style::Strikethrough => "<s>",
+        Style::Underline => "<u>",
+    }
+}
+
+fn close_tag(style: &Style) -> &'static str {
+    match style {
+        Style::Bold => "</b>",
+        Style::Italic => "</i>",
+        Style::Strikethrough => "</s>",
+        Style::Underline => "</u>",
     }
 }
