@@ -39,16 +39,14 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
     }
 
     fn format_music(&self, balloon: &MusicMessage, indent: &str) -> String {
-        MusicVM {
+        render_trimmed(&MusicVM {
             indent,
             lyrics: balloon.lyrics.as_deref(),
             track_name: balloon.track_name,
             album: balloon.album,
             artist: balloon.artist,
             url: balloon.url,
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_collaboration(&self, balloon: &CollaborationMessage, indent: &str) -> String {
@@ -199,7 +197,7 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
             })
             .collect();
 
-        PollVM { indent, options }.render().unwrap_or_default()
+        render_trimmed(&PollVM { indent, options })
     }
 
     fn format_generic_app(

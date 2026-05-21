@@ -1817,7 +1817,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_music(&balloon, "");
-        let actual = "track_name\nalbum\nartist\nurl\n";
+        let actual = "track_name\nalbum\nartist\nurl";
 
         assert_eq!(expected, actual);
     }
@@ -1839,7 +1839,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_music(&balloon, "");
-        let actual = "Lyrics:\na\nb\n\n\ntrack_name\nalbum\nartist\nurl\n";
+        let actual = "Lyrics:\na\nb\n\n\ntrack_name\nalbum\nartist\nurl";
 
         assert_eq!(expected, actual);
     }
@@ -2244,7 +2244,7 @@ mod balloon_format_tests {
 
         let expected = exporter.format_poll(&poll, "");
         let actual =
-            "- Rust (1)\n  - carol\n- Go (2)\n  - alice\n  - bob\n- Python (1)\n  - dave\n";
+            "- Rust (1)\n  - carol\n- Go (2)\n  - alice\n  - bob\n- Python (1)\n  - dave";
 
         assert_eq!(expected, actual);
     }
@@ -2300,7 +2300,7 @@ mod balloon_format_tests {
 
         let expected = exporter.format_poll(&poll, "    ");
         let actual =
-            "    - Rust (1)\n      - carol\n    - Go (2)\n      - alice\n      - bob\n";
+            "    - Rust (1)\n      - carol\n    - Go (2)\n      - alice\n      - bob";
 
         assert_eq!(expected, actual);
     }
