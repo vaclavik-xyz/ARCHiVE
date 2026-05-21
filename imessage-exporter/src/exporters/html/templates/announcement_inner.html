@@ -7,10 +7,10 @@
         {%- when Announcement::Unknown(num) -%}performed unknown action {{ num }}
         {%- when Announcement::GroupAction(group) -%}
         {%- match group -%}
-        {%- when GroupAction::ParticipantAdded(_) -%}added {{ participant_name.unwrap_or("someone") }} to the
-        conversation.
-        {%- when GroupAction::ParticipantRemoved(_) -%}removed {{ participant_name.unwrap_or("someone") }} from the
-        conversation.
+        {%- when GroupAction::ParticipantAdded(_) -%}
+        {{ "added " }}{{ participant_name.unwrap_or("someone") }}{{ " to the conversation." }}
+        {%- when GroupAction::ParticipantRemoved(_) -%}
+        {{ "removed " }}{{ participant_name.unwrap_or("someone") }}{{ " from the conversation." }}
         {%- when GroupAction::NameChange(name) -%}named the conversation <b>{{ name }}</b>
         {%- when GroupAction::ParticipantLeft -%}left the conversation.
         {%- when GroupAction::GroupIconChanged -%}changed the group photo.

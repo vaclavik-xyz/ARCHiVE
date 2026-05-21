@@ -1348,7 +1348,7 @@ mod tests {
         message.other_handle = Some(1);
 
         let actual = exporter.format_announcement(&message);
-        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You removed Other from the\n        conversation.</p>\n</div>\n";
+        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You removed Other from the conversation.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
     }
@@ -1378,7 +1378,7 @@ mod tests {
         message.other_handle = Some(2);
 
         let actual = exporter.format_announcement(&message);
-        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> Other removed Second from the\n        conversation.</p>\n</div>\n";
+        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> Other removed Second from the conversation.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
     }
@@ -1433,7 +1433,7 @@ mod tests {
         message.other_handle = Some(1);
 
         let actual = exporter.format_announcement(&message);
-        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You added Other to the\n        conversation.</p>\n</div>\n";
+        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You added Other to the conversation.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
     }
