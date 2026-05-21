@@ -2,6 +2,7 @@ pub mod compatibility;
 pub mod contacts;
 pub mod data_source;
 pub mod error;
+pub mod escaping;
 pub mod export_type;
 pub mod options;
 pub mod progress;

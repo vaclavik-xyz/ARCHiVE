@@ -2,5 +2,5 @@
 dirs = ["src/exporters/html/templates", "src/exporters/txt/templates"]
 
 [[escaper]]
-path = "crate::exporters::html::escaper::ChatEscaper"
+path = "crate::app::escaping::ChatEscaper"
 extensions = ["html"]

@@ -1,3 +1,10 @@
+/*!
+ HTML escaper used by both Askama-rendered `.html` templates (see
+ `askama.toml`) and [`sanitize_html`](super::sanitizers::sanitize_html).
+ Lives in the `app` layer so both consumers can share it without the
+ sanitizer reaching into the HTML exporter.
+*/
+
 use std::fmt;
 
 use askama::filters::Escaper;
@@ -8,7 +15,7 @@ use askama::filters::Escaper;
 /// Bulk-writes runs of safe bytes between escape positions so a clean string
 /// costs one `write_str`, matching the pattern in `askama::filters::Html`.
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct ChatEscaper;
+pub struct ChatEscaper;
 
 impl Escaper for ChatEscaper {
     fn write_escaped_str<W: fmt::Write>(&self, mut dest: W, string: &str) -> fmt::Result {

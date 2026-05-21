@@ -6,7 +6,7 @@ use std::borrow::Cow;
 
 use askama::filters::Escaper;
 
-use crate::exporters::html::escaper::ChatEscaper;
+use crate::app::escaping::ChatEscaper;
 
 /// The character to replace disallowed chars with
 const FILENAME_REPLACEMENT_CHAR: char = '_';
@@ -161,9 +161,9 @@ mod html_sanitization_tests {
     use crate::app::sanitizers::sanitize_html;
 
     // Character-set / replacement behavior is covered by
-    // `exporters::html::escaper::tests`. These tests cover only what
-    // `sanitize_html` itself adds: the `Cow` fast path and the integration
-    // with `ChatEscaper`.
+    // `app::escaping::tests`. These tests cover only what `sanitize_html`
+    // itself adds: the `Cow` fast path and the integration with
+    // `ChatEscaper`.
 
     #[test]
     fn empty_input_borrows() {
