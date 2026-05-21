@@ -205,8 +205,9 @@ pub(super) enum AnnouncementBody<'a> {
         who: &'a str,
         announcement: Announcement<'a>,
         /// Resolved display name for the participant in `ParticipantAdded`
-        /// / `ParticipantRemoved`. `None` for every other variant.
-        participant_name: Option<&'a str>,
+        /// / `ParticipantRemoved`. Defaults to `"someone"` for non-participant
+        /// variants (templates only read this on the participant arms).
+        participant_name: &'a str,
     },
     Unknown,
 }
