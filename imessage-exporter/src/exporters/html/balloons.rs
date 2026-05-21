@@ -35,7 +35,7 @@ impl BalloonFormatter for HTML<'_> {
         UrlVM {
             wrapper_url: balloon_url.or(msg_text),
             name: balloon.site_name.or(balloon_url).or(msg_text),
-            images: balloon.images.clone(),
+            images: &balloon.images,
             lazy: !self.config.options.no_lazy,
             title: balloon.title,
             summary: balloon.summary,
@@ -95,7 +95,6 @@ impl BalloonFormatter for HTML<'_> {
     }
 
     fn format_handwriting(&self, _: &Message, balloon: &HandwrittenMessage) -> String {
-        // svg can be embedded directly into the html
         balloon.render_svg()
     }
 
