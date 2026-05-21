@@ -1,2 +1,2 @@
-{{ indent }}{{ caption }}{% if let Some(footer) = footer %}
-{{ indent }}{{ footer }}{% endif %}
+{{ caption }}{% if let Some(footer) = footer %}
+{{ footer }}{% endif %}

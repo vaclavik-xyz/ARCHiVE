@@ -1,1 +1,1 @@
-{{ indent }}Digital Touch Message: {{ debug }}
+Digital Touch Message: {{ debug }}

@@ -1,4 +1,4 @@
-{{ indent }}{% if let Some(name) = name %}{{ name }}{% endif %}{% if has_label %} message:
-{% endif %}{% if let Some(title) = title %}{{ indent }}{{ title }}
-{% endif %}{% if let Some(url) = url %}{{ indent }}{{ url }}
+{% if let Some(name) = name %}{{ name }}{% endif %}{% if has_label %} message:
+{% endif %}{% if let Some(title) = title %}{{ title }}
+{% endif %}{% if let Some(url) = url %}{{ url }}
 {% endif %}

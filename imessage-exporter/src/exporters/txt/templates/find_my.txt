@@ -1,1 +1,1 @@
-{{ indent }}{% if let Some(app_name) = app_name %}{{ app_name }}: {% endif %}{% if let Some(ldtext) = ldtext %} {{ ldtext }}{% endif %}
+{% if let Some(app_name) = app_name %}{{ app_name }}: {% endif %}{% if let Some(ldtext) = ldtext %} {{ ldtext }}{% endif %}

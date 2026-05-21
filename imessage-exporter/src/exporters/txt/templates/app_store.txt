@@ -1,6 +1,6 @@
-{% if let Some(app_name) = app_name %}{{ indent }}{{ app_name }}
-{% endif %}{% if let Some(description) = description %}{{ indent }}{{ description }}
-{% endif %}{% if let Some(platform) = platform %}{{ indent }}{{ platform }}
-{% endif %}{% if let Some(genre) = genre %}{{ indent }}{{ genre }}
-{% endif %}{% if let Some(url) = url %}{{ indent }}{{ url }}
+{% if let Some(app_name) = app_name %}{{ app_name }}
+{% endif %}{% if let Some(description) = description %}{{ description }}
+{% endif %}{% if let Some(platform) = platform %}{{ platform }}
+{% endif %}{% if let Some(genre) = genre %}{{ genre }}
+{% endif %}{% if let Some(url) = url %}{{ url }}
 {% endif %}

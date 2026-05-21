@@ -1,13 +1,13 @@
-{% if let Some(place_name) = place_name %}{{ indent }}{{ place_name }}
-{% endif %}{% if let Some(url) = url %}{{ indent }}{{ url }}
-{% endif %}{% if let Some(name) = name %}{{ indent }}{{ name }}
-{% endif %}{% if let Some(address) = address %}{{ indent }}{{ address }}
-{% endif %}{% if let Some(state) = state %}{{ indent }}{{ state }}
-{% endif %}{% if let Some(city) = city %}{{ indent }}{{ city }}
-{% endif %}{% if let Some(iso_country_code) = iso_country_code %}{{ indent }}{{ iso_country_code }}
-{% endif %}{% if let Some(postal_code) = postal_code %}{{ indent }}{{ postal_code }}
-{% endif %}{% if let Some(country) = country %}{{ indent }}{{ country }}
-{% endif %}{% if let Some(street) = street %}{{ indent }}{{ street }}
-{% endif %}{% if let Some(sub_administrative_area) = sub_administrative_area %}{{ indent }}{{ sub_administrative_area }}
-{% endif %}{% if let Some(sub_locality) = sub_locality %}{{ indent }}{{ sub_locality }}
+{% if let Some(place_name) = place_name %}{{ place_name }}
+{% endif %}{% if let Some(url) = url %}{{ url }}
+{% endif %}{% if let Some(name) = name %}{{ name }}
+{% endif %}{% if let Some(address) = address %}{{ address }}
+{% endif %}{% if let Some(state) = state %}{{ state }}
+{% endif %}{% if let Some(city) = city %}{{ city }}
+{% endif %}{% if let Some(iso_country_code) = iso_country_code %}{{ iso_country_code }}
+{% endif %}{% if let Some(postal_code) = postal_code %}{{ postal_code }}
+{% endif %}{% if let Some(country) = country %}{{ country }}
+{% endif %}{% if let Some(street) = street %}{{ street }}
+{% endif %}{% if let Some(sub_administrative_area) = sub_administrative_area %}{{ sub_administrative_area }}
+{% endif %}{% if let Some(sub_locality) = sub_locality %}{{ sub_locality }}
 {% endif %}

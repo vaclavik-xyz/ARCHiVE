@@ -1,8 +1,8 @@
-{{ indent }}{{ name }}{% if has_label %} message:
-{% endif %}{% if let Some(title) = title %}{{ indent }}{{ title }}
-{% endif %}{% if let Some(subtitle) = subtitle %}{{ indent }}{{ subtitle }}
-{% endif %}{% if let Some(caption) = caption %}{{ indent }}{{ caption }}
-{% endif %}{% if let Some(subcaption) = subcaption %}{{ indent }}{{ subcaption }}
-{% endif %}{% if let Some(trailing_caption) = trailing_caption %}{{ indent }}{{ trailing_caption }}
-{% endif %}{% if let Some(trailing_subcaption) = trailing_subcaption %}{{ indent }}{{ trailing_subcaption }}
+{{ name }}{% if has_label %} message:
+{% endif %}{% if let Some(title) = title %}{{ title }}
+{% endif %}{% if let Some(subtitle) = subtitle %}{{ subtitle }}
+{% endif %}{% if let Some(caption) = caption %}{{ caption }}
+{% endif %}{% if let Some(subcaption) = subcaption %}{{ subcaption }}
+{% endif %}{% if let Some(trailing_caption) = trailing_caption %}{{ trailing_caption }}
+{% endif %}{% if let Some(trailing_subcaption) = trailing_subcaption %}{{ trailing_subcaption }}
 {% endif %}
