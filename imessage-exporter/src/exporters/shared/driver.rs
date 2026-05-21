@@ -11,11 +11,23 @@ use imessage_database::{
     error::table::TableError,
     tables::{messages::Message, table::Table},
 };
+use rusqlite::Connection;
 
 use crate::{
     app::{error::RuntimeError, progress::ExportProgress, runtime::Config},
-    exporters::exporter::MessageFormatter,
+    exporters::exporter::{MessageFormatter, RenderContext},
 };
+
+/// Decode the message's body via [`Message::parse_body`] and apply it.
+/// `parse_body` failures are non-fatal — they leave the message's
+/// `components` empty, which downstream formatters already treat as
+/// "nothing to render". Centralizing the swallow so all three callers
+/// behave identically (and so adding logging later is a single edit).
+pub fn apply_body(msg: &mut Message, db: &Connection) {
+    if let Ok(body) = msg.parse_body(db) {
+        msg.apply_body(body);
+    }
+}
 
 /// Format-specific hooks consumed by [`run_export`] and
 /// [`get_or_create_file_for`]. Implementers hold the shared per-export state
@@ -66,14 +78,15 @@ pub fn get_or_create_file_for<'a, 'b, W>(
 where
     W: MessageWriter<'a>,
 {
-    match writer.config().conversation(message) {
+    let config = writer.config();
+    match config.conversation(message) {
         Some((chatroom, _)) => {
-            let filename = writer.config().filename(chatroom);
-            let mut path = writer.config().options.export_path.clone();
-            path.push(&filename);
+            let filename = config.filename(chatroom);
             match writer.files_mut().entry(filename) {
                 Occupied(entry) => Ok(entry.into_mut()),
                 Vacant(entry) => {
+                    let mut path = config.options.export_path.clone();
+                    path.push(entry.key());
                     // If the file already exists, don't write the headers again.
                     // This can happen if multiple chats use the same group name.
                     let file_exists = path.exists();
@@ -140,9 +153,7 @@ where
         }
         current_message_row = msg.rowid;
 
-        if let Ok(body) = msg.parse_body(writer.config().data_source.db()) {
-            msg.apply_body(body);
-        }
+        apply_body(&mut msg, writer.config().data_source.db());
 
         if msg.is_announcement() {
             let announcement = writer.format_announcement(&msg);
@@ -153,7 +164,7 @@ where
         // Message tapbacks and poll votes are rendered in context, so no need to render them separately
         else if !msg.is_tapback() && !msg.is_poll_vote() && !msg.is_poll_update() {
             msg_buf.clear();
-            writer.format_message_into(&msg, 0, &mut msg_buf)?;
+            writer.format_message_into(&msg, RenderContext::TopLevel, &mut msg_buf)?;
             let file = get_or_create_file_for(writer, &msg)?;
             file.write_all(msg_buf.as_bytes())
                 .map_err(RuntimeError::DiskError)?;

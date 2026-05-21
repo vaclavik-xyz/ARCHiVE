@@ -6,13 +6,13 @@ use crate::{
         progress::ExportProgress, runtime::Config,
     },
     exporters::{
-        exporter::{ATTACHMENT_NO_FILENAME, Exporter, MessageFormatter},
+        exporter::{ATTACHMENT_NO_FILENAME, Exporter, MessageFormatter, RenderContext},
         shared::{
             announcement::resolve_announcement,
             balloon::dispatch_app_balloon,
-            driver::{MessageWriter, get_or_create_file_for, run_export},
+            driver::{MessageWriter, apply_body, get_or_create_file_for, run_export},
             edited::{EditDiff, NormalizedEdit, normalize_edited},
-            format::message_time,
+            format::{format_timestamp, message_time, rewrite_fitness_receiver},
         },
     },
 };
@@ -31,7 +31,7 @@ use imessage_database::{
             Message,
             models::{AttachmentMeta, BubbleComponent, TextAttributes},
         },
-        table::{FITNESS_RECEIVER, ORPHANED, YOU},
+        table::{ORPHANED, YOU},
     },
 };
 
@@ -43,6 +43,10 @@ use view_model::{
     AnnouncementBody, AnnouncementVM, AttachmentVM, EditedKind, EditedRow, EditedVM, MessagePartVM,
     MessageVM, PartBody, RepliesVM, StickerVM, TapbackKind, TapbackVM, TapbacksVM,
 };
+
+/// Indentation prepended to every line of a reply rendered inside its
+/// parent message's body. Top-level messages render at zero indent.
+const REPLY_INDENT: &str = "    ";
 
 pub struct TXT<'a> {
     /// Data that is setup from the application's runtime
@@ -289,7 +293,11 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                     .into_iter()
                     .map(|event| {
                         let timestamp_prefix = match event.diff_since_previous {
-                            EditDiff::First => format!("{} ", event.absolute_time),
+                            EditDiff::First => {
+                                let mut s = format_timestamp(event.date, self.config.offset);
+                                s.push(' ');
+                                s
+                            }
                             // Diff calculation failed; suppress the prefix to match legacy behavior.
                             EditDiff::Failed => String::new(),
                             EditDiff::Computed(diff) => format!("Edited {diff} later: "),
@@ -341,13 +349,20 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
     fn format_message_into(
         &self,
         message: &Message,
-        indent_size: usize,
+        context: RenderContext,
         out: &mut String,
     ) -> Result<(), TableError> {
-        let indent = (0..indent_size).map(|_| " ").collect::<String>();
+        let indent: &'static str = match context {
+            RenderContext::TopLevel => "",
+            RenderContext::Reply => REPLY_INDENT,
+        };
         let mut attachments = Attachment::from_message(self.config.data_source.db(), message)?;
         let mut replies_map = message.get_replies(self.config.data_source.db())?;
         let mut attachment_index: usize = 0;
+        let expressive = match message.get_expressive() {
+            Expressive::None => None,
+            other => Some(other),
+        };
 
         let mut parts = Vec::with_capacity(message.components.len());
         for (idx, message_part) in message.components.iter().enumerate() {
@@ -359,19 +374,16 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 &mut attachment_index,
             );
             parts.push(MessagePartVM {
-                indent: &indent,
+                indent,
                 body,
-                expressive: match message.get_expressive() {
-                    Expressive::None => None,
-                    other => Some(other),
-                },
-                tapbacks: self.build_tapbacks(message, idx, &indent)?,
+                expressive,
+                tapbacks: self.build_tapbacks(message, idx, indent)?,
                 replies: self.build_replies(replies_map.get_mut(&idx))?,
             });
         }
 
         let vm = MessageVM {
-            indent: &indent,
+            indent,
             timestamp: self.get_time(message),
             sender: self.config.who(
                 message.handle_id,
@@ -452,13 +464,9 @@ impl TXT<'_> {
                         translated: translation.translated_text,
                         original: formatted_text,
                     }
-                } else if formatted_text.starts_with(FITNESS_RECEIVER) {
-                    PartBody::Line {
-                        text: formatted_text.replace(FITNESS_RECEIVER, YOU),
-                    }
                 } else {
                     PartBody::Line {
-                        text: formatted_text,
+                        text: rewrite_fitness_receiver(formatted_text),
                     }
                 }
             }
@@ -540,12 +548,10 @@ impl TXT<'_> {
         };
         let mut rendered = Vec::new();
         for reply in replies.iter_mut() {
-            if let Ok(body) = reply.parse_body(self.config.data_source.db()) {
-                reply.apply_body(body);
-            }
+            apply_body(reply, self.config.data_source.db());
             if !reply.is_tapback() {
-                let mut reply_buf = String::new();
-                self.format_message_into(reply, 4, &mut reply_buf)?;
+                let mut reply_buf = String::with_capacity(Self::BUFFER_CAPACITY);
+                self.format_message_into(reply, RenderContext::Reply, &mut reply_buf)?;
                 rendered.push(reply_buf);
             }
         }
@@ -563,13 +569,9 @@ impl TXT<'_> {
 /// `format_message_into`. Production paths (`iter_messages`, `build_replies`)
 /// use the buffer-reusing API directly.
 #[cfg(test)]
-fn format_message(
-    exporter: &TXT<'_>,
-    message: &Message,
-    indent_size: usize,
-) -> Result<String, TableError> {
+fn format_message(exporter: &TXT<'_>, message: &Message) -> Result<String, TableError> {
     let mut out = String::with_capacity(1024);
-    exporter.format_message_into(message, indent_size, &mut out)?;
+    exporter.format_message_into(message, RenderContext::TopLevel, &mut out)?;
     Ok(out)
 }
 
@@ -585,7 +587,7 @@ mod tests {
             compatibility::attachment_manager::AttachmentManagerMode, contacts::Name,
             export_type::ExportType,
         },
-        exporters::exporter::MessageFormatter,
+        exporters::exporter::{MessageFormatter, RenderContext},
     };
     use imessage_database::{
         message_types::text_effects::TextEffect,
@@ -661,7 +663,7 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nHello world\n\n";
 
         assert_eq!(actual, expected);
@@ -669,8 +671,6 @@ mod tests {
 
     #[test]
     fn expressive_renders_via_display_impl() {
-        // Expressive's Display impl is invoked directly by the template;
-        // `message_part.txt` now contains no expressive-specific logic.
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -686,7 +686,7 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nHello world\nSent with Confetti\n\n";
 
         assert_eq!(actual, expected);
@@ -709,7 +709,7 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nThis message was deleted from the conversation!\nHello world\n\n";
 
         assert_eq!(actual, expected);
@@ -733,7 +733,7 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected =
             "May 17, 2022  5:29:42 PM (Read by them after 1 hour, 49 seconds)\nMe\nHello world\n\n";
 
@@ -760,7 +760,7 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nSample Contact\nHello world\n\n";
 
         assert_eq!(actual, expected);
@@ -790,7 +790,7 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM (Read by you after 1 hour, 49 seconds)\nSample Contact\nHello world\n\n";
 
         assert_eq!(actual, expected);
@@ -821,7 +821,7 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM (Read by Name after 1 hour, 49 seconds)\nSample Contact\nHello world\n\n";
 
         assert_eq!(actual, expected);
@@ -842,7 +842,7 @@ mod tests {
         message.date = 674526582885055488;
         message.item_type = 6;
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nSharePlay Message\nEnded\n\n";
 
         assert_eq!(actual, expected);
@@ -911,14 +911,16 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let standalone = format_message(&exporter, &message, 0).unwrap();
+        let standalone = format_message(&exporter, &message).unwrap();
 
         let prefix = "PREV MSG\n\n";
         let mut buf = String::with_capacity(1024);
         buf.push_str(prefix);
         let cap_before = buf.capacity();
 
-        exporter.format_message_into(&message, 0, &mut buf).unwrap();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut buf)
+            .unwrap();
 
         assert!(
             buf.starts_with(prefix),
@@ -1360,7 +1362,7 @@ mod tests {
         message.share_direction = Some(false);
         message.item_type = 4;
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "Dec 31, 2000  4:00:00 PM\nMe\nStarted sharing location!\n\n";
 
         assert_eq!(actual, expected);
@@ -1380,7 +1382,7 @@ mod tests {
         message.share_direction = Some(false);
         message.item_type = 4;
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "Dec 31, 2000  4:00:00 PM\nMe\nStopped sharing location!\n\n";
 
         assert_eq!(actual, expected);
@@ -1401,7 +1403,7 @@ mod tests {
         message.share_direction = Some(false);
         message.item_type = 4;
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "Dec 31, 2000  4:00:00 PM\nUnknown\nStarted sharing location!\n\n";
 
         assert_eq!(actual, expected);
@@ -1422,7 +1424,7 @@ mod tests {
         message.share_direction = Some(false);
         message.item_type = 4;
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "Dec 31, 2000  4:00:00 PM\nUnknown\nStopped sharing location!\n\n";
 
         assert_eq!(actual, expected);
@@ -1730,7 +1732,7 @@ mod tests {
         let body = message.parse_body(config.data_source.db()).unwrap();
         message.apply_body(body);
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
 
         assert_eq!(
             actual,
@@ -1758,7 +1760,7 @@ mod tests {
             .generate_text_legacy(config.data_source.db())
             .unwrap();
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "Dec 31, 2000  4:00:00 PM\nUnknown\nOh, il a traduit ce que j'ai envoyé !\nTranslated from:\nOh it translated what I sent!\n\n";
 
         assert_eq!(actual, expected);
@@ -1780,7 +1782,9 @@ mod tests {
         msg.components = vec![BubbleComponent::App];
 
         let mut out = String::new();
-        exporter.format_message_into(&msg, 4, &mut out).unwrap();
+        exporter
+            .format_message_into(&msg, RenderContext::Reply, &mut out)
+            .unwrap();
 
         // Every non-blank line should start with exactly four spaces.
         for line in out.lines().filter(|l| !l.is_empty()) {
@@ -1901,7 +1905,7 @@ mod tests {
         message.text = Some("https://example.com".to_string());
         message.components = vec![BubbleComponent::App];
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nhttps://example.com\n\n";
 
         assert_eq!(actual, expected);
@@ -2578,7 +2582,7 @@ mod text_effect_tests {
             TextAttributes::new(23, 30, vec![TextEffect::Default]),
         ])];
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nUnderline normal jitter normal\n\n";
 
         assert_eq!(actual, expected);
@@ -2610,7 +2614,7 @@ mod text_effect_tests {
             ],
         )])];
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nhttps://github.com/ReagentX/imessage-exporter/discussions/553\n\n";
 
         assert_eq!(actual, expected);
@@ -2637,7 +2641,7 @@ mod text_effect_tests {
             TextAttributes::new(12, 21, vec![TextEffect::Styles(vec![Style::Underline])]),
         ])];
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\n🅱️Bold_Underline\n\n";
 
         assert_eq!(actual, expected);
@@ -2686,7 +2690,7 @@ mod text_effect_tests {
             ),
         ])];
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\n8:00 pm\n\n";
 
         assert_eq!(actual, expected);
@@ -2759,7 +2763,7 @@ mod edited_tests {
             BubbleComponent::Retracted,
         ];
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nFrom arbitrary byte stream:\r\nAttachment missing!\nTo native Rust data structures:\r\nYou unsent this message part 1 hour, 49 seconds after sending!\n\n";
 
         assert_eq!(actual, expected);
@@ -2793,7 +2797,7 @@ mod edited_tests {
         });
         message.components = vec![BubbleComponent::Retracted];
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         assert!(
             actual.contains(
                 "Sample Contact unsent this message part 1 hour, 49 seconds after sending!"
@@ -2835,7 +2839,7 @@ mod edited_tests {
             BubbleComponent::Retracted,
         ];
 
-        let actual = format_message(&exporter, &message, 0).unwrap();
+        let actual = format_message(&exporter, &message).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nFrom arbitrary byte stream:\r\nAttachment missing!\nTo native Rust data structures:\r\n\n";
 
         assert_eq!(actual, expected);
