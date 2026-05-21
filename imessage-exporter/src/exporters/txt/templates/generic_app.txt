@@ -1,4 +1,4 @@
-{{ name }}{% if has_label %} message:
+{% if !name.is_empty() %}{{ name }} message:
 {% endif %}{% if let Some(title) = title %}{{ title }}
 {% endif %}{% if let Some(subtitle) = subtitle %}{{ subtitle }}
 {% endif %}{% if let Some(caption) = caption %}{{ caption }}
