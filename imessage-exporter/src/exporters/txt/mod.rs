@@ -1,16 +1,16 @@
-use std::{collections::HashMap, fs::File, io::BufWriter};
+use std::{fs::File, io::BufWriter};
 
 use crate::{
     app::{
         compatibility::attachment_manager::AttachmentManagerMode, error::RuntimeError,
-        progress::ExportProgress, runtime::Config,
+        runtime::Config,
     },
     exporters::{
         exporter::{ATTACHMENT_NO_FILENAME, Exporter, MessageFormatter, RenderContext},
         shared::{
             announcement::resolve_announcement,
             balloon::dispatch_app_balloon,
-            driver::{MessageWriter, apply_body, get_or_create_file_for, run_export},
+            driver::{ExportState, MessageWriter, apply_body, get_or_create_file_for, run_export},
             edited::{EditDiff, NormalizedEdit, normalize_edited},
             format::{format_timestamp, message_time, rewrite_fitness_receiver},
         },
@@ -31,7 +31,7 @@ use imessage_database::{
             Message,
             models::{AttachmentMeta, BubbleComponent, TextAttributes},
         },
-        table::{ORPHANED, YOU},
+        table::YOU,
     },
 };
 
@@ -51,29 +51,16 @@ const REPLY_INDENT: &str = "    ";
 pub struct TXT<'a> {
     /// Data that is setup from the application's runtime
     pub config: &'a Config,
-    /// Handles to files we want to write messages to
-    /// Map of resolved chatroom file location to a buffered writer
-    pub files: HashMap<String, BufWriter<File>>,
-    /// Writer instance for orphaned messages
-    pub orphaned: BufWriter<File>,
-    /// Progress Bar model for alerting the user about current export state
-    pb: ExportProgress,
+    /// Shared per-export state (file cache, orphaned writer, progress bar).
+    pub state: ExportState,
 }
 
 // MARK: Exporter
 impl<'a> Exporter<'a> for TXT<'a> {
     fn new(config: &'a Config) -> Result<Self, RuntimeError> {
-        let mut orphaned = config.options.export_path.clone();
-        orphaned.push(ORPHANED);
-        orphaned.set_extension("txt");
-
-        let file = File::options().append(true).create(true).open(&orphaned)?;
-
         Ok(TXT {
             config,
-            files: HashMap::new(),
-            orphaned: BufWriter::new(file),
-            pb: ExportProgress::new(),
+            state: ExportState::new(config, "txt")?,
         })
     }
 
@@ -98,16 +85,12 @@ impl<'a> MessageWriter<'a> for TXT<'a> {
         self.config
     }
 
-    fn pb(&self) -> &ExportProgress {
-        &self.pb
+    fn state(&self) -> &ExportState {
+        &self.state
     }
 
-    fn files_mut(&mut self) -> &mut HashMap<String, BufWriter<File>> {
-        &mut self.files
-    }
-
-    fn orphaned_mut(&mut self) -> &mut BufWriter<File> {
-        &mut self.orphaned
+    fn state_mut(&mut self) -> &mut ExportState {
+        &mut self.state
     }
 
     fn write_file_header(_file: &mut BufWriter<File>) -> Result<(), RuntimeError> {
@@ -139,7 +122,8 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
             );
 
         if will_encode {
-            self.pb
+            self.state
+                .pb
                 .set_busy_style("Encoding video, estimates paused...".to_string());
         }
 
@@ -151,7 +135,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         );
 
         if will_encode {
-            self.pb.set_default_style();
+            self.state.pb.set_default_style();
         }
 
         handle_result.ok_or(attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?)?;
@@ -603,7 +587,7 @@ mod tests {
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
-        assert_eq!(exporter.files.len(), 0);
+        assert_eq!(exporter.state.files.len(), 0);
     }
 
     #[test]

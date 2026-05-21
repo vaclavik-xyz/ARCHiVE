@@ -9,7 +9,10 @@ use std::{
 
 use imessage_database::{
     error::table::TableError,
-    tables::{messages::Message, table::Table},
+    tables::{
+        messages::Message,
+        table::{ORPHANED, Table},
+    },
 };
 use rusqlite::Connection;
 
@@ -17,6 +20,37 @@ use crate::{
     app::{error::RuntimeError, progress::ExportProgress, runtime::Config},
     exporters::exporter::{MessageFormatter, RenderContext},
 };
+
+/// Shared per-export mutable state held by every concrete `MessageWriter`.
+/// Holds the file cache (one [`BufWriter`] per chatroom), the writer for
+/// messages that don't belong to a chat, and the progress bar. The owning
+/// formatter struct adds only the `&'a Config` reference and the
+/// format-specific hooks declared on [`MessageWriter`].
+pub struct ExportState {
+    /// One open [`BufWriter`] per resolved chat filename.
+    pub files: HashMap<String, BufWriter<File>>,
+    /// Destination for messages that don't have a conversation route.
+    pub orphaned: BufWriter<File>,
+    /// Drives the on-screen progress indicator.
+    pub pb: ExportProgress,
+}
+
+impl ExportState {
+    /// Open the orphaned file (creating it if missing) under
+    /// `config.options.export_path` with the supplied extension, then build
+    /// the empty file cache and progress bar.
+    pub fn new(config: &Config, extension: &str) -> Result<Self, RuntimeError> {
+        let mut orphaned = config.options.export_path.clone();
+        orphaned.push(ORPHANED);
+        orphaned.set_extension(extension);
+        let file = File::options().append(true).create(true).open(&orphaned)?;
+        Ok(Self {
+            files: HashMap::new(),
+            orphaned: BufWriter::new(file),
+            pb: ExportProgress::new(),
+        })
+    }
+}
 
 /// Decode the message's body via [`Message::parse_body`] and apply it.
 /// `parse_body` failures are non-fatal — they leave the message's
@@ -30,9 +64,9 @@ pub fn apply_body(msg: &mut Message, db: &Connection) {
 }
 
 /// Format-specific hooks consumed by [`run_export`] and
-/// [`get_or_create_file_for`]. Implementers hold the shared per-export state
-/// (the file cache, the orphaned writer, the progress bar) and expose
-/// accessors so the shared loop can drive them.
+/// [`get_or_create_file_for`]. Implementers hold the [`&'a Config`] and an
+/// [`ExportState`], plus a small set of format-specific constants and
+/// header/footer hooks.
 pub trait MessageWriter<'a>: MessageFormatter<'a> {
     /// Format label substituted into the `"Exporting to … as <label>…"`
     /// status line (e.g. the file-extension name of the output format).
@@ -40,18 +74,14 @@ pub trait MessageWriter<'a>: MessageFormatter<'a> {
     /// Initial capacity for the per-message buffer reused across iterations.
     const BUFFER_CAPACITY: usize;
 
-    /// Return a reference to the config for this export, used to resolve conversation routes
-    /// and database access across the shared export code.
+    /// Access the per-export config (route resolution, database, options).
     fn config(&self) -> &'a Config;
 
-    /// Return a reference to the progress bar
-    fn pb(&self) -> &ExportProgress;
+    /// Borrow the shared per-export mutable state.
+    fn state(&self) -> &ExportState;
 
-    /// Return a mutable reference to the file cache, mapping chatroom names to open [`BufWriter<File>`]s.
-    fn files_mut(&mut self) -> &mut HashMap<String, BufWriter<File>>;
-
-    /// Return a mutable reference to the shared orphaned writer for messages without a conversation.
-    fn orphaned_mut(&mut self) -> &mut BufWriter<File>;
+    /// Mutably borrow the shared per-export mutable state.
+    fn state_mut(&mut self) -> &mut ExportState;
 
     /// Write a per-file header. Called once for the orphaned file at the
     /// start of [`run_export`] and once when each chat file is first opened
@@ -82,7 +112,8 @@ where
     match config.conversation(message) {
         Some((chatroom, _)) => {
             let filename = config.filename(chatroom);
-            match writer.files_mut().entry(filename) {
+            let state = writer.state_mut();
+            match state.files.entry(filename) {
                 Occupied(entry) => Ok(entry.into_mut()),
                 Vacant(entry) => {
                     let mut path = config.options.export_path.clone();
@@ -99,7 +130,7 @@ where
                 }
             }
         }
-        None => Ok(writer.orphaned_mut()),
+        None => Ok(&mut writer.state_mut().orphaned),
     }
 }
 
@@ -120,7 +151,7 @@ where
         W::LABEL,
     );
 
-    W::write_file_header(writer.orphaned_mut())?;
+    W::write_file_header(&mut writer.state_mut().orphaned)?;
 
     let mut current_message_row = -1;
     let mut current_message = 0;
@@ -128,7 +159,7 @@ where
         writer.config().data_source.db(),
         &writer.config().options.query_context,
     )?;
-    writer.pb().start(total_messages);
+    writer.state().pb.start(total_messages);
 
     let mut statement = Message::stream_rows(
         writer.config().data_source.db(),
@@ -171,18 +202,19 @@ where
         }
         current_message += 1;
         if current_message % 99 == 0 {
-            writer.pb().set_position(current_message);
+            writer.state().pb.set_position(current_message);
         }
     }
-    writer.pb().finish();
+    writer.state().pb.finish();
 
     if let Some(notice) = W::footer_notice() {
         eprintln!("{notice}");
     }
-    for file in writer.files_mut().values_mut() {
+    let state = writer.state_mut();
+    for file in state.files.values_mut() {
         W::write_file_footer(file)?;
     }
-    W::write_file_footer(writer.orphaned_mut())?;
+    W::write_file_footer(&mut state.orphaned)?;
 
     Ok(())
 }
