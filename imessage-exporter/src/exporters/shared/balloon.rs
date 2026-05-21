@@ -121,8 +121,8 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
 /// messages with [`YOU`] so the rendered string reads in first person.
 /// Returns the input unchanged if the sentinel isn't present.
 pub fn rewrite_fitness_receiver(text: String) -> String {
-    if text.starts_with(FITNESS_RECEIVER) {
-        text.replace(FITNESS_RECEIVER, YOU)
+    if let Some(rest) = text.strip_prefix(FITNESS_RECEIVER) {
+        format!("{YOU}{rest}")
     } else {
         text
     }
