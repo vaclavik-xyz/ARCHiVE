@@ -4,10 +4,13 @@ use imessage_database::{
         messages::{Message, models::GroupAction},
         table::ME,
     },
-    util::dates::format,
 };
 
-use crate::app::runtime::Config;
+use crate::{app::runtime::Config, exporters::shared::format::format_message_date};
+
+/// Display name used in `ParticipantAdded` / `ParticipantRemoved`
+/// announcements when the handle can't be resolved.
+pub const UNKNOWN_PARTICIPANT: &str = "someone";
 
 /// A format-agnostic view of an announcement message. `who` has had the
 /// `ME` → `self_name` (caller-supplied) substitution applied; `timestamp` is
@@ -18,12 +21,13 @@ use crate::app::runtime::Config;
 /// [`GroupAction::ParticipantAdded`] / [`GroupAction::ParticipantRemoved`] as
 /// a `handle_id` (`i32`), and resolving that to a display name requires the
 /// binary's [`Config`]. Pre-resolving here keeps the lookup out of the
-/// per-format templates. `None` for every other variant.
+/// per-format templates. Defaults to [`UNKNOWN_PARTICIPANT`] for every
+/// non-participant variant (templates only read it on the participant arms).
 pub struct ResolvedAnnouncement<'a> {
     pub timestamp: String,
     pub who: &'a str,
     pub announcement: Announcement<'a>,
-    pub participant_name: Option<&'a str>,
+    pub participant_name: &'a str,
 }
 
 /// Resolve a message's announcement into a [`ResolvedAnnouncement`].
@@ -42,16 +46,13 @@ pub fn resolve_announcement<'a>(
         who = config.options.custom_name.as_deref().unwrap_or(self_name);
     }
 
-    let timestamp = match msg.date(config.offset) {
-        Ok(d) => format(&d),
-        Err(why) => why.to_string(),
-    };
+    let timestamp = format_message_date(msg, config.offset);
 
     let participant_name = match &announcement {
         Announcement::GroupAction(
             GroupAction::ParticipantAdded(handle) | GroupAction::ParticipantRemoved(handle),
-        ) => Some(config.who(Some(*handle), false, &msg.destination_caller_id)),
-        _ => None,
+        ) => config.who(Some(*handle), false, &msg.destination_caller_id),
+        _ => UNKNOWN_PARTICIPANT,
     };
 
     Some(ResolvedAnnouncement {
@@ -103,7 +104,7 @@ mod tests {
             resolved.announcement,
             Announcement::AudioMessageKept
         ));
-        assert!(resolved.participant_name.is_none());
+        assert_eq!(resolved.participant_name, super::UNKNOWN_PARTICIPANT);
     }
 
     #[test]
@@ -145,7 +146,7 @@ mod tests {
             resolved.announcement,
             Announcement::GroupAction(GroupAction::ParticipantAdded(42))
         ));
-        assert_eq!(resolved.participant_name, Some("Alice"));
+        assert_eq!(resolved.participant_name, "Alice");
     }
 
     #[test]
@@ -165,7 +166,7 @@ mod tests {
             resolved.announcement,
             Announcement::GroupAction(GroupAction::ParticipantRemoved(7))
         ));
-        assert_eq!(resolved.participant_name, Some("Bob"));
+        assert_eq!(resolved.participant_name, "Bob");
     }
 
     #[test]
@@ -179,6 +180,6 @@ mod tests {
             resolved.announcement,
             Announcement::GroupAction(GroupAction::NameChange(_))
         ));
-        assert!(resolved.participant_name.is_none());
+        assert_eq!(resolved.participant_name, super::UNKNOWN_PARTICIPANT);
     }
 }
