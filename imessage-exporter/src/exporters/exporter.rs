@@ -33,6 +33,19 @@ use crate::app::{error::RuntimeError, runtime::Config};
 
 pub(crate) const ATTACHMENT_NO_FILENAME: &str = "Attachment missing name metadata!";
 
+/// Where a message sits in the rendered conversation hierarchy. Drives
+/// format-specific decoration: TXT prepends a 4-space prefix to every line
+/// of a `Reply`; HTML swaps the reply-anchor variant and suppresses the
+/// top-level anchor / trailing context marker.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RenderContext {
+    /// Standalone message in the export — emitted by [`run_export`].
+    TopLevel,
+    /// Reply nested inside its parent message's body — emitted from each
+    /// formatter's `build_replies` recursion.
+    Reply,
+}
+
 // MARK: Exporter
 /// Defines behavior for iterating over messages from the iMessage database and managing export files
 pub trait Exporter<'a> {
@@ -90,11 +103,12 @@ pub(crate) trait MessageFormatter<'a> {
     /// Format all [`TextAttributes`]s applied to a given set of text
     fn format_attributes(&'a self, text: &'a str, attributes: &'a [TextAttributes]) -> String;
     /// Render `message` directly into `out`. Permits reuse of a single buffer to
-    /// avoid allocating per-message.
+    /// avoid allocating per-message. `context` distinguishes the top-level
+    /// driver pass from a nested-reply recursion (see [`RenderContext`]).
     fn format_message_into(
         &self,
         message: &Message,
-        indent_size: usize,
+        context: RenderContext,
         out: &mut String,
     ) -> Result<(), TableError>;
 }
