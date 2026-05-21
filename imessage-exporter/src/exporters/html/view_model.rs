@@ -54,7 +54,7 @@ pub(super) struct UrlVM<'a> {
     pub wrapper_url: Option<&'a str>,
     /// Resolved label: `site_name` falling back to URL then `msg.text`.
     pub name: Option<&'a str>,
-    pub images: Vec<&'a str>,
+    pub images: &'a [&'a str],
     pub lazy: bool,
     pub title: Option<&'a str>,
     pub summary: Option<&'a str>,
@@ -189,32 +189,33 @@ pub(super) struct TapbackVM<'a> {
 
 pub(super) enum TapbackKind<'a> {
     /// Standard reaction
-    Reaction { tapback: Tapback<'a>, who: String },
+    Reaction { tapback: Tapback<'a>, who: &'a str },
     /// Sticker tapback whose attachment was found and rendered.
     Sticker {
         /// Pre-rendered sticker HTML (already escaped).
         html: String,
-        who: String,
+        who: &'a str,
     },
     /// Sticker tapback whose attachment is missing.
-    StickerMissing { who: String },
+    StickerMissing { who: &'a str },
 }
 
 #[derive(Template)]
 #[template(path = "edited.html")]
-pub(super) struct EditedVM {
-    pub kind: EditedKind,
+pub(super) struct EditedVM<'a> {
+    pub kind: EditedKind<'a>,
 }
 
-pub(super) enum EditedKind {
+pub(super) enum EditedKind<'a> {
     Edited { rows: Vec<EditedRow> },
-    UnsentWithDiff { who: String, diff: String },
-    Unsent { who: String },
+    UnsentWithDiff { who: &'a str, diff: String },
+    Unsent { who: &'a str },
 }
 
 pub(super) struct EditedRow {
-    /// `"tbody"` for non-final edits, `"tfoot"` for the last edit.
-    pub tag: &'static str,
+    /// `true` for the final row in the history; the template emits `<tfoot>`
+    /// instead of `<tbody>` so it can carry distinct CSS.
+    pub is_last: bool,
     pub timestamp: String,
     /// Pre-rendered HTML for the edited text (text-effect output or escaped plain text).
     pub text: String,
@@ -232,8 +233,9 @@ pub(super) enum AnnouncementBody<'a> {
         who: &'a str,
         announcement: Announcement<'a>,
         /// Resolved display name for the participant in `ParticipantAdded`
-        /// / `ParticipantRemoved`. `None` for every other variant.
-        participant_name: Option<&'a str>,
+        /// / `ParticipantRemoved`. Defaults to `"someone"` for non-participant
+        /// variants (templates only read this on the participant arms).
+        participant_name: &'a str,
     },
     Unknown,
 }
