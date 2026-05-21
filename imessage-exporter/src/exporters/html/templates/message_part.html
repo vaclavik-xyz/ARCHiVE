@@ -16,5 +16,6 @@
     {% when PartBody::Retracted { html } -%}<span class="unsent">{{ html|safe }}</span>
     {% endmatch -%}
 </div>
-{% if let Some(expressive) = expressive %}{{ expressive|safe }}{% endif %}{% if let Some(tapbacks) = tapbacks %}{{
+{% if let Some(expressive) = expressive %}<span class="expressive">{{ expressive }}</span>
+{% endif %}{% if let Some(tapbacks) = tapbacks %}{{
 tapbacks|safe }}{% endif %}{% if let Some(replies) = replies %}{{ replies|safe }}{% endif %}

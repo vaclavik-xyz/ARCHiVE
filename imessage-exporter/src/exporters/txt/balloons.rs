@@ -184,11 +184,8 @@ impl BalloonFormatter for TXT<'_> {
         _: &mut Vec<Attachment>,
         _: &Message,
     ) -> String {
-        let name = balloon.app_name.unwrap_or(bundle_id);
-        let has_label = !name.is_empty();
         render_trimmed(&GenericAppVM {
-            name,
-            has_label,
+            name: balloon.app_name.unwrap_or(bundle_id),
             title: balloon.title,
             subtitle: balloon.subtitle,
             caption: balloon.caption,

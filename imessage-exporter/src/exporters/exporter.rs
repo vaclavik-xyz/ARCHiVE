@@ -74,8 +74,6 @@ pub(crate) trait MessageFormatter<'a> {
     ) -> Result<String, MessageError>;
     /// Format a tapback (displayed under a message)
     fn format_tapback(&self, msg: &Message) -> Result<String, TableError>;
-    /// Format an expressive message
-    fn format_expressive(&self, msg: &'a Message) -> &'a str;
     /// Format an announcement message
     fn format_announcement(&self, msg: &Message) -> String;
     /// Format a `SharePlay` message

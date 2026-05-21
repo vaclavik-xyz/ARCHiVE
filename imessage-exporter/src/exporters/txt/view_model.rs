@@ -1,7 +1,10 @@
 use askama::Template;
 
 use imessage_database::{
-    message_types::variants::{Announcement, Tapback},
+    message_types::{
+        expressives::Expressive,
+        variants::{Announcement, Tapback},
+    },
     tables::messages::models::GroupAction,
 };
 
@@ -66,9 +69,6 @@ pub(super) struct PollOptionVM<'a> {
 pub(super) struct GenericAppVM<'a> {
     /// `app_name` falling back to `bundle_id`.
     pub name: &'a str,
-    /// True when `name` is non-empty (matches the legacy `if !out_s.is_empty()`
-    /// guard around the `" message:"` suffix).
-    pub has_label: bool,
     pub title: Option<&'a str>,
     pub subtitle: Option<&'a str>,
     pub caption: Option<&'a str>,
@@ -234,8 +234,7 @@ pub(super) struct MessageVM<'a> {
 pub(super) struct MessagePartVM<'a> {
     pub indent: &'a str,
     pub body: PartBody,
-    /// Single-line expressive marker (e.g. `"🌧️ Background Rain"`).
-    pub expressive: Option<&'a str>,
+    pub expressive: Option<Expressive<'a>>,
     pub tapbacks: Option<TapbacksVM<'a>>,
     pub replies: Option<RepliesVM>,
 }

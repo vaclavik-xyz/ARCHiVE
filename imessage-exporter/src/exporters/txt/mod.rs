@@ -12,7 +12,7 @@ use crate::{
             balloon::dispatch_app_balloon,
             driver::{MessageWriter, get_or_create_file_for, run_export},
             edited::{EditDiff, NormalizedEdit, normalize_edited},
-            format::{format_expressive, message_time},
+            format::message_time,
         },
     },
 };
@@ -21,6 +21,7 @@ use imessage_database::{
     error::{message::MessageError, table::TableError},
     message_types::{
         edited::EditedMessage,
+        expressives::Expressive,
         sticker::StickerDecoration,
         variants::{Tapback, TapbackAction, Variant},
     },
@@ -239,10 +240,6 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         Ok(TapbackVM { kind }.render().unwrap_or_default())
     }
 
-    fn format_expressive(&self, msg: &'a Message) -> &'a str {
-        format_expressive(msg)
-    }
-
     fn format_announcement(&self, msg: &Message) -> String {
         let Some(resolved) = resolve_announcement(msg, self.config, YOU) else {
             return AnnouncementVM {
@@ -341,10 +338,6 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         formatted_text
     }
 
-    /// Render `message` directly into `out`. The trait's `format_message`
-    /// wraps this, allocating a fresh `String` per call; hot callers
-    /// (`run_export`, `build_replies`) reuse a single buffer instead so
-    /// each message doesn't pay for a heap allocation.
     fn format_message_into(
         &self,
         message: &Message,
@@ -368,11 +361,9 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
             parts.push(MessagePartVM {
                 indent: &indent,
                 body,
-                expressive: if message.expressive_send_style_id.is_some() {
-                    let e = self.format_expressive(message);
-                    if e.is_empty() { None } else { Some(e) }
-                } else {
-                    None
+                expressive: match message.get_expressive() {
+                    Expressive::None => None,
+                    other => Some(other),
                 },
                 tapbacks: self.build_tapbacks(message, idx, &indent)?,
                 replies: self.build_replies(replies_map.get_mut(&idx))?,
@@ -672,6 +663,31 @@ mod tests {
 
         let actual = format_message(&exporter, &message, 0).unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nHello world\n\n";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn expressive_renders_via_display_impl() {
+        // Expressive's Display impl is invoked directly by the template;
+        // `message_part.txt` now contains no expressive-specific logic.
+        let options = Options::fake_options(ExportType::Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        message.date = 674526582885055488;
+        message.text = Some("Hello world".to_string());
+        message.is_from_me = true;
+        message.chat_id = Some(0);
+        message.expressive_send_style_id =
+            Some("com.apple.messages.effect.CKConfettiEffect".to_string());
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
+
+        let actual = format_message(&exporter, &message, 0).unwrap();
+        let expected = "May 17, 2022  5:29:42 PM\nMe\nHello world\nSent with Confetti\n\n";
 
         assert_eq!(actual, expected);
     }
@@ -1774,6 +1790,97 @@ mod tests {
                 "expected 4-space indent on every non-blank line, got {leading} on: {line:?}\nfull output:\n{out}"
             );
         }
+    }
+
+    #[test]
+    fn message_part_indents_every_line_of_multi_line_text() {
+        // Locks in the `text.lines()` iteration in message_part.txt: a
+        // PartBody::Line carrying multi-line text must emit one prefixed line
+        // per source line, not just prefix the first.
+        use crate::exporters::txt::view_model::{MessagePartVM, PartBody};
+        use askama::Template;
+
+        let vm = MessagePartVM {
+            indent: "    ",
+            body: PartBody::Line {
+                text: "line1\nline2\nline3".to_string(),
+            },
+            expressive: None,
+            tapbacks: None,
+            replies: None,
+        };
+
+        let rendered = vm.render().unwrap();
+        assert_eq!(rendered, "    line1\n    line2\n    line3\n");
+    }
+
+    #[test]
+    fn tapbacks_render_with_outer_indent_and_inner_inset() {
+        // The 4-space inset on each tapback line is intentional (visual cue
+        // for what's being reacted to). In a reply context the outer indent
+        // stacks on top: "Tapbacks:" at 4 spaces, each tapback at 8.
+        use crate::exporters::txt::view_model::TapbacksVM;
+        use askama::Template;
+
+        let vm = TapbacksVM {
+            indent: "    ",
+            tapbacks: vec!["Loved by Me".to_string(), "Liked by Sample".to_string()],
+        };
+
+        let rendered = vm.render().unwrap();
+        assert_eq!(
+            rendered,
+            "    Tapbacks:\n        Loved by Me\n        Liked by Sample\n",
+        );
+    }
+
+    #[test]
+    fn edited_history_renders_unindented_so_message_part_can_apply_indent() {
+        // format_edited returns rows separated by `\n` with no indent baked
+        // in. message_part.txt's text.lines() loop is what indents them.
+        // This test pins the unindented contract.
+        use crate::exporters::txt::view_model::{EditedKind, EditedRow, EditedVM};
+        use askama::Template;
+
+        let vm = EditedVM {
+            kind: EditedKind::Edited {
+                rows: vec![
+                    EditedRow {
+                        timestamp_prefix: "5:29:42 PM ".to_string(),
+                        text: "first",
+                    },
+                    EditedRow {
+                        timestamp_prefix: "Edited 30 seconds later: ".to_string(),
+                        text: "second",
+                    },
+                ],
+            },
+        };
+
+        let rendered = vm.render().unwrap();
+        assert_eq!(
+            rendered,
+            "5:29:42 PM first\nEdited 30 seconds later: second\n",
+        );
+
+        // And when this multi-line output is wrapped in PartBody::Line and
+        // run through message_part.txt at indent="    ", every line should
+        // pick up the same 4-space prefix.
+        use crate::exporters::txt::view_model::{MessagePartVM, PartBody};
+        let part = MessagePartVM {
+            indent: "    ",
+            body: PartBody::Line {
+                text: rendered.trim_end_matches('\n').to_string(),
+            },
+            expressive: None,
+            tapbacks: None,
+            replies: None,
+        };
+        let full = part.render().unwrap();
+        assert_eq!(
+            full,
+            "    5:29:42 PM first\n    Edited 30 seconds later: second\n",
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@ use askama::Template;
 
 use imessage_database::{
     message_types::{
+        expressives::Expressive,
         sticker::StickerDecoration,
         variants::{Announcement, Tapback},
     },
@@ -258,7 +259,7 @@ pub(super) struct MessageVM<'a> {
     pub shared_location: Option<&'a str>,
     /// Rendered directly into the outer buffer via [`MessagePartVM`]'s `Display`
     /// impl, avoiding a per-part `String` allocation.
-    pub parts: Vec<MessagePartVM>,
+    pub parts: Vec<MessagePartVM<'a>>,
     pub trailing_reply_context: bool,
 }
 
@@ -271,10 +272,9 @@ pub(super) enum ReplyAnchorKind {
 
 #[derive(Template)]
 #[template(path = "message_part.html")]
-pub(super) struct MessagePartVM {
+pub(super) struct MessagePartVM<'a> {
     pub body: PartBody,
-    /// Pre-rendered expressive span (already includes its trailing newline).
-    pub expressive: Option<String>,
+    pub expressive: Option<Expressive<'a>>,
     /// Pre-rendered tapbacks block (already includes its trailing newline).
     pub tapbacks: Option<String>,
     /// Pre-rendered replies block (already includes its trailing newline).

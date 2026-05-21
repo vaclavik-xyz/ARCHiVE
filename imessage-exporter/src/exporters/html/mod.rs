@@ -21,7 +21,7 @@ use crate::{
             balloon::dispatch_app_balloon,
             driver::{MessageWriter, get_or_create_file_for, run_export},
             edited::{EditDiff, NormalizedEdit, normalize_edited},
-            format::{format_expressive, message_time},
+            format::message_time,
         },
     },
 };
@@ -30,6 +30,7 @@ use imessage_database::{
     error::{message::MessageError, table::TableError},
     message_types::{
         edited::EditedMessage,
+        expressives::Expressive,
         text_effects::TextEffect,
         variants::{Announcement, Tapback, TapbackAction, Variant},
     },
@@ -293,10 +294,6 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         Ok(TapbackVM { kind }.render().unwrap_or_default())
     }
 
-    fn format_expressive(&self, msg: &'a Message) -> &'a str {
-        format_expressive(msg)
-    }
-
     fn format_announcement(&self, msg: &Message) -> String {
         let Some(resolved) = resolve_announcement(msg, self.config, YOU) else {
             let inner = AnnouncementInnerVM {
@@ -448,10 +445,6 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         result
     }
 
-    /// Render `message` directly into `out`. The trait's `format_message`
-    /// wraps this, allocating a fresh `String` per call; hot callers
-    /// (`run_export`, `build_replies`) reuse a single buffer instead so
-    /// each message doesn't pay for a heap allocation.
     fn format_message_into(
         &self,
         message: &Message,
@@ -474,7 +467,10 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
 
             parts.push(MessagePartVM {
                 body,
-                expressive: self.build_expressive(message),
+                expressive: match message.get_expressive() {
+                    Expressive::None => None,
+                    other => Some(other),
+                },
                 tapbacks: self.build_tapbacks(message, idx)?,
                 replies: self.build_replies(replies_map.get_mut(&idx))?,
             });
@@ -659,16 +655,6 @@ impl HTML<'_> {
                 },
                 None => PartBody::Empty,
             },
-        }
-    }
-
-    fn build_expressive(&self, message: &Message) -> Option<String> {
-        message.expressive_send_style_id.as_ref()?;
-        let expressive = format_expressive(message);
-        if expressive.is_empty() {
-            None
-        } else {
-            Some(format!("<span class=\"expressive\">{expressive}</span>\n"))
         }
     }
 
@@ -1297,6 +1283,34 @@ mod tests {
         assert!(
             actual.contains("&lt;script&gt;"),
             "expected escaped form, got: {actual}"
+        );
+    }
+
+    #[test]
+    fn expressive_renders_via_display_impl() {
+        // The expressive `<span class="expressive">` wrapper now lives in
+        // message_part.html; the Display impl on Expressive produces the
+        // inner label. Tests pin both pieces against a real render.
+        let options = Options::fake_options(ExportType::Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        message.date = 674526582885055488;
+        message.text = Some("Hello world".to_string());
+        message.is_from_me = true;
+        message.chat_id = Some(0);
+        message.expressive_send_style_id =
+            Some("com.apple.messages.effect.CKConfettiEffect".to_string());
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
+
+        let actual = format_message(&exporter, &message, 0).unwrap();
+
+        assert!(
+            actual.contains("<span class=\"expressive\">Sent with Confetti</span>"),
+            "expected expressive span, got: {actual}"
         );
     }
 
@@ -2364,8 +2378,7 @@ mod balloon_format_tests {
             placeholder: false,
         };
 
-        let expected =
-            exporter.format_url(&Config::fake_message(), &balloon);
+        let expected = exporter.format_url(&Config::fake_message(), &balloon);
         let actual = "<a href=\"url\"><div class=\"app_header\"><img src=\"images\"  loading=\"lazy\" \n            onerror=\"this.style.display='none'\"><div class=\"name\">site_name</div></div><div class=\"app_footer\"><div class=\"caption\">title</div><div class=\"subcaption\">summary</div></div></a>";
 
         assert_eq!(expected, actual);
@@ -2391,8 +2404,7 @@ mod balloon_format_tests {
             placeholder: false,
         };
 
-        let expected =
-            exporter.format_url(&Config::fake_message(), &balloon);
+        let expected = exporter.format_url(&Config::fake_message(), &balloon);
         let actual = "<a href=\"url\"><div class=\"app_header\"><img src=\"images\" \n            onerror=\"this.style.display='none'\"><div class=\"name\">site_name</div></div><div class=\"app_footer\"><div class=\"caption\">title</div><div class=\"subcaption\">summary</div></div></a>";
 
         assert_eq!(expected, actual);
@@ -2987,8 +2999,7 @@ mod balloon_format_tests {
 
         // No images → no <img>; no site_name → name falls back to balloon.url.
         // No title or summary → <div class="app_footer"> block is dropped.
-        let actual =
-            exporter.format_url(&Config::fake_message(), &balloon);
+        let actual = exporter.format_url(&Config::fake_message(), &balloon);
         let expected = "<a href=\"https://example.com\"><div class=\"app_header\"><div class=\"name\">https://example.com</div></div></a>";
 
         assert_eq!(actual, expected);

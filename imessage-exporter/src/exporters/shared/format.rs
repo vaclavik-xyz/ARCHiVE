@@ -1,40 +1,11 @@
 use askama::Template;
 
 use imessage_database::{
-    message_types::expressives::{BubbleEffect, Expressive, ScreenEffect},
     tables::messages::Message,
     util::dates::{TIMESTAMP_FACTOR, format, get_local_time},
 };
 
 use crate::app::runtime::Config;
-
-// MARK: Expressive
-
-/// Format the expressive send style for a message. This is identical
-/// across all export formats.
-pub fn format_expressive(msg: &Message) -> &str {
-    match msg.get_expressive() {
-        Expressive::Screen(effect) => match effect {
-            ScreenEffect::Confetti => "Sent with Confetti",
-            ScreenEffect::Echo => "Sent with Echo",
-            ScreenEffect::Fireworks => "Sent with Fireworks",
-            ScreenEffect::Balloons => "Sent with Balloons",
-            ScreenEffect::Heart => "Sent with Heart",
-            ScreenEffect::Lasers => "Sent with Lasers",
-            ScreenEffect::ShootingStar => "Sent with Shooting Star",
-            ScreenEffect::Sparkles => "Sent with Sparkles",
-            ScreenEffect::Spotlight => "Sent with Spotlight",
-        },
-        Expressive::Bubble(effect) => match effect {
-            BubbleEffect::Slam => "Sent with Slam",
-            BubbleEffect::Loud => "Sent with Loud",
-            BubbleEffect::Gentle => "Sent with Gentle",
-            BubbleEffect::InvisibleInk => "Sent with Invisible Ink",
-        },
-        Expressive::Unknown(effect) => effect,
-        Expressive::None => "",
-    }
-}
 
 // MARK: Time
 
@@ -87,97 +58,13 @@ pub fn format_check_in_caption(date_str: &str, prefix: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_expressive, message_time};
+    use super::message_time;
     use crate::{Config, Options, app::export_type::ExportType};
 
     fn make_config_with_custom_name(custom_name: Option<&str>) -> Config {
         let mut options = Options::fake_options(ExportType::Html);
         options.custom_name = custom_name.map(str::to_string);
         Config::fake_app(options)
-    }
-
-    // MARK: format_expressive
-
-    #[test]
-    fn format_expressive_returns_empty_when_none() {
-        let mut msg = Config::fake_message();
-        msg.expressive_send_style_id = None;
-        assert_eq!(format_expressive(&msg), "");
-    }
-
-    #[test]
-    fn format_expressive_screen_effects() {
-        let cases = [
-            (
-                "com.apple.messages.effect.CKConfettiEffect",
-                "Sent with Confetti",
-            ),
-            ("com.apple.messages.effect.CKEchoEffect", "Sent with Echo"),
-            (
-                "com.apple.messages.effect.CKFireworksEffect",
-                "Sent with Fireworks",
-            ),
-            (
-                "com.apple.messages.effect.CKHappyBirthdayEffect",
-                "Sent with Balloons",
-            ),
-            ("com.apple.messages.effect.CKHeartEffect", "Sent with Heart"),
-            (
-                "com.apple.messages.effect.CKLasersEffect",
-                "Sent with Lasers",
-            ),
-            (
-                "com.apple.messages.effect.CKShootingStarEffect",
-                "Sent with Shooting Star",
-            ),
-            (
-                "com.apple.messages.effect.CKSparklesEffect",
-                "Sent with Sparkles",
-            ),
-            (
-                "com.apple.messages.effect.CKSpotlightEffect",
-                "Sent with Spotlight",
-            ),
-        ];
-        for (style_id, expected) in cases {
-            let mut msg = Config::fake_message();
-            msg.expressive_send_style_id = Some(style_id.to_string());
-            assert_eq!(format_expressive(&msg), expected, "for {style_id}");
-        }
-    }
-
-    #[test]
-    fn format_expressive_bubble_effects() {
-        let cases = [
-            (
-                "com.apple.MobileSMS.expressivesend.gentle",
-                "Sent with Gentle",
-            ),
-            (
-                "com.apple.MobileSMS.expressivesend.impact",
-                "Sent with Slam",
-            ),
-            (
-                "com.apple.MobileSMS.expressivesend.invisibleink",
-                "Sent with Invisible Ink",
-            ),
-            ("com.apple.MobileSMS.expressivesend.loud", "Sent with Loud"),
-        ];
-        for (style_id, expected) in cases {
-            let mut msg = Config::fake_message();
-            msg.expressive_send_style_id = Some(style_id.to_string());
-            assert_eq!(format_expressive(&msg), expected, "for {style_id}");
-        }
-    }
-
-    #[test]
-    fn format_expressive_unknown_returns_raw_id() {
-        let mut msg = Config::fake_message();
-        msg.expressive_send_style_id = Some("com.apple.messages.effect.NotARealEffect".to_string());
-        assert_eq!(
-            format_expressive(&msg),
-            "com.apple.messages.effect.NotARealEffect"
-        );
     }
 
     // MARK: message_time
