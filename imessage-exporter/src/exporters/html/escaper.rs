@@ -2,14 +2,13 @@ use std::fmt;
 
 use askama::filters::Escaper;
 
-/// Mirrors [`crate::app::sanitizers::sanitize_html`] so Askama-rendered output
-/// stays byte-equivalent to the legacy `HtmlBuilder.text()` escaping (named
-/// entities plus a non-breaking-space replacement).
+/// Askama escaper for `.html` templates. Escapes the six named entities plus
+/// a non-breaking-space replacement.
 ///
 /// Bulk-writes runs of safe bytes between escape positions so a clean string
 /// costs one `write_str`, matching the pattern in `askama::filters::Html`.
 #[derive(Debug, Clone, Copy, Default)]
-pub(super) struct ChatEscaper;
+pub(crate) struct ChatEscaper;
 
 impl Escaper for ChatEscaper {
     fn write_escaped_str<W: fmt::Write>(&self, mut dest: W, string: &str) -> fmt::Result {
@@ -53,7 +52,6 @@ mod tests {
     use askama::filters::Escaper;
 
     use super::ChatEscaper;
-    use crate::app::sanitizers::sanitize_html;
 
     fn escape(s: &str) -> String {
         let mut out = String::new();
@@ -149,48 +147,5 @@ mod tests {
         assert_eq!(escape("\u{a1}"), "\u{a1}");
         assert_eq!(escape("\u{a2}"), "\u{a2}");
         assert_eq!(escape("\u{ff}"), "\u{ff}");
-    }
-
-    #[test]
-    fn matches_sanitize_html_on_known_inputs() {
-        let cases: &[&str] = &[
-            "",
-            "Hello world",
-            "<p>Hello, world > HTML</p>",
-            "`imessage-exporter -f txt`",
-            "<>&\"`'",
-            "<div>Hello &amp; world</div>",
-            "<div>Hello\u{a0}&amp;\u{a0}world</div>",
-            "\"'nested quotes'\"",
-            "Hello 🌍 <world>",
-            "&lt; already escaped &gt;",
-            "<script>alert('xss')</script>",
-            "attr=\"value\"",
-            "``nested backticks``",
-            "\"quote\"",
-            "'quote'",
-            "Hello 🌍",
-            "привет",
-            "&amp;",
-            "&lt;",
-            "<script>alert()</script>",
-            "``code``",
-            "class=\"test\"",
-            "\u{a0}",
-            "\u{a0}\u{a0}",
-            "<\u{a0}>",
-            "leading\u{a0}",
-            "\u{a0}trailing",
-            "no escapes here",
-            "&single&",
-            "<>",
-        ];
-        for case in cases {
-            assert_eq!(
-                escape(case),
-                sanitize_html(case).into_owned(),
-                "ChatEscaper diverged from sanitize_html on input {case:?}"
-            );
-        }
     }
 }

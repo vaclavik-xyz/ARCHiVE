@@ -44,7 +44,7 @@ use imessage_database::{
 };
 
 mod balloons;
-mod escaper;
+pub(crate) mod escaper;
 mod text_effects;
 mod view_model;
 
