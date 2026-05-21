@@ -16,17 +16,12 @@ use crate::{app::runtime::Config, exporters::exporter::BalloonFormatter};
 /// Drive the App-balloon decision tree: pick the right payload source
 /// (raw vs keyed-archiver), parse it, and dispatch to the matching
 /// [`BalloonFormatter`] method.
-pub fn dispatch_app_balloon<T, F>(
+pub fn dispatch_app_balloon<F: BalloonFormatter>(
     formatter: &F,
     message: &Message,
     attachments: &mut Vec<Attachment>,
-    context: T,
     config: &Config,
-) -> Result<String, MessageError>
-where
-    T: Copy,
-    F: BalloonFormatter<T>,
-{
+) -> Result<String, MessageError> {
     // First, determine if is a balloon message; if it is not, bail out early
     let Variant::App(balloon) = message.variant() else {
         return Err(MessageError::PlistParseError(
@@ -39,7 +34,7 @@ where
         && let Some(payload) = message.raw_payload_data(config.data_source.db())
     {
         return match HandwrittenMessage::from_payload(&payload) {
-            Ok(bubble) => Ok(formatter.format_handwriting(message, &bubble, context)),
+            Ok(bubble) => Ok(formatter.format_handwriting(message, &bubble)),
             Err(why) => Err(MessageError::PlistParseError(
                 PlistParseError::HandwritingError(why),
             )),
@@ -51,7 +46,7 @@ where
         && let Some(payload) = message.raw_payload_data(config.data_source.db())
     {
         return match digital_touch::from_payload(&payload) {
-            Some(bubble) => Ok(formatter.format_digital_touch(message, &bubble, context)),
+            Some(bubble) => Ok(formatter.format_digital_touch(message, &bubble)),
             None => Err(MessageError::PlistParseError(
                 PlistParseError::DigitalTouchError,
             )),
@@ -62,7 +57,7 @@ where
     if message.is_poll() {
         let poll = message.as_poll(config.data_source.db())?;
         return match poll {
-            Some(poll) => Ok(formatter.format_poll(&poll, context)),
+            Some(poll) => Ok(formatter.format_poll(&poll)),
             None => Err(MessageError::PlistParseError(PlistParseError::PollError)),
         };
     }
@@ -72,7 +67,7 @@ where
         // URL message may omit the relevant payload. Defensively we reuse the normal
         // URL renderer with an empty balloon.
         if message.is_url() && message.text.is_some() {
-            return Ok(formatter.format_url(message, &URLMessage::default(), context));
+            return Ok(formatter.format_url(message, &URLMessage::default()));
         }
         return Err(MessageError::PlistParseError(PlistParseError::NoPayload));
     };
@@ -82,23 +77,23 @@ where
     let rendered = if message.is_url() {
         let bubble = URLMessage::get_url_message_override(&parsed)?;
         match bubble {
-            URLOverride::Normal(b) => formatter.format_url(message, &b, context),
-            URLOverride::AppleMusic(b) => formatter.format_music(&b, context),
-            URLOverride::Collaboration(b) => formatter.format_collaboration(&b, context),
-            URLOverride::AppStore(b) => formatter.format_app_store(&b, context),
-            URLOverride::SharedPlacemark(b) => formatter.format_placemark(&b, context),
+            URLOverride::Normal(b) => formatter.format_url(message, &b),
+            URLOverride::AppleMusic(b) => formatter.format_music(&b),
+            URLOverride::Collaboration(b) => formatter.format_collaboration(&b),
+            URLOverride::AppStore(b) => formatter.format_app_store(&b),
+            URLOverride::SharedPlacemark(b) => formatter.format_placemark(&b),
         }
     } else {
         match AppMessage::from_map(&parsed) {
             Ok(bubble) => match balloon {
                 CustomBalloon::Application(bundle_id) => {
-                    formatter.format_generic_app(&bubble, bundle_id, attachments, context)
+                    formatter.format_generic_app(&bubble, bundle_id, attachments, message)
                 }
-                CustomBalloon::ApplePay => formatter.format_apple_pay(&bubble, context),
-                CustomBalloon::Fitness => formatter.format_fitness(&bubble, context),
-                CustomBalloon::Slideshow => formatter.format_slideshow(&bubble, context),
-                CustomBalloon::CheckIn => formatter.format_check_in(&bubble, context),
-                CustomBalloon::FindMy => formatter.format_find_my(&bubble, context),
+                CustomBalloon::ApplePay => formatter.format_apple_pay(&bubble),
+                CustomBalloon::Fitness => formatter.format_fitness(&bubble),
+                CustomBalloon::Slideshow => formatter.format_slideshow(&bubble),
+                CustomBalloon::CheckIn => formatter.format_check_in(&bubble),
+                CustomBalloon::FindMy => formatter.format_find_my(&bubble),
                 CustomBalloon::Polls
                 | CustomBalloon::Handwriting
                 | CustomBalloon::DigitalTouch

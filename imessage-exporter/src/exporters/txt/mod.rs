@@ -206,9 +206,8 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         &self,
         message: &'a Message,
         attachments: &mut Vec<Attachment>,
-        indent: &str,
     ) -> Result<String, MessageError> {
-        dispatch_app_balloon(self, message, attachments, indent, self.config)
+        dispatch_app_balloon(self, message, attachments, self.config)
     }
 
     fn format_tapback(&self, msg: &Message) -> Result<String, TableError> {
@@ -284,7 +283,6 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         msg: &'a Message,
         edited_message: &'a EditedMessage,
         message_part_idx: usize,
-        indent: &str,
     ) -> Option<String> {
         let normalized = normalize_edited(msg, edited_message, message_part_idx, self.config)?;
 
@@ -321,7 +319,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
             }
         };
 
-        Some(EditedVM { indent, kind }.render().unwrap_or_default())
+        Some(EditedVM { kind }.render().unwrap_or_default())
     }
 
     fn format_attributes(&'a self, text: &'a str, attributes: &'a [TextAttributes]) -> String {
@@ -441,10 +439,7 @@ impl TXT<'_> {
                 if message.is_part_edited(idx) {
                     return match &message.edited_parts {
                         Some(edited_parts) => {
-                            // Pass empty indent: message_part.txt indents every
-                            // line of the result, so balloon/edit helpers must
-                            // return unindented content.
-                            match self.format_edited(message, edited_parts, idx, "") {
+                            match self.format_edited(message, edited_parts, idx) {
                                 Some(edited) => PartBody::Line { text: edited },
                                 None => PartBody::Empty,
                             }
@@ -496,14 +491,14 @@ impl TXT<'_> {
                 *attachment_index += 1;
                 body
             }
-            BubbleComponent::App => match self.format_app(message, attachments, "") {
+            BubbleComponent::App => match self.format_app(message, attachments) {
                 Ok(ok_bubble) => PartBody::Line { text: ok_bubble },
                 Err(why) => PartBody::Line {
                     text: format!("Unable to format app message: {why}"),
                 },
             },
             BubbleComponent::Retracted => match &message.edited_parts {
-                Some(edited_parts) => match self.format_edited(message, edited_parts, idx, "") {
+                Some(edited_parts) => match self.format_edited(message, edited_parts, idx) {
                     Some(edited) => PartBody::Line { text: edited },
                     None => PartBody::Empty,
                 },
@@ -1818,7 +1813,7 @@ mod balloon_format_tests {
         app::AppMessage,
         app_store::AppStoreMessage,
         collaboration::CollaborationMessage,
-        digital_touch::{DigitalTouch, from_payload as digital_touch_from_payload},
+        digital_touch::DigitalTouch,
         handwriting::HandwrittenMessage,
         music::MusicMessage,
         placemark::{Placemark, PlacemarkMessage},
@@ -1845,7 +1840,7 @@ mod balloon_format_tests {
             placeholder: false,
         };
 
-        let expected = exporter.format_url(&Config::fake_message(), &balloon, "");
+        let expected = exporter.format_url(&Config::fake_message(), &balloon);
         let actual = "url\ntitle\nsummary";
 
         assert_eq!(expected, actual);
@@ -1867,7 +1862,7 @@ mod balloon_format_tests {
             lyrics: None,
         };
 
-        let expected = exporter.format_music(&balloon, "");
+        let expected = exporter.format_music(&balloon);
         let actual = "track_name\nalbum\nartist\nurl";
 
         assert_eq!(expected, actual);
@@ -1889,7 +1884,7 @@ mod balloon_format_tests {
             lyrics: Some(vec!["a", "b"]),
         };
 
-        let expected = exporter.format_music(&balloon, "");
+        let expected = exporter.format_music(&balloon);
         let actual = "Lyrics:\na\nb\n\n\ntrack_name\nalbum\nartist\nurl";
 
         assert_eq!(expected, actual);
@@ -1911,7 +1906,7 @@ mod balloon_format_tests {
             app_name: Some("app_name"),
         };
 
-        let expected = exporter.format_collaboration(&balloon, "");
+        let expected = exporter.format_collaboration(&balloon);
         let actual = "app_name message:\ntitle\nurl";
 
         assert_eq!(expected, actual);
@@ -1937,7 +1932,7 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_apple_pay(&balloon, "");
+        let expected = exporter.format_apple_pay(&balloon);
         let actual = "caption transaction: ldtext";
 
         assert_eq!(expected, actual);
@@ -1963,7 +1958,7 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_fitness(&balloon, "");
+        let expected = exporter.format_fitness(&balloon);
         let actual = "app_name message: ldtext";
 
         assert_eq!(expected, actual);
@@ -1989,7 +1984,7 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_slideshow(&balloon, "");
+        let expected = exporter.format_slideshow(&balloon);
         let actual = "Photo album: ldtext url";
 
         assert_eq!(expected, actual);
@@ -2015,7 +2010,7 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_find_my(&balloon, "");
+        let expected = exporter.format_find_my(&balloon);
         let actual = "app_name:  ldtext";
 
         assert_eq!(expected, actual);
@@ -2041,7 +2036,7 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Timer Started"),
         };
 
-        let expected = exporter.format_check_in(&balloon, "");
+        let expected = exporter.format_check_in(&balloon);
         let actual = "Check\u{a0}In: Timer Started\nChecked in at Oct 14, 2023  1:54:29 PM";
 
         assert_eq!(expected, actual);
@@ -2067,7 +2062,7 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Has not checked in when expected, location shared"),
         };
 
-        let expected = exporter.format_check_in(&balloon, "");
+        let expected = exporter.format_check_in(&balloon);
         let actual = "Check\u{a0}In: Has not checked in when expected, location shared\nChecked in at Oct 14, 2023  1:54:29 PM";
 
         assert_eq!(expected, actual);
@@ -2093,7 +2088,7 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Fake Location"),
         };
 
-        let expected = exporter.format_check_in(&balloon, "");
+        let expected = exporter.format_check_in(&balloon);
         let actual = "Check\u{a0}In: Fake Location\nChecked in at Oct 14, 2023  1:54:29 PM";
 
         assert_eq!(expected, actual);
@@ -2115,57 +2110,8 @@ mod balloon_format_tests {
             genre: Some("genre"),
         };
 
-        let expected = exporter.format_app_store(&balloon, "");
+        let expected = exporter.format_app_store(&balloon);
         let actual = "app_name\ndescription\nplatform\ngenre\nurl";
-
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn can_format_txt_app_store_nested() {
-        // Locks in single-indent on every line when called with a non-empty
-        // indent (e.g. inside a reply). The legacy `String::from(indent)` +
-        // `add_line(indent + content)` pattern produced a doubled indent on
-        // the first emitted line.
-        let options = Options::fake_options(Txt);
-        let config = Config::fake_app(options);
-        let exporter = TXT::new(&config).unwrap();
-
-        let balloon = AppStoreMessage {
-            url: Some("url"),
-            app_name: Some("app_name"),
-            original_url: Some("original_url"),
-            description: Some("description"),
-            platform: Some("platform"),
-            genre: Some("genre"),
-        };
-
-        let expected = exporter.format_app_store(&balloon, "    ");
-        let actual = "    app_name\n    description\n    platform\n    genre\n    url";
-
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn can_format_txt_app_store_partial_fields_nested() {
-        // Skipped fields must not emit a stray indent-only line. Before the
-        // template fix, a leading `{{ indent }}` outside the conditionals
-        // would have left whitespace-only lines wherever a field was None.
-        let options = Options::fake_options(Txt);
-        let config = Config::fake_app(options);
-        let exporter = TXT::new(&config).unwrap();
-
-        let balloon = AppStoreMessage {
-            url: None,
-            app_name: None,
-            original_url: None,
-            description: Some("description"),
-            platform: None,
-            genre: Some("genre"),
-        };
-
-        let expected = exporter.format_app_store(&balloon, "    ");
-        let actual = "    description\n    genre";
 
         assert_eq!(expected, actual);
     }
@@ -2195,39 +2141,8 @@ mod balloon_format_tests {
             },
         };
 
-        let expected = exporter.format_placemark(&balloon, "");
+        let expected = exporter.format_placemark(&balloon);
         let actual = "Name\nurl\nname\naddress\nstate\ncity\niso_country_code\npostal_code\ncountry\nstreet\nsub_administrative_area\nsub_locality";
-
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn can_format_txt_placemark_nested() {
-        // Single-indent on every line, no doubled indent on the first.
-        let options = Options::fake_options(Txt);
-        let config = Config::fake_app(options);
-        let exporter = TXT::new(&config).unwrap();
-
-        let balloon = PlacemarkMessage {
-            url: Some("url"),
-            original_url: Some("original_url"),
-            place_name: Some("Name"),
-            placemark: Placemark {
-                name: Some("name"),
-                address: Some("address"),
-                state: Some("state"),
-                city: Some("city"),
-                iso_country_code: Some("iso_country_code"),
-                postal_code: Some("postal_code"),
-                country: Some("country"),
-                street: Some("street"),
-                sub_administrative_area: Some("sub_administrative_area"),
-                sub_locality: Some("sub_locality"),
-            },
-        };
-
-        let expected = exporter.format_placemark(&balloon, "    ");
-        let actual = "    Name\n    url\n    name\n    address\n    state\n    city\n    iso_country_code\n    postal_code\n    country\n    street\n    sub_administrative_area\n    sub_locality";
 
         assert_eq!(expected, actual);
     }
@@ -2292,63 +2207,8 @@ mod balloon_format_tests {
             order: vec![id1, id2, id3],
         };
 
-        let expected = exporter.format_poll(&poll, "");
+        let expected = exporter.format_poll(&poll);
         let actual = "- Rust (1)\n  - carol\n- Go (2)\n  - alice\n  - bob\n- Python (1)\n  - dave";
-
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn can_format_txt_poll_nested() {
-        // Option lines get the caller's indent; voter lines get the caller's
-        // indent plus two spaces of visual list nesting. Before the template
-        // fix, the first option line was doubled-indented.
-        let options = Options::fake_options(Txt);
-        let config = Config::fake_app(options);
-        let exporter = TXT::new(&config).unwrap();
-
-        let mut poll_options: HashMap<PollOptionID, PollOption> = HashMap::new();
-
-        let id1: PollOptionID = "1".to_string();
-        let id2: PollOptionID = "2".to_string();
-
-        poll_options.insert(
-            id1.clone(),
-            PollOption {
-                text: "Rust".to_string(),
-                creator: "alice".to_string(),
-                votes: vec![PollVote {
-                    voter: "carol".to_string(),
-                    option_id: id1.clone(),
-                }],
-            },
-        );
-
-        poll_options.insert(
-            id2.clone(),
-            PollOption {
-                text: "Go".to_string(),
-                creator: "bob".to_string(),
-                votes: vec![
-                    PollVote {
-                        voter: "alice".to_string(),
-                        option_id: id2.clone(),
-                    },
-                    PollVote {
-                        voter: "bob".to_string(),
-                        option_id: id2.clone(),
-                    },
-                ],
-            },
-        );
-
-        let poll = Poll {
-            options: poll_options,
-            order: vec![id1, id2],
-        };
-
-        let expected = exporter.format_poll(&poll, "    ");
-        let actual = "    - Rust (1)\n      - carol\n    - Go (2)\n      - alice\n      - bob";
 
         assert_eq!(expected, actual);
     }
@@ -2373,7 +2233,12 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_generic_app(&balloon, "bundle_id", &mut vec![], "");
+        let expected = exporter.format_generic_app(
+            &balloon,
+            "bundle_id",
+            &mut vec![],
+            &Config::fake_message(),
+        );
         let actual = "app_name message:\ntitle\nsubtitle\ncaption\nsubcaption\ntrailing_caption\ntrailing_subcaption";
 
         assert_eq!(expected, actual);
@@ -2386,33 +2251,8 @@ mod balloon_format_tests {
         let exporter = TXT::new(&config).unwrap();
 
         let msg = Config::fake_message();
-        let actual = exporter.format_digital_touch(&msg, &DigitalTouch::Kiss, "");
+        let actual = exporter.format_digital_touch(&msg, &DigitalTouch::Kiss);
         let expected = "Digital Touch Message: Kiss";
-
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn can_format_txt_digital_touch_from_payload_indented() {
-        let options = Options::fake_options(Txt);
-        let config = Config::fake_app(options);
-        let exporter = TXT::new(&config).unwrap();
-
-        let payload_path = current_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("imessage-database/test_data/digital_touch_message/heartbeat.bin");
-        let mut payload = vec![];
-        File::open(payload_path)
-            .unwrap()
-            .read_to_end(&mut payload)
-            .unwrap();
-        let touch = digital_touch_from_payload(&payload).unwrap();
-
-        let msg = Config::fake_message();
-        let actual = exporter.format_digital_touch(&msg, &touch, "    ");
-        let expected = "    Digital Touch Message: Heartbeat";
 
         assert_eq!(actual, expected);
     }
@@ -2447,43 +2287,7 @@ mod balloon_format_tests {
             .unwrap();
 
         let msg = Config::fake_message();
-        let actual = exporter.format_handwriting(&msg, &balloon, "");
-
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn can_format_txt_handwriting_disabled_mode_with_indent() {
-        let options = Options::fake_options(Txt);
-        let config = Config::fake_app(options);
-        let exporter = TXT::new(&config).unwrap();
-
-        let payload_path = current_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("imessage-database/test_data/handwritten_message/handwriting.bin");
-        let mut payload = vec![];
-        File::open(payload_path)
-            .unwrap()
-            .read_to_end(&mut payload)
-            .unwrap();
-        let balloon = HandwrittenMessage::from_payload(&payload).unwrap();
-
-        let mut ascii = String::new();
-        let expected_path = current_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("imessage-database/test_data/handwritten_message/handwriting.ascii");
-        File::open(expected_path)
-            .unwrap()
-            .read_to_string(&mut ascii)
-            .unwrap();
-        let expected = ascii.replace('\n', "  \n");
-
-        let msg = Config::fake_message();
-        let actual = exporter.format_handwriting(&msg, &balloon, "  ");
+        let actual = exporter.format_handwriting(&msg, &balloon);
 
         assert_eq!(actual, expected);
     }
@@ -2507,7 +2311,7 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Timer Started"),
         };
 
-        let actual = exporter.format_check_in(&balloon, "");
+        let actual = exporter.format_check_in(&balloon);
         let expected = "Check In: Timer Started\nExpected at Oct 14, 2023  1:54:29 PM";
 
         assert_eq!(actual, expected);
@@ -2532,7 +2336,7 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Timer Started"),
         };
 
-        let actual = exporter.format_check_in(&balloon, "");
+        let actual = exporter.format_check_in(&balloon);
         let expected = "Check In: Timer Started\nWas expected at Oct 14, 2023  1:54:29 PM";
 
         assert_eq!(actual, expected);
@@ -2558,7 +2362,7 @@ mod balloon_format_tests {
         };
 
         // No timestamp metadata → footer is None → only the caption renders.
-        let actual = exporter.format_check_in(&balloon, "");
+        let actual = exporter.format_check_in(&balloon);
         let expected = "Check In";
 
         assert_eq!(actual, expected);
@@ -2577,7 +2381,7 @@ mod balloon_format_tests {
 
         // Empty poll: the for-loop body doesn't execute, so the template
         // emits nothing at all.
-        let actual = exporter.format_poll(&poll, "");
+        let actual = exporter.format_poll(&poll);
         let expected = "";
 
         assert_eq!(actual, expected);
@@ -2604,7 +2408,7 @@ mod balloon_format_tests {
         let mut msg = Config::fake_message();
         msg.text = Some("https://example.com/from-text".to_string());
 
-        let actual = exporter.format_url(&msg, &balloon, "");
+        let actual = exporter.format_url(&msg, &balloon);
         let expected = "https://example.com/from-text";
 
         assert_eq!(actual, expected);
@@ -2627,7 +2431,7 @@ mod balloon_format_tests {
             app_name: Some("App"),
         };
 
-        let actual = exporter.format_collaboration(&balloon, "");
+        let actual = exporter.format_collaboration(&balloon);
         let expected = "App message:\nDoc title\nhttps://example.com/original";
 
         assert_eq!(actual, expected);

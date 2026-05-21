@@ -71,7 +71,6 @@ pub(crate) trait MessageFormatter<'a> {
         &self,
         msg: &'a Message,
         attachments: &mut Vec<Attachment>,
-        indent: &str,
     ) -> Result<String, MessageError>;
     /// Format a tapback (displayed under a message)
     fn format_tapback(&self, msg: &Message) -> Result<String, TableError>;
@@ -89,7 +88,6 @@ pub(crate) trait MessageFormatter<'a> {
         msg: &'a Message,
         edited_message: &'a EditedMessage,
         message_part_idx: usize,
-        indent: &str,
     ) -> Option<String>;
     /// Format all [`TextAttributes`]s applied to a given set of text
     fn format_attributes(&'a self, text: &'a str, attributes: &'a [TextAttributes]) -> String;
@@ -105,40 +103,40 @@ pub(crate) trait MessageFormatter<'a> {
 
 // MARK: Balloon
 /// Defines behavior for formatting custom balloons to the desired output format
-pub(crate) trait BalloonFormatter<T> {
+pub(crate) trait BalloonFormatter {
     /// Format a URL message
-    fn format_url(&self, msg: &Message, balloon: &URLMessage, indent: T) -> String;
+    fn format_url(&self, msg: &Message, balloon: &URLMessage) -> String;
     /// Format an Apple Music message
-    fn format_music(&self, balloon: &MusicMessage, indent: T) -> String;
+    fn format_music(&self, balloon: &MusicMessage) -> String;
     /// Format a Rich Collaboration message
-    fn format_collaboration(&self, balloon: &CollaborationMessage, indent: T) -> String;
+    fn format_collaboration(&self, balloon: &CollaborationMessage) -> String;
     /// Format an App Store link
-    fn format_app_store(&self, balloon: &AppStoreMessage, indent: T) -> String;
+    fn format_app_store(&self, balloon: &AppStoreMessage) -> String;
     /// Format a shared location message
-    fn format_placemark(&self, balloon: &PlacemarkMessage, indent: T) -> String;
+    fn format_placemark(&self, balloon: &PlacemarkMessage) -> String;
     /// Format a handwritten note message
-    fn format_handwriting(&self, msg: &Message, balloon: &HandwrittenMessage, indent: T) -> String;
+    fn format_handwriting(&self, msg: &Message, balloon: &HandwrittenMessage) -> String;
     /// Format a digital touch message
-    fn format_digital_touch(&self, msg: &Message, balloon: &DigitalTouch, indent: T) -> String;
+    fn format_digital_touch(&self, msg: &Message, balloon: &DigitalTouch) -> String;
     /// Format an Apple Pay message
-    fn format_apple_pay(&self, balloon: &AppMessage, indent: T) -> String;
+    fn format_apple_pay(&self, balloon: &AppMessage) -> String;
     /// Format a Fitness message
-    fn format_fitness(&self, balloon: &AppMessage, indent: T) -> String;
+    fn format_fitness(&self, balloon: &AppMessage) -> String;
     /// Format a Photo Slideshow message
-    fn format_slideshow(&self, balloon: &AppMessage, indent: T) -> String;
+    fn format_slideshow(&self, balloon: &AppMessage) -> String;
     /// Format a Find My message
-    fn format_find_my(&self, balloon: &AppMessage, indent: T) -> String;
+    fn format_find_my(&self, balloon: &AppMessage) -> String;
     /// Format a Check In message
-    fn format_check_in(&self, balloon: &AppMessage, indent: T) -> String;
+    fn format_check_in(&self, balloon: &AppMessage) -> String;
     /// Format a Poll message
-    fn format_poll(&self, poll: &Poll, indent: T) -> String;
-    /// Format a generic app, generally third party
+    fn format_poll(&self, poll: &Poll) -> String;
+    /// Format a generic app message, generally third party
     fn format_generic_app(
         &self,
         balloon: &AppMessage,
         bundle_id: &str,
         attachments: &mut Vec<Attachment>,
-        indent: T,
+        msg: &Message,
     ) -> String;
 }
 

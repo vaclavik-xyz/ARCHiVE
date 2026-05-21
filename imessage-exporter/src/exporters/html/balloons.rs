@@ -28,8 +28,8 @@ use super::{
 };
 
 // MARK: Balloons
-impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
-    fn format_url(&self, msg: &Message, balloon: &URLMessage, _: &Message) -> String {
+impl BalloonFormatter for HTML<'_> {
+    fn format_url(&self, msg: &Message, balloon: &URLMessage) -> String {
         let balloon_url = balloon.get_url();
         let msg_text = msg.text.as_deref();
         UrlVM {
@@ -44,7 +44,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         .unwrap_or_default()
     }
 
-    fn format_music(&self, balloon: &MusicMessage, _: &Message) -> String {
+    fn format_music(&self, balloon: &MusicMessage) -> String {
         MusicVM {
             track_name: balloon.track_name,
             preview: balloon.preview,
@@ -57,7 +57,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         .unwrap_or_default()
     }
 
-    fn format_collaboration(&self, balloon: &CollaborationMessage, _: &Message) -> String {
+    fn format_collaboration(&self, balloon: &CollaborationMessage) -> String {
         CollaborationVM {
             name: balloon.app_name.or(balloon.bundle_id),
             wrapper_url: balloon.url,
@@ -68,7 +68,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         .unwrap_or_default()
     }
 
-    fn format_app_store(&self, balloon: &AppStoreMessage, _: &'a Message) -> String {
+    fn format_app_store(&self, balloon: &AppStoreMessage) -> String {
         AppStoreVM {
             app_name: balloon.app_name,
             url: balloon.url,
@@ -80,7 +80,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         .unwrap_or_default()
     }
 
-    fn format_placemark(&self, balloon: &PlacemarkMessage, _: &'a Message) -> String {
+    fn format_placemark(&self, balloon: &PlacemarkMessage) -> String {
         let url = balloon.get_url();
         PlacemarkVM {
             url,
@@ -94,12 +94,12 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         .unwrap_or_default()
     }
 
-    fn format_handwriting(&self, _: &Message, balloon: &HandwrittenMessage, _: &Message) -> String {
+    fn format_handwriting(&self, _: &Message, balloon: &HandwrittenMessage) -> String {
         // svg can be embedded directly into the html
         balloon.render_svg()
     }
 
-    fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouch, _: &'a Message) -> String {
+    fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouch) -> String {
         DigitalTouchVM {
             debug: format!("{balloon:?}"),
         }
@@ -107,7 +107,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         .unwrap_or_default()
     }
 
-    fn format_apple_pay(&self, balloon: &AppMessage, _: &Message) -> String {
+    fn format_apple_pay(&self, balloon: &AppMessage) -> String {
         ApplePayVM {
             app_name: balloon.app_name,
             ldtext: balloon.ldtext,
@@ -116,15 +116,15 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         .unwrap_or_default()
     }
 
-    fn format_fitness(&self, balloon: &AppMessage, message: &Message) -> String {
-        self.balloon_to_html(balloon, "Fitness", &mut [], message)
+    fn format_fitness(&self, balloon: &AppMessage) -> String {
+        self.balloon_to_html(balloon, "Fitness", None)
     }
 
-    fn format_slideshow(&self, balloon: &AppMessage, message: &Message) -> String {
-        self.balloon_to_html(balloon, "Slideshow", &mut [], message)
+    fn format_slideshow(&self, balloon: &AppMessage) -> String {
+        self.balloon_to_html(balloon, "Slideshow", None)
     }
 
-    fn format_find_my(&self, balloon: &AppMessage, _: &'a Message) -> String {
+    fn format_find_my(&self, balloon: &AppMessage) -> String {
         FindMyVM {
             app_name: balloon.app_name,
             ldtext: balloon.ldtext,
@@ -133,7 +133,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         .unwrap_or_default()
     }
 
-    fn format_check_in(&self, balloon: &AppMessage, _: &Message) -> String {
+    fn format_check_in(&self, balloon: &AppMessage) -> String {
         let metadata: HashMap<&str, &str> = balloon.parse_query_string();
         let footer = if let Some(date_str) = metadata.get("estimatedEndTime") {
             format_check_in_caption(date_str, "Expected around ")
@@ -154,7 +154,7 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         .unwrap_or_default()
     }
 
-    fn format_poll(&self, poll: &Poll, _: &'a Message) -> String {
+    fn format_poll(&self, poll: &Poll) -> String {
         let max_votes = poll
             .order
             .iter()
@@ -189,9 +189,17 @@ impl<'a> BalloonFormatter<&'a Message> for HTML<'a> {
         balloon: &AppMessage,
         bundle_id: &str,
         attachments: &mut Vec<Attachment>,
-        message: &Message,
+        msg: &Message,
     ) -> String {
-        self.balloon_to_html(balloon, bundle_id, attachments, message)
+        let attachment_html = if balloon.image.is_none() {
+            attachments.get_mut(0).map(|attachment| {
+                self.format_attachment(attachment, msg, &AttachmentMeta::default())
+                    .unwrap_or_default()
+            })
+        } else {
+            None
+        };
+        self.balloon_to_html(balloon, bundle_id, attachment_html)
     }
 }
 
@@ -200,18 +208,8 @@ impl HTML<'_> {
         &self,
         balloon: &AppMessage,
         bundle_id: &str,
-        attachments: &mut [Attachment],
-        message: &Message,
+        attachment_html: Option<String>,
     ) -> String {
-        let attachment_html = if balloon.image.is_none() {
-            attachments.get_mut(0).map(|attachment| {
-                self.format_attachment(attachment, message, &AttachmentMeta::default())
-                    .unwrap_or_default()
-            })
-        } else {
-            None
-        };
-
         AppCardVM {
             url: balloon.url,
             image: balloon.image,

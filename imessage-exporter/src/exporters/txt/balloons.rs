@@ -28,19 +28,17 @@ use super::{
 };
 
 // MARK: Balloon
-impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
-    fn format_url(&self, msg: &Message, balloon: &URLMessage, indent: &str) -> String {
+impl BalloonFormatter for TXT<'_> {
+    fn format_url(&self, msg: &Message, balloon: &URLMessage) -> String {
         render_trimmed(&UrlVM {
-            indent,
             primary: balloon.get_url().or(msg.text.as_deref()),
             title: balloon.title,
             summary: balloon.summary,
         })
     }
 
-    fn format_music(&self, balloon: &MusicMessage, indent: &str) -> String {
+    fn format_music(&self, balloon: &MusicMessage) -> String {
         render_trimmed(&MusicVM {
-            indent,
             lyrics: balloon.lyrics.as_deref(),
             track_name: balloon.track_name,
             album: balloon.album,
@@ -49,11 +47,10 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         })
     }
 
-    fn format_collaboration(&self, balloon: &CollaborationMessage, indent: &str) -> String {
+    fn format_collaboration(&self, balloon: &CollaborationMessage) -> String {
         let name = balloon.app_name.or(balloon.bundle_id);
-        let has_label = !indent.is_empty() || name.is_some_and(|n| !n.is_empty());
+        let has_label = name.is_some_and(|n| !n.is_empty());
         render_trimmed(&CollaborationVM {
-            indent,
             name,
             has_label,
             title: balloon.title,
@@ -61,9 +58,8 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         })
     }
 
-    fn format_app_store(&self, balloon: &AppStoreMessage, indent: &'a str) -> String {
+    fn format_app_store(&self, balloon: &AppStoreMessage) -> String {
         render_trimmed(&AppStoreVM {
-            indent,
             app_name: balloon.app_name,
             description: balloon.description,
             platform: balloon.platform,
@@ -72,9 +68,8 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         })
     }
 
-    fn format_placemark(&self, balloon: &PlacemarkMessage, indent: &'a str) -> String {
+    fn format_placemark(&self, balloon: &PlacemarkMessage) -> String {
         render_trimmed(&PlacemarkVM {
-            indent,
             place_name: balloon.place_name,
             url: balloon.get_url(),
             name: balloon.placemark.name,
@@ -90,43 +85,29 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         })
     }
 
-    fn format_handwriting(
-        &self,
-        msg: &Message,
-        balloon: &HandwrittenMessage,
-        indent: &str,
-    ) -> String {
+    fn format_handwriting(&self, msg: &Message, balloon: &HandwrittenMessage) -> String {
         match self.config.options.attachment_manager.mode {
-            AttachmentManagerMode::Disabled => balloon
-                .render_ascii(40)
-                .replace('\n', &format!("{indent}\n")),
+            AttachmentManagerMode::Disabled => balloon.render_ascii(40),
             _ => self
                 .config
                 .options
                 .attachment_manager
                 .handle_handwriting(msg, balloon, self.config)
                 .map(|filepath| self.config.relative_path(&filepath))
-                .map(|filepath| format!("{indent}{filepath}"))
-                .unwrap_or_else(|| {
-                    balloon
-                        .render_ascii(40)
-                        .replace('\n', &format!("{indent}\n"))
-                }),
+                .unwrap_or_else(|| balloon.render_ascii(40)),
         }
     }
 
-    fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouch, indent: &str) -> String {
+    fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouch) -> String {
         DigitalTouchVM {
-            indent,
             debug: format!("{balloon:?}"),
         }
         .render()
         .unwrap_or_default()
     }
 
-    fn format_apple_pay(&self, balloon: &AppMessage, indent: &str) -> String {
+    fn format_apple_pay(&self, balloon: &AppMessage) -> String {
         ApplePayVM {
-            indent,
             caption: balloon.caption,
             ldtext: balloon.ldtext,
         }
@@ -134,9 +115,8 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         .unwrap_or_default()
     }
 
-    fn format_fitness(&self, balloon: &AppMessage, indent: &str) -> String {
+    fn format_fitness(&self, balloon: &AppMessage) -> String {
         FitnessVM {
-            indent,
             app_name: balloon.app_name,
             ldtext: balloon.ldtext,
         }
@@ -144,9 +124,8 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         .unwrap_or_default()
     }
 
-    fn format_slideshow(&self, balloon: &AppMessage, indent: &str) -> String {
+    fn format_slideshow(&self, balloon: &AppMessage) -> String {
         SlideshowVM {
-            indent,
             ldtext: balloon.ldtext,
             url: balloon.url,
         }
@@ -154,9 +133,8 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         .unwrap_or_default()
     }
 
-    fn format_find_my(&self, balloon: &AppMessage, indent: &'a str) -> String {
+    fn format_find_my(&self, balloon: &AppMessage) -> String {
         FindMyVM {
-            indent,
             app_name: balloon.app_name,
             ldtext: balloon.ldtext,
         }
@@ -164,7 +142,7 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         .unwrap_or_default()
     }
 
-    fn format_check_in(&self, balloon: &AppMessage, indent: &'a str) -> String {
+    fn format_check_in(&self, balloon: &AppMessage) -> String {
         let metadata: HashMap<&str, &str> = balloon.parse_query_string();
         let footer = if let Some(date_str) = metadata.get("estimatedEndTime") {
             format_check_in_caption(date_str, "Expected at ")
@@ -177,7 +155,6 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         };
 
         CheckInVM {
-            indent,
             caption: balloon.caption.unwrap_or("Check In"),
             footer,
         }
@@ -185,7 +162,7 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         .unwrap_or_default()
     }
 
-    fn format_poll(&self, poll: &Poll, indent: &'a str) -> String {
+    fn format_poll(&self, poll: &Poll) -> String {
         let options = poll
             .order
             .iter()
@@ -197,7 +174,7 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
             })
             .collect();
 
-        render_trimmed(&PollVM { indent, options })
+        render_trimmed(&PollVM { options })
     }
 
     fn format_generic_app(
@@ -205,12 +182,11 @@ impl<'a> BalloonFormatter<&'a str> for TXT<'a> {
         balloon: &AppMessage,
         bundle_id: &str,
         _: &mut Vec<Attachment>,
-        indent: &str,
+        _: &Message,
     ) -> String {
         let name = balloon.app_name.unwrap_or(bundle_id);
-        let has_label = !indent.is_empty() || !name.is_empty();
+        let has_label = !name.is_empty();
         render_trimmed(&GenericAppVM {
-            indent,
             name,
             has_label,
             title: balloon.title,

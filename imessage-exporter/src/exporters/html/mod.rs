@@ -259,9 +259,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         &self,
         message: &'a Message,
         attachments: &mut Vec<Attachment>,
-        _: &str,
     ) -> Result<String, MessageError> {
-        dispatch_app_balloon(self, message, attachments, message, self.config)
+        dispatch_app_balloon(self, message, attachments, self.config)
     }
 
     fn format_tapback(&self, msg: &Message) -> Result<String, TableError> {
@@ -346,7 +345,6 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         msg: &'a Message,
         edited_message: &'a EditedMessage,
         message_part_idx: usize,
-        _: &str,
     ) -> Option<String> {
         let normalized = normalize_edited(msg, edited_message, message_part_idx, self.config)?;
 
@@ -594,7 +592,7 @@ impl HTML<'_> {
                 if message.is_part_edited(idx) {
                     return match &message.edited_parts {
                         Some(edited_parts) => {
-                            match self.format_edited(message, edited_parts, idx, "") {
+                            match self.format_edited(message, edited_parts, idx) {
                                 Some(html) => PartBody::TextEdited { html },
                                 None => PartBody::Empty,
                             }
@@ -644,7 +642,7 @@ impl HTML<'_> {
                 *attachment_index += 1;
                 body
             }
-            BubbleComponent::App => match self.format_app(message, attachments, "") {
+            BubbleComponent::App => match self.format_app(message, attachments) {
                 Ok(html) => PartBody::App { html },
                 Err(why) => PartBody::AppError {
                     html: sanitize_html(&format!(
@@ -655,7 +653,7 @@ impl HTML<'_> {
                 },
             },
             BubbleComponent::Retracted => match &message.edited_parts {
-                Some(edited_parts) => match self.format_edited(message, edited_parts, idx, "") {
+                Some(edited_parts) => match self.format_edited(message, edited_parts, idx) {
                     Some(html) => PartBody::Retracted { html },
                     None => PartBody::Empty,
                 },
@@ -2367,7 +2365,7 @@ mod balloon_format_tests {
         };
 
         let expected =
-            exporter.format_url(&Config::fake_message(), &balloon, &Config::fake_message());
+            exporter.format_url(&Config::fake_message(), &balloon);
         let actual = "<a href=\"url\"><div class=\"app_header\"><img src=\"images\"  loading=\"lazy\" \n            onerror=\"this.style.display='none'\"><div class=\"name\">site_name</div></div><div class=\"app_footer\"><div class=\"caption\">title</div><div class=\"subcaption\">summary</div></div></a>";
 
         assert_eq!(expected, actual);
@@ -2394,7 +2392,7 @@ mod balloon_format_tests {
         };
 
         let expected =
-            exporter.format_url(&Config::fake_message(), &balloon, &Config::fake_message());
+            exporter.format_url(&Config::fake_message(), &balloon);
         let actual = "<a href=\"url\"><div class=\"app_header\"><img src=\"images\" \n            onerror=\"this.style.display='none'\"><div class=\"name\">site_name</div></div><div class=\"app_footer\"><div class=\"caption\">title</div><div class=\"subcaption\">summary</div></div></a>";
 
         assert_eq!(expected, actual);
@@ -2416,7 +2414,7 @@ mod balloon_format_tests {
             lyrics: None,
         };
 
-        let expected = exporter.format_music(&balloon, &Config::fake_message());
+        let expected = exporter.format_music(&balloon);
         let actual = "<div class=\"app_header\"><div class=\"name\">track_name</div><audio controls src=\"preview\"> </audio></div><a href=\"url\"><div class=\"app_footer\"><div class=\"caption\">artist</div><div class=\"subcaption\">album</div></div></a>";
 
         assert_eq!(expected, actual);
@@ -2438,7 +2436,7 @@ mod balloon_format_tests {
             lyrics: Some(vec!["a", "b"]),
         };
 
-        let expected = exporter.format_music(&balloon, &Config::fake_message());
+        let expected = exporter.format_music(&balloon);
         let actual = "<div class=\"app_header\"><div class=\"name\">track_name</div><div class=\"ldtext\"><p>a</p><p>b</p></div></div><a href=\"url\"><div class=\"app_footer\"><div class=\"caption\">artist</div><div class=\"subcaption\">album</div></div></a>";
 
         assert_eq!(expected, actual);
@@ -2460,7 +2458,7 @@ mod balloon_format_tests {
             app_name: Some("app_name"),
         };
 
-        let expected = exporter.format_collaboration(&balloon, &Config::fake_message());
+        let expected = exporter.format_collaboration(&balloon);
         let actual = "<div class=\"app_header\"><div class=\"name\">app_name</div></div><a href=\"url\"><div class=\"app_footer\"><div class=\"caption\">title</div><div class=\"subcaption\">url</div></div></a>";
 
         assert_eq!(expected, actual);
@@ -2486,7 +2484,7 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_apple_pay(&balloon, &Config::fake_message());
+        let expected = exporter.format_apple_pay(&balloon);
         let actual = "<div class=\"app_header\"><div class=\"name\">app_name</div></div>\n<div class=\"app_footer\"><div class=\"caption\">ldtext</div></div>";
 
         assert_eq!(expected, actual);
@@ -2512,7 +2510,7 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_fitness(&balloon, &Config::fake_message());
+        let expected = exporter.format_fitness(&balloon);
         let actual = "<a href=\"url\"><div class=\"app_header\"><img src=\"image\"><div class=\"name\">app_name</div><div class=\"image_title\">title</div><div class=\"image_subtitle\">subtitle</div><div class=\"ldtext\">ldtext</div></div><div class=\"app_footer\"><div class=\"caption\">caption</div><div class=\"subcaption\">subcaption</div><div class=\"trailing_caption\">trailing_caption\n        </div><div class=\"trailing_subcaption\">trailing_subcaption</div></div></a>";
 
         assert_eq!(expected, actual);
@@ -2538,7 +2536,7 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_slideshow(&balloon, &Config::fake_message());
+        let expected = exporter.format_slideshow(&balloon);
         let actual = "<a href=\"url\"><div class=\"app_header\"><img src=\"image\"><div class=\"name\">app_name</div><div class=\"image_title\">title</div><div class=\"image_subtitle\">subtitle</div><div class=\"ldtext\">ldtext</div></div><div class=\"app_footer\"><div class=\"caption\">caption</div><div class=\"subcaption\">subcaption</div><div class=\"trailing_caption\">trailing_caption\n        </div><div class=\"trailing_subcaption\">trailing_subcaption</div></div></a>";
 
         assert_eq!(expected, actual);
@@ -2564,7 +2562,7 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_find_my(&balloon, &Config::fake_message());
+        let expected = exporter.format_find_my(&balloon);
         let actual = "<div class=\"app_header\"><div class=\"name\">app_name</div></div>\n<div class=\"app_footer\"><div class=\"caption\">ldtext</div></div>";
 
         assert_eq!(expected, actual);
@@ -2590,7 +2588,7 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Timer Started"),
         };
 
-        let expected = exporter.format_check_in(&balloon, &Config::fake_message());
+        let expected = exporter.format_check_in(&balloon);
         let actual = "<div class=\"app_header\">\n    <div class=\"name\">Check&nbsp;In</div><div class=\"ldtext\">Check&nbsp;In: Timer Started</div></div><div class=\"app_footer\">\n    <div class=\"caption\">Checked in at Oct 14, 2023  1:54:29 PM</div>\n</div>";
 
         assert_eq!(expected, actual);
@@ -2616,7 +2614,7 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Has not checked in when expected, location shared"),
         };
 
-        let expected = exporter.format_check_in(&balloon, &Config::fake_message());
+        let expected = exporter.format_check_in(&balloon);
         let actual = "<div class=\"app_header\">\n    <div class=\"name\">Check&nbsp;In</div><div class=\"ldtext\">Check&nbsp;In: Has not checked in when expected, location shared</div></div><div class=\"app_footer\">\n    <div class=\"caption\">Checked in at Oct 14, 2023  1:54:29 PM</div>\n</div>";
 
         assert_eq!(expected, actual);
@@ -2642,7 +2640,7 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Fake Location"),
         };
 
-        let expected = exporter.format_check_in(&balloon, &Config::fake_message());
+        let expected = exporter.format_check_in(&balloon);
         let actual = "<div class=\"app_header\">\n    <div class=\"name\">Check&nbsp;In</div><div class=\"ldtext\">Check&nbsp;In: Fake Location</div></div><div class=\"app_footer\">\n    <div class=\"caption\">Checked in at Oct 14, 2023  1:54:29 PM</div>\n</div>";
 
         assert_eq!(expected, actual);
@@ -2664,7 +2662,7 @@ mod balloon_format_tests {
             genre: Some("genre"),
         };
 
-        let expected = exporter.format_app_store(&balloon, &Config::fake_message());
+        let expected = exporter.format_app_store(&balloon);
         let actual = "<div class=\"app_header\"><div class=\"name\">app_name</div></div><a href=\"url\"><div class=\"app_footer\"><div class=\"caption\">description</div><div class=\"subcaption\">platform</div><div class=\"trailing_subcaption\">genre</div></div></a>";
 
         assert_eq!(expected, actual);
@@ -2695,7 +2693,7 @@ mod balloon_format_tests {
             },
         };
 
-        let expected = exporter.format_placemark(&balloon, &Config::fake_message());
+        let expected = exporter.format_placemark(&balloon);
         let actual = "<a href=\"url\"><div class=\"app_header\"><div class=\"name\">Name</div></div><div class=\"app_footer\"><div class=\"caption\">address</div><div class=\"trailing_caption\">postal_code</div><div class=\"subcaption\">country</div><div class=\"trailing_subcaption\">sub_administrative_area</div></div></a>";
 
         assert_eq!(expected, actual);
@@ -2761,7 +2759,7 @@ mod balloon_format_tests {
             order: vec![id1, id2, id3],
         };
 
-        let expected = exporter.format_poll(&poll, &Config::fake_message());
+        let expected = exporter.format_poll(&poll);
         let actual = "<div class=\"poll-container\"><div class=\"poll-option\">\n        <div class=\"option-header\"><span>Rust</span><span class=\"vote-count\">1</span>\n        </div>\n        <div class=\"vote-bar-container\">\n            <div class=\"vote-bar\" style=\"width: 50%;\"></div>\n        </div><div class=\"voters-list\"><span class=\"voter\">carol</span></div></div><div class=\"poll-option\">\n        <div class=\"option-header\"><span>Go</span><span class=\"vote-count\">2</span>\n        </div>\n        <div class=\"vote-bar-container\">\n            <div class=\"vote-bar\" style=\"width: 100%;\"></div>\n        </div><div class=\"voters-list\"><span class=\"voter\">alice</span><span class=\"voter\">bob</span></div></div><div class=\"poll-option\">\n        <div class=\"option-header\"><span>Python</span><span class=\"vote-count\">1</span>\n        </div>\n        <div class=\"vote-bar-container\">\n            <div class=\"vote-bar\" style=\"width: 50%;\"></div>\n        </div><div class=\"voters-list\"><span class=\"voter\">dave</span></div></div></div>";
 
         assert_eq!(expected, actual);
@@ -2805,7 +2803,7 @@ mod balloon_format_tests {
         let exporter = HTML::new(&config).unwrap();
 
         let msg = Config::fake_message();
-        let actual = exporter.format_digital_touch(&msg, &DigitalTouch::Kiss, &msg);
+        let actual = exporter.format_digital_touch(&msg, &DigitalTouch::Kiss);
         let expected = "<div class=\"app_header\">\n    <div class=\"name\">Digital Touch Message</div>\n</div>\n<div class=\"app_footer\">\n    <div class=\"caption\">Kiss</div>\n</div>";
 
         assert_eq!(actual, expected);
@@ -2830,7 +2828,7 @@ mod balloon_format_tests {
         let touch = digital_touch_from_payload(&payload).unwrap();
 
         let msg = Config::fake_message();
-        let actual = exporter.format_digital_touch(&msg, &touch, &msg);
+        let actual = exporter.format_digital_touch(&msg, &touch);
         let expected = "<div class=\"app_header\">\n    <div class=\"name\">Digital Touch Message</div>\n</div>\n<div class=\"app_footer\">\n    <div class=\"caption\">Sketch</div>\n</div>";
 
         assert_eq!(actual, expected);
@@ -2866,7 +2864,7 @@ mod balloon_format_tests {
             .unwrap();
 
         let msg = Config::fake_message();
-        let actual = exporter.format_handwriting(&msg, &balloon, &msg);
+        let actual = exporter.format_handwriting(&msg, &balloon);
 
         assert_eq!(actual, expected);
     }
@@ -2890,7 +2888,7 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Timer Started"),
         };
 
-        let actual = exporter.format_check_in(&balloon, &Config::fake_message());
+        let actual = exporter.format_check_in(&balloon);
         let expected = "<div class=\"app_header\">\n    <div class=\"name\">Check In</div><div class=\"ldtext\">Check In: Timer Started</div></div><div class=\"app_footer\">\n    <div class=\"caption\">Expected around Oct 14, 2023  1:54:29 PM</div>\n</div>";
 
         assert_eq!(actual, expected);
@@ -2915,7 +2913,7 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Timer Started"),
         };
 
-        let actual = exporter.format_check_in(&balloon, &Config::fake_message());
+        let actual = exporter.format_check_in(&balloon);
         let expected = "<div class=\"app_header\">\n    <div class=\"name\">Check In</div><div class=\"ldtext\">Check In: Timer Started</div></div><div class=\"app_footer\">\n    <div class=\"caption\">Was expected around Oct 14, 2023  1:54:29 PM</div>\n</div>";
 
         assert_eq!(actual, expected);
@@ -2943,7 +2941,7 @@ mod balloon_format_tests {
         // Without any of the three recognized timestamp keys the footer is
         // omitted entirely (CheckInVM.footer = None → check_in.html drops the
         // `<div class="app_footer">` block).
-        let actual = exporter.format_check_in(&balloon, &Config::fake_message());
+        let actual = exporter.format_check_in(&balloon);
         let expected = "<div class=\"app_header\">\n    <div class=\"name\">Check In</div><div class=\"ldtext\">Check In</div></div>";
 
         assert_eq!(actual, expected);
@@ -2963,7 +2961,7 @@ mod balloon_format_tests {
             order: vec![],
         };
 
-        let actual = exporter.format_poll(&poll, &Config::fake_message());
+        let actual = exporter.format_poll(&poll);
         let expected = "<div class=\"poll-container\"></div>";
 
         assert_eq!(actual, expected);
@@ -2990,7 +2988,7 @@ mod balloon_format_tests {
         // No images → no <img>; no site_name → name falls back to balloon.url.
         // No title or summary → <div class="app_footer"> block is dropped.
         let actual =
-            exporter.format_url(&Config::fake_message(), &balloon, &Config::fake_message());
+            exporter.format_url(&Config::fake_message(), &balloon);
         let expected = "<a href=\"https://example.com\"><div class=\"app_header\"><div class=\"name\">https://example.com</div></div></a>";
 
         assert_eq!(actual, expected);
@@ -3018,7 +3016,7 @@ mod balloon_format_tests {
         msg.text = Some("https://example.com/from-text".to_string());
 
         // No balloon URL → wrapper_url and name both fall back to msg.text.
-        let actual = exporter.format_url(&msg, &balloon, &msg);
+        let actual = exporter.format_url(&msg, &balloon);
         let expected = "<a href=\"https://example.com/from-text\"><div class=\"app_header\"><div class=\"name\">https://example.com/from-text</div></div></a>";
 
         assert_eq!(actual, expected);
@@ -3042,7 +3040,7 @@ mod balloon_format_tests {
             app_name: Some("App"),
         };
 
-        let actual = exporter.format_collaboration(&balloon, &Config::fake_message());
+        let actual = exporter.format_collaboration(&balloon);
         let expected = "<div class=\"app_header\"><div class=\"name\">App</div></div><div class=\"app_footer\"><div class=\"caption\">Doc title</div><div class=\"subcaption\">https://example.com/original</div></div>";
 
         assert_eq!(actual, expected);

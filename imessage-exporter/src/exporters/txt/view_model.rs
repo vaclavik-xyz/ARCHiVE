@@ -8,7 +8,6 @@ use imessage_database::{
 #[derive(Template)]
 #[template(path = "apple_pay.txt")]
 pub(super) struct ApplePayVM<'a> {
-    pub indent: &'a str,
     pub caption: Option<&'a str>,
     pub ldtext: Option<&'a str>,
 }
@@ -16,7 +15,6 @@ pub(super) struct ApplePayVM<'a> {
 #[derive(Template)]
 #[template(path = "fitness.txt")]
 pub(super) struct FitnessVM<'a> {
-    pub indent: &'a str,
     pub app_name: Option<&'a str>,
     pub ldtext: Option<&'a str>,
 }
@@ -24,7 +22,6 @@ pub(super) struct FitnessVM<'a> {
 #[derive(Template)]
 #[template(path = "slideshow.txt")]
 pub(super) struct SlideshowVM<'a> {
-    pub indent: &'a str,
     pub ldtext: Option<&'a str>,
     pub url: Option<&'a str>,
 }
@@ -32,22 +29,19 @@ pub(super) struct SlideshowVM<'a> {
 #[derive(Template)]
 #[template(path = "find_my.txt")]
 pub(super) struct FindMyVM<'a> {
-    pub indent: &'a str,
     pub app_name: Option<&'a str>,
     pub ldtext: Option<&'a str>,
 }
 
 #[derive(Template)]
 #[template(path = "digital_touch.txt")]
-pub(super) struct DigitalTouchVM<'a> {
-    pub indent: &'a str,
+pub(super) struct DigitalTouchVM {
     pub debug: String,
 }
 
 #[derive(Template)]
 #[template(path = "check_in.txt")]
 pub(super) struct CheckInVM<'a> {
-    pub indent: &'a str,
     /// Resolved label: `balloon.caption.unwrap_or("Check In")`.
     pub caption: &'a str,
     /// Pre-formatted footer line (e.g., `"Checked in at Oct 14, …"`). `None`
@@ -58,7 +52,6 @@ pub(super) struct CheckInVM<'a> {
 #[derive(Template)]
 #[template(path = "poll.txt")]
 pub(super) struct PollVM<'a> {
-    pub indent: &'a str,
     pub options: Vec<PollOptionVM<'a>>,
 }
 
@@ -71,11 +64,10 @@ pub(super) struct PollOptionVM<'a> {
 #[derive(Template)]
 #[template(path = "generic_app.txt")]
 pub(super) struct GenericAppVM<'a> {
-    pub indent: &'a str,
     /// `app_name` falling back to `bundle_id`.
     pub name: &'a str,
-    /// True when `indent` or `name` is non-empty (matches the legacy
-    /// `if !out_s.is_empty()` guard around the `" message:"` suffix).
+    /// True when `name` is non-empty (matches the legacy `if !out_s.is_empty()`
+    /// guard around the `" message:"` suffix).
     pub has_label: bool,
     pub title: Option<&'a str>,
     pub subtitle: Option<&'a str>,
@@ -88,7 +80,6 @@ pub(super) struct GenericAppVM<'a> {
 #[derive(Template)]
 #[template(path = "url.txt")]
 pub(super) struct UrlVM<'a> {
-    pub indent: &'a str,
     /// Resolved primary line: `balloon.get_url()` falling back to `msg.text`.
     pub primary: Option<&'a str>,
     pub title: Option<&'a str>,
@@ -98,7 +89,6 @@ pub(super) struct UrlVM<'a> {
 #[derive(Template)]
 #[template(path = "music.txt")]
 pub(super) struct MusicVM<'a> {
-    pub indent: &'a str,
     pub lyrics: Option<&'a [&'a str]>,
     pub track_name: Option<&'a str>,
     pub album: Option<&'a str>,
@@ -109,7 +99,6 @@ pub(super) struct MusicVM<'a> {
 #[derive(Template)]
 #[template(path = "collaboration.txt")]
 pub(super) struct CollaborationVM<'a> {
-    pub indent: &'a str,
     /// `app_name` falling back to `bundle_id`.
     pub name: Option<&'a str>,
     pub has_label: bool,
@@ -121,7 +110,6 @@ pub(super) struct CollaborationVM<'a> {
 #[derive(Template)]
 #[template(path = "app_store.txt")]
 pub(super) struct AppStoreVM<'a> {
-    pub indent: &'a str,
     pub app_name: Option<&'a str>,
     pub description: Option<&'a str>,
     pub platform: Option<&'a str>,
@@ -132,7 +120,6 @@ pub(super) struct AppStoreVM<'a> {
 #[derive(Template)]
 #[template(path = "placemark.txt")]
 pub(super) struct PlacemarkVM<'a> {
-    pub indent: &'a str,
     pub place_name: Option<&'a str>,
     pub url: Option<&'a str>,
     pub name: Option<&'a str>,
@@ -190,7 +177,6 @@ pub(super) enum TapbackKind<'a> {
 #[derive(Template)]
 #[template(path = "edited.txt")]
 pub(super) struct EditedVM<'a> {
-    pub indent: &'a str,
     pub kind: EditedKind<'a>,
 }
 
@@ -202,7 +188,7 @@ pub(super) enum EditedKind<'a> {
 
 pub(super) struct EditedRow<'a> {
     /// Either `"{absolute_timestamp} "` for the first edit, or
-    /// `"{indent}Edited {diff} later: "` for subsequent edits.
+    /// `"Edited {diff} later: "` for subsequent edits.
     pub timestamp_prefix: String,
     pub text: &'a str,
 }
