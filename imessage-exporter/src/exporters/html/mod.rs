@@ -1240,6 +1240,69 @@ mod tests {
     }
 
     #[test]
+    fn can_format_html_url_message_without_payload_uses_text_fallback() {
+        // Defensive path in dispatch_app_balloon: when a URL-balloon message
+        // has no payload row but does carry `text`, the normal `format_url`
+        // pipeline still produces a clickable link via its msg.text fallback.
+        let options = Options::fake_options(ExportType::Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        message.date = 674526582885055488;
+        message.rowid = i32::MAX; // not in fixture db, so payload_data returns None
+        message.is_from_me = true;
+        message.chat_id = Some(0);
+        message.balloon_bundle_id = Some("com.apple.messages.URLBalloonProvider".to_string());
+        message.text = Some("https://example.com".to_string());
+        message.components = vec![BubbleComponent::App];
+
+        let actual = format_message(&exporter, &message, 0).unwrap();
+
+        assert!(
+            actual.contains("<a href=\"https://example.com\">"),
+            "missing fallback anchor, got: {actual}"
+        );
+        assert!(
+            actual.contains("<div class=\"name\">https://example.com</div>"),
+            "missing fallback name, got: {actual}"
+        );
+        assert!(
+            !actual.contains("Unable to format"),
+            "should not have fallen through to error path, got: {actual}"
+        );
+    }
+
+    #[test]
+    fn can_format_html_url_message_without_payload_escapes_text() {
+        // The fallback flows msg.text through `format_url` and the Askama
+        // template's auto-escaper; raw HTML in `text` must not survive.
+        let options = Options::fake_options(ExportType::Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        message.date = 674526582885055488;
+        message.rowid = i32::MAX;
+        message.is_from_me = true;
+        message.chat_id = Some(0);
+        message.balloon_bundle_id = Some("com.apple.messages.URLBalloonProvider".to_string());
+        message.text = Some("https://x.test/?q=<script>".to_string());
+        message.components = vec![BubbleComponent::App];
+
+        let actual = format_message(&exporter, &message, 0).unwrap();
+
+        assert!(
+            !actual.contains("<script>"),
+            "raw <script> must not survive into output: {actual}"
+        );
+        assert!(
+            actual.contains("&lt;script&gt;"),
+            "expected escaped form, got: {actual}"
+        );
+    }
+
+    #[test]
     fn can_format_html_part_body_app_error_on_normal_variant() {
         // BubbleComponent::App on a Variant::Normal message → format_app
         // returns WrongMessageType → PartBody::AppError, escaped via sanitize_html.

@@ -68,9 +68,14 @@ where
     }
 
     // Otherwise, we expect an NSKeyedArchiver payload
-    let payload = message
-        .payload_data(config.data_source.db())
-        .ok_or(MessageError::PlistParseError(PlistParseError::NoPayload))?;
+    let Some(payload) = message.payload_data(config.data_source.db()) else {
+        // URL message may omit the relevant payload. Defensively we reuse the normal
+        // URL renderer with an empty balloon.
+        if message.is_url() && message.text.is_some() {
+            return Ok(formatter.format_url(message, &URLMessage::default(), context));
+        }
+        return Err(MessageError::PlistParseError(PlistParseError::NoPayload));
+    };
 
     let parsed = parse_ns_keyed_archiver(&payload)?;
 

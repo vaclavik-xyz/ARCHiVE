@@ -20,7 +20,7 @@ use crate::{
 
 /// This struct is not documented by Apple, but represents messages created by
 /// `com.apple.messages.URLBalloonProvider`.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct URLMessage<'a> {
     /// The webpage's `<og:title>` attribute
     pub title: Option<&'a str>,

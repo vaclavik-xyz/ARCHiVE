@@ -1753,6 +1753,30 @@ mod tests {
 
         assert_eq!(actual, expected);
     }
+
+    #[test]
+    fn can_format_txt_url_message_without_payload_uses_text_fallback() {
+        // Defensive path in dispatch_app_balloon: when a URL-balloon message
+        // has no payload row but does carry `text`, the normal `format_url`
+        // pipeline still produces the raw URL via its msg.text fallback.
+        let options = Options::fake_options(ExportType::Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        message.date = 674526582885055488;
+        message.rowid = i32::MAX;
+        message.is_from_me = true;
+        message.chat_id = Some(0);
+        message.balloon_bundle_id = Some("com.apple.messages.URLBalloonProvider".to_string());
+        message.text = Some("https://example.com".to_string());
+        message.components = vec![BubbleComponent::App];
+
+        let actual = format_message(&exporter, &message, 0).unwrap();
+        let expected = "May 17, 2022  5:29:42 PM\nMe\nhttps://example.com\n\n";
+
+        assert_eq!(actual, expected);
+    }
 }
 
 #[cfg(test)]
@@ -2090,8 +2114,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_app_store(&balloon, "    ");
-        let actual =
-            "    app_name\n    description\n    platform\n    genre\n    url";
+        let actual = "    app_name\n    description\n    platform\n    genre\n    url";
 
         assert_eq!(expected, actual);
     }
@@ -2243,8 +2266,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_poll(&poll, "");
-        let actual =
-            "- Rust (1)\n  - carol\n- Go (2)\n  - alice\n  - bob\n- Python (1)\n  - dave";
+        let actual = "- Rust (1)\n  - carol\n- Go (2)\n  - alice\n  - bob\n- Python (1)\n  - dave";
 
         assert_eq!(expected, actual);
     }
@@ -2299,8 +2321,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_poll(&poll, "    ");
-        let actual =
-            "    - Rust (1)\n      - carol\n    - Go (2)\n      - alice\n      - bob";
+        let actual = "    - Rust (1)\n      - carol\n    - Go (2)\n      - alice\n      - bob";
 
         assert_eq!(expected, actual);
     }
