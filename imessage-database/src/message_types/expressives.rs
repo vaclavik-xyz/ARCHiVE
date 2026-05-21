@@ -7,7 +7,7 @@ use std::fmt;
 /// Bubble effects are effects that alter the display of the chat bubble.
 ///
 /// Read more [here](https://www.imore.com/how-to-use-bubble-and-screen-effects-imessage-iphone-ipad).
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BubbleEffect {
     /// Creates a slam effect that makes the bubble appear to slam down onto the screen.
     Slam,
@@ -22,7 +22,7 @@ pub enum BubbleEffect {
 /// Screen effects are effects that alter the entire background of the message view.
 ///
 /// Read more [here](https://www.imore.com/how-to-use-bubble-and-screen-effects-imessage-iphone-ipad).
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ScreenEffect {
     /// Creates a confetti effect that sprinkles confetti across the screen.
     Confetti,
@@ -64,7 +64,7 @@ pub enum ScreenEffect {
 /// - `com.apple.messages.effect.CKShootingStarEffect`
 /// - `com.apple.messages.effect.CKSparklesEffect`
 /// - `com.apple.messages.effect.CKSpotlightEffect`
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Expressive<'a> {
     /// Effects that use the entire screen
     Screen(ScreenEffect),
