@@ -1,7 +1,10 @@
 use askama::Template;
 
 use imessage_database::{
-    tables::messages::Message,
+    tables::{
+        messages::Message,
+        table::{FITNESS_RECEIVER, YOU},
+    },
     util::dates::{TIMESTAMP_FACTOR, format, get_local_time},
 };
 
@@ -9,14 +12,31 @@ use crate::app::runtime::Config;
 
 // MARK: Time
 
+/// Format `message`'s timestamp via [`format`], falling back to the
+/// timestamp error's `Display` output. Centralizes the `Ok/Err → String`
+/// pattern used by every formatter.
+pub fn format_message_date(message: &Message, offset: i64) -> String {
+    match message.date(offset) {
+        Ok(d) => format(&d),
+        Err(why) => why.to_string(),
+    }
+}
+
+/// Same as [`format_message_date`] but for a raw `i64` iMessage timestamp
+/// (used by edit-history events, which carry their own `date` field rather
+/// than a `Message`).
+pub fn format_timestamp(timestamp: i64, offset: i64) -> String {
+    match get_local_time(timestamp, offset) {
+        Ok(d) => format(&d),
+        Err(why) => why.to_string(),
+    }
+}
+
 /// Compute the formatted timestamp and read receipt for a message.
 /// Returns `(formatted_date, read_receipt)` where `read_receipt` is
 /// empty if there is no read receipt data.
 pub fn message_time(config: &Config, message: &Message) -> (String, String) {
-    let date = match message.date(config.offset) {
-        Ok(d) => format(&d),
-        Err(why) => why.to_string(),
-    };
+    let date = format_message_date(message, config.offset);
     let mut read_receipt = String::new();
     if let Some(time) = message.time_until_read(config.offset)
         && !time.is_empty()
@@ -43,6 +63,19 @@ pub fn render_trimmed<T: Template>(template: &T) -> String {
         out.pop();
     }
     out
+}
+
+// MARK: Fitness
+
+/// Replace the leading [`FITNESS_RECEIVER`] sentinel emitted by Fitness app
+/// messages with [`YOU`] so the rendered string reads in first person.
+/// Returns the input unchanged if the sentinel isn't present.
+pub fn rewrite_fitness_receiver(text: String) -> String {
+    if text.starts_with(FITNESS_RECEIVER) {
+        text.replace(FITNESS_RECEIVER, YOU)
+    } else {
+        text
+    }
 }
 
 // MARK: Check In

@@ -1,7 +1,7 @@
 use imessage_database::{
     message_types::edited::{EditStatus, EditedMessage},
     tables::messages::{Message, models::BubbleComponent},
-    util::dates::{format, get_local_time, readable_diff},
+    util::dates::{get_local_time, readable_diff},
 };
 
 use crate::app::runtime::Config;
@@ -21,7 +21,7 @@ pub enum EditDiff {
 /// Pre-computed view of one entry in an edit history. Carries both the raw
 /// fields a renderer needs (`text`, `components`) and the derived values
 /// callers would otherwise have to compute themselves (`diff_since_previous`,
-/// `absolute_time`, `is_last`).
+/// `date`, `is_last`).
 ///
 /// Events whose underlying `EditedEvent.text` is `None` are filtered out by
 /// [`normalize_edited`] — they carry nothing renderable, and emitting a bare
@@ -41,9 +41,11 @@ pub struct NormalizedEditEvent<'a> {
     /// Position of this event relative to the previous one in the history.
     /// See [`EditDiff`].
     pub diff_since_previous: EditDiff,
-    /// Absolute time string for this event (formatted date or the timestamp
-    /// error's `Display` output on failure).
-    pub absolute_time: String,
+    /// Raw iMessage timestamp for this event. Renderers that need the
+    /// absolute time (TXT, on the `First` arm) format it via
+    /// [`format_timestamp`](super::format::format_timestamp); HTML reads
+    /// only `diff_since_previous`, so the formatting is deferred.
+    pub date: i64,
 }
 
 /// Outcome of normalizing one [`EditedMessagePart`]. `None` from
@@ -92,16 +94,12 @@ pub fn normalize_edited<'a>(
                     // still anchors the next event's diff.
                     continue;
                 };
-                let absolute_time = match get_local_time(event.date, config.offset) {
-                    Ok(d) => format(&d),
-                    Err(why) => why.to_string(),
-                };
                 events.push(NormalizedEditEvent {
                     is_last: false,
                     text,
                     components: &event.components,
                     diff_since_previous,
-                    absolute_time,
+                    date: event.date,
                 });
             }
             if let Some(last) = events.last_mut() {
@@ -258,20 +256,16 @@ mod tests {
 
     #[test]
     fn normalize_edited_skips_no_text_events_but_diffs_through_them() {
-        // No-text events render as empty rows (in HTML) or bare timestamp
-        // prefixes (in TXT, which was outright broken — no newline emitted),
-        // so we drop them at the normalization layer. Their dates still
-        // anchor the diff for the *next* text-bearing event so chronology
-        // across the gap is preserved.
+        // No-text events are dropped at the normalization layer (their
+        // renderings broke both formats). Their dates still anchor the diff
+        // for the *next* text-bearing event so chronology across the gap is
+        // preserved.
         let config = make_config();
         let msg = Config::fake_message();
         let edited = EditedMessage {
             parts: vec![EditedMessagePart {
                 status: EditStatus::Edited,
-                edit_history: vec![
-                    event(DATE_A, None),
-                    event(DATE_B, Some("after the gap")),
-                ],
+                edit_history: vec![event(DATE_A, None), event(DATE_B, Some("after the gap"))],
             }],
         };
         match normalize_edited(&msg, &edited, 0, &config) {
