@@ -5,7 +5,7 @@ use std::{
         min,
     },
     fs::File,
-    io::BufWriter,
+    io::{BufWriter, Write},
 };
 
 use crate::{
@@ -14,13 +14,11 @@ use crate::{
         runtime::Config, sanitizers::sanitize_html,
     },
     exporters::{
-        exporter::{
-            ATTACHMENT_NO_FILENAME, Exporter, MessageFormatter, RenderContext, TextEffectFormatter,
-        },
+        exporter::{ATTACHMENT_NO_FILENAME, MessageFormatter, RenderContext, TextEffectFormatter},
         shared::{
             announcement::resolve_announcement,
             balloon::dispatch_app_balloon,
-            driver::{ExportState, MessageWriter, apply_body, get_or_create_file_for, run_export},
+            driver::{ExportState, MessageWriter, apply_body},
             edited::{EditDiff, NormalizedEdit, normalize_edited},
             format::{message_time, rewrite_fitness_receiver},
         },
@@ -78,24 +76,12 @@ pub struct HTML<'a> {
     pub state: ExportState,
 }
 
-// MARK: Exporter
-impl<'a> Exporter<'a> for HTML<'a> {
-    fn new(config: &'a Config) -> Result<Self, RuntimeError> {
+impl<'a> HTML<'a> {
+    pub fn new(config: &'a Config) -> Result<Self, RuntimeError> {
         Ok(HTML {
             config,
             state: ExportState::new(config, "html")?,
         })
-    }
-
-    fn iter_messages(&mut self) -> Result<(), RuntimeError> {
-        run_export(self)
-    }
-
-    fn get_or_create_file(
-        &mut self,
-        message: &Message,
-    ) -> Result<&mut BufWriter<File>, RuntimeError> {
-        get_or_create_file_for(self, message)
     }
 }
 
@@ -121,7 +107,8 @@ impl<'a> MessageWriter<'a> for HTML<'a> {
     }
 
     fn write_file_footer(file: &mut BufWriter<File>) -> Result<(), RuntimeError> {
-        HTML::write_to_file(file, FOOTER)
+        file.write_all(FOOTER.as_bytes())
+            .map_err(RuntimeError::DiskError)
     }
 
     fn footer_notice() -> Option<&'static str> {
@@ -513,16 +500,13 @@ impl HTML<'_> {
     }
 
     fn write_headers(file: &mut BufWriter<File>) -> Result<(), RuntimeError> {
-        // Write file header
-        HTML::write_to_file(file, HEADER)?;
-
-        // Write CSS
-        HTML::write_to_file(file, "<style>\n")?;
-        HTML::write_to_file(file, STYLE)?;
-        HTML::write_to_file(file, "\n</style>")?;
-        HTML::write_to_file(file, "<link rel=\"stylesheet\" href=\"style.css\">")?;
-        HTML::write_to_file(file, "\n</head>\n<body>\n")?;
-        Ok(())
+        file.write_all(HEADER.as_bytes())
+            .and_then(|()| file.write_all(b"<style>\n"))
+            .and_then(|()| file.write_all(STYLE.as_bytes()))
+            .and_then(|()| file.write_all(b"\n</style>"))
+            .and_then(|()| file.write_all(b"<link rel=\"stylesheet\" href=\"style.css\">"))
+            .and_then(|()| file.write_all(b"\n</head>\n<body>\n"))
+            .map_err(RuntimeError::DiskError)
     }
 
     fn apply_active_attributes<'a>(
@@ -693,7 +677,7 @@ impl HTML<'_> {
 // MARK: Tests
 
 /// Test-only convenience: allocate a buffer and forward to
-/// `format_message_into`. Production paths (`iter_messages`, `build_replies`)
+/// `format_message_into`. Production paths (`run_export`, `build_replies`)
 /// use the buffer-reusing API directly.
 #[cfg(test)]
 fn format_message(exporter: &HTML<'_>, message: &Message) -> Result<String, TableError> {
@@ -709,7 +693,7 @@ mod tests {
     use crate::exporters::html::format_message;
 
     use crate::{
-        Config, Exporter, HTML, Options,
+        Config, HTML, Options,
         app::{
             compatibility::attachment_manager::AttachmentManagerMode, contacts::Name,
             export_type::ExportType,
@@ -1318,7 +1302,7 @@ mod tests {
 
     #[test]
     fn format_message_into_appends_to_existing_buffer() {
-        // Mirrors the production hot path in `iter_messages`, which reuses a
+        // Mirrors the production hot path in `run_export`, which reuses a
         // single `String` across messages via `clear()` + `format_message_into`.
         // Tests must protect that invariant: the helper appends, not overwrites.
         let options = Options::fake_options(ExportType::Html);
@@ -2317,7 +2301,7 @@ mod balloon_format_tests {
     use std::{collections::HashMap, env::current_dir, fs::File, io::Read};
 
     use crate::{
-        Config, Exporter, HTML, Options, app::export_type::ExportType::Html,
+        Config, HTML, Options, app::export_type::ExportType::Html,
         exporters::exporter::BalloonFormatter,
     };
     use imessage_database::message_types::{
@@ -3039,7 +3023,7 @@ mod text_effect_tests {
     };
 
     use crate::{
-        Config, Exporter, HTML, Options,
+        Config, HTML, Options,
         app::export_type::ExportType::Html,
         exporters::{exporter::TextEffectFormatter, html::format_message},
     };
@@ -3510,7 +3494,7 @@ mod edited_tests {
     use std::{env::current_dir, fs::File, io::Read};
 
     use crate::{
-        Config, Exporter, HTML, Options,
+        Config, HTML, Options,
         app::export_type::ExportType::Html,
         exporters::{exporter::MessageFormatter, html::format_message},
     };

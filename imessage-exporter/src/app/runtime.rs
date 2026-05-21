@@ -27,13 +27,13 @@ use imessage_database::{
 };
 
 use crate::{
-    Exporter, HTML, TXT,
+    HTML, TXT,
     app::{
         compatibility::attachment_manager::AttachmentManagerMode, contacts::Name,
         data_source::DataSource, error::RuntimeError, export_type::ExportType, options::Options,
         sanitizers::sanitize_filename,
     },
-    exporters::exporter::ATTACHMENT_NO_FILENAME,
+    exporters::{exporter::ATTACHMENT_NO_FILENAME, shared::driver::run_export},
 };
 
 // Maximum length for filenames
@@ -562,10 +562,10 @@ impl Config {
             // Create exporter, pass it data we care about, then kick it off
             match export_type {
                 ExportType::Html => {
-                    HTML::new(self)?.iter_messages()?;
+                    run_export(&mut HTML::new(self)?)?;
                 }
                 ExportType::Txt => {
-                    TXT::new(self)?.iter_messages()?;
+                    run_export(&mut TXT::new(self)?)?;
                 }
             }
         }

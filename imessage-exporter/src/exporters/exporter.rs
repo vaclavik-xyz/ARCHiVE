@@ -1,9 +1,4 @@
-use std::{
-    borrow::Cow,
-    fs::File,
-    io::{BufWriter, Write},
-    marker::Sized,
-};
+use std::borrow::Cow;
 
 use imessage_database::{
     error::{message::MessageError, table::TableError},
@@ -29,8 +24,6 @@ use imessage_database::{
     },
 };
 
-use crate::app::{error::RuntimeError, runtime::Config};
-
 pub(crate) const ATTACHMENT_NO_FILENAME: &str = "Attachment missing name metadata!";
 
 /// Where a message sits in the rendered conversation hierarchy. Drives
@@ -44,27 +37,6 @@ pub(crate) enum RenderContext {
     /// Reply nested inside its parent message's body — emitted from each
     /// formatter's `build_replies` recursion.
     Reply,
-}
-
-// MARK: Exporter
-/// Defines behavior for iterating over messages from the iMessage database and managing export files
-pub trait Exporter<'a> {
-    /// Create a new exporter with references to the cached data
-    fn new(config: &'a Config) -> Result<Self, RuntimeError>
-    where
-        Self: Sized;
-    /// Begin iterating over the messages table
-    fn iter_messages(&mut self) -> Result<(), RuntimeError>;
-    /// Get the file handle to write to, otherwise create a new one
-    fn get_or_create_file(
-        &mut self,
-        message: &Message,
-    ) -> Result<&mut BufWriter<File>, RuntimeError>;
-    /// Write formatted text to a file
-    fn write_to_file(file: &mut BufWriter<File>, text: &str) -> Result<(), RuntimeError> {
-        file.write_all(text.as_bytes())
-            .map_err(RuntimeError::DiskError)
-    }
 }
 
 // MARK: Message
@@ -154,7 +126,7 @@ pub(crate) trait BalloonFormatter {
 
 // MARK: Text Effects
 /// Defines behavior for applying a [`TextEffect`] to the desired output format
-pub(super) trait TextEffectFormatter<'a> {
+pub(crate) trait TextEffectFormatter<'a> {
     /// Format a specific [`TextEffect`]
     fn format_effect(&'a self, text: &'a str, effect: &'a TextEffect) -> Cow<'a, str>;
     /// Format message text containing a [`Mention`](imessage_database::message_types::text_effects::TextEffect::Mention)

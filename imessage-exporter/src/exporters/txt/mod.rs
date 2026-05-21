@@ -6,11 +6,11 @@ use crate::{
         runtime::Config,
     },
     exporters::{
-        exporter::{ATTACHMENT_NO_FILENAME, Exporter, MessageFormatter, RenderContext},
+        exporter::{ATTACHMENT_NO_FILENAME, MessageFormatter, RenderContext},
         shared::{
             announcement::resolve_announcement,
             balloon::dispatch_app_balloon,
-            driver::{ExportState, MessageWriter, apply_body, get_or_create_file_for, run_export},
+            driver::{ExportState, MessageWriter, apply_body},
             edited::{EditDiff, NormalizedEdit, normalize_edited},
             format::{format_timestamp, message_time, rewrite_fitness_receiver},
         },
@@ -55,24 +55,12 @@ pub struct TXT<'a> {
     pub state: ExportState,
 }
 
-// MARK: Exporter
-impl<'a> Exporter<'a> for TXT<'a> {
-    fn new(config: &'a Config) -> Result<Self, RuntimeError> {
+impl<'a> TXT<'a> {
+    pub fn new(config: &'a Config) -> Result<Self, RuntimeError> {
         Ok(TXT {
             config,
             state: ExportState::new(config, "txt")?,
         })
-    }
-
-    fn iter_messages(&mut self) -> Result<(), RuntimeError> {
-        run_export(self)
-    }
-
-    fn get_or_create_file(
-        &mut self,
-        message: &Message,
-    ) -> Result<&mut BufWriter<File>, RuntimeError> {
-        get_or_create_file_for(self, message)
     }
 }
 
@@ -550,7 +538,7 @@ impl TXT<'_> {
 // MARK: Tests
 
 /// Test-only convenience: allocate a buffer and forward to
-/// `format_message_into`. Production paths (`iter_messages`, `build_replies`)
+/// `format_message_into`. Production paths (`run_export`, `build_replies`)
 /// use the buffer-reusing API directly.
 #[cfg(test)]
 fn format_message(exporter: &TXT<'_>, message: &Message) -> Result<String, TableError> {
@@ -566,7 +554,7 @@ mod tests {
     use crate::exporters::txt::format_message;
 
     use crate::{
-        Config, Exporter, Options, TXT,
+        Config, Options, TXT,
         app::{
             compatibility::attachment_manager::AttachmentManagerMode, contacts::Name,
             export_type::ExportType,
@@ -879,7 +867,7 @@ mod tests {
 
     #[test]
     fn format_message_into_appends_to_existing_buffer() {
-        // Mirrors the production hot path in `iter_messages`, which reuses a
+        // Mirrors the production hot path in `run_export`, which reuses a
         // single `String` across messages via `clear()` + `format_message_into`.
         // Tests must protect that invariant: the helper appends, not overwrites.
         let options = Options::fake_options(ExportType::Txt);
@@ -1901,7 +1889,7 @@ mod balloon_format_tests {
     use std::{collections::HashMap, env::current_dir, fs::File, io::Read};
 
     use crate::{
-        Config, Exporter, Options, TXT, app::export_type::ExportType::Txt,
+        Config, Options, TXT, app::export_type::ExportType::Txt,
         exporters::exporter::BalloonFormatter,
     };
     use imessage_database::message_types::{
@@ -2541,7 +2529,7 @@ mod text_effect_tests {
     };
 
     use crate::{
-        Config, Exporter, Options, TXT, app::export_type::ExportType,
+        Config, Options, TXT, app::export_type::ExportType,
         exporters::txt::format_message,
     };
 
@@ -2692,7 +2680,7 @@ mod edited_tests {
     };
 
     use crate::{
-        Config, Exporter, Options, TXT,
+        Config, Options, TXT,
         app::{contacts::Name, export_type::ExportType::Txt},
         exporters::{exporter::MessageFormatter, txt::format_message},
     };
