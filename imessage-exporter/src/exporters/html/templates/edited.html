@@ -2,12 +2,12 @@
 {%- when EditedKind::Edited { rows } -%}
 <table>
     {%- for row in rows -%}
-    <{{ row.tag }}>
+    <{% if row.is_last %}tfoot{% else %}tbody{% endif %}>
         <tr>
             <td><span class="timestamp">{{ row.timestamp }}</span></td>
             <td>{{ row.text|safe }}</td>
         </tr>
-    </{{ row.tag }}>
+    </{% if row.is_last %}tfoot{% else %}tbody{% endif %}>
     {%- endfor -%}
 </table>
 {%- when EditedKind::UnsentWithDiff { who, diff } -%}
