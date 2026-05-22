@@ -9,41 +9,41 @@ use imessage_database::{
 };
 
 #[derive(Template)]
-#[template(path = "apple_pay.txt")]
+#[template(path = "balloons/apple_pay.txt")]
 pub(super) struct ApplePayVM<'a> {
     pub caption: Option<&'a str>,
     pub ldtext: Option<&'a str>,
 }
 
 #[derive(Template)]
-#[template(path = "fitness.txt")]
+#[template(path = "balloons/fitness.txt")]
 pub(super) struct FitnessVM<'a> {
     pub app_name: Option<&'a str>,
     pub ldtext: Option<&'a str>,
 }
 
 #[derive(Template)]
-#[template(path = "slideshow.txt")]
+#[template(path = "balloons/slideshow.txt")]
 pub(super) struct SlideshowVM<'a> {
     pub ldtext: Option<&'a str>,
     pub url: Option<&'a str>,
 }
 
 #[derive(Template)]
-#[template(path = "find_my.txt")]
+#[template(path = "balloons/find_my.txt")]
 pub(super) struct FindMyVM<'a> {
     pub app_name: Option<&'a str>,
     pub ldtext: Option<&'a str>,
 }
 
 #[derive(Template)]
-#[template(path = "digital_touch.txt")]
+#[template(path = "balloons/digital_touch.txt")]
 pub(super) struct DigitalTouchVM {
     pub debug: String,
 }
 
 #[derive(Template)]
-#[template(path = "check_in.txt")]
+#[template(path = "balloons/check_in.txt")]
 pub(super) struct CheckInVM<'a> {
     /// Resolved label: `balloon.caption.unwrap_or("Check In")`.
     pub caption: &'a str,
@@ -53,7 +53,7 @@ pub(super) struct CheckInVM<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "poll.txt")]
+#[template(path = "balloons/poll.txt")]
 pub(super) struct PollVM<'a> {
     pub options: Vec<PollOptionVM<'a>>,
 }
@@ -65,7 +65,7 @@ pub(super) struct PollOptionVM<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "generic_app.txt")]
+#[template(path = "balloons/generic_app.txt")]
 pub(super) struct GenericAppVM<'a> {
     /// `app_name` falling back to `bundle_id`.
     pub name: &'a str,
@@ -78,7 +78,7 @@ pub(super) struct GenericAppVM<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "url.txt")]
+#[template(path = "balloons/url.txt")]
 pub(super) struct UrlVM<'a> {
     /// Resolved primary line: `balloon.get_url()` falling back to `msg.text`.
     pub primary: Option<&'a str>,
@@ -87,7 +87,7 @@ pub(super) struct UrlVM<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "music.txt")]
+#[template(path = "balloons/music.txt")]
 pub(super) struct MusicVM<'a> {
     pub lyrics: Option<&'a [&'a str]>,
     pub track_name: Option<&'a str>,
@@ -97,7 +97,7 @@ pub(super) struct MusicVM<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "collaboration.txt")]
+#[template(path = "balloons/collaboration.txt")]
 pub(super) struct CollaborationVM<'a> {
     /// `app_name` falling back to `bundle_id`.
     pub name: Option<&'a str>,
@@ -108,7 +108,7 @@ pub(super) struct CollaborationVM<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "app_store.txt")]
+#[template(path = "balloons/app_store.txt")]
 pub(super) struct AppStoreVM<'a> {
     pub app_name: Option<&'a str>,
     pub description: Option<&'a str>,
@@ -118,7 +118,7 @@ pub(super) struct AppStoreVM<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "placemark.txt")]
+#[template(path = "balloons/placemark.txt")]
 pub(super) struct PlacemarkVM<'a> {
     pub place_name: Option<&'a str>,
     pub url: Option<&'a str>,
@@ -135,14 +135,14 @@ pub(super) struct PlacemarkVM<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "attachment.txt")]
+#[template(path = "attachments/attachment.txt")]
 pub(super) struct AttachmentVM<'a> {
     pub embed_path: String,
     pub transcription: Option<&'a str>,
 }
 
 #[derive(Template)]
-#[template(path = "sticker.txt")]
+#[template(path = "attachments/sticker.txt")]
 pub(super) struct StickerVM<'a> {
     /// e.g. `"Outline "` (trailing space) for `UserGenerated` effects;
     /// `None` for the other variants.
