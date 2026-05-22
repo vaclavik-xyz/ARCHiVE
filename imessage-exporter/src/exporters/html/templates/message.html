@@ -1,4 +1,4 @@
-<div class="message"{% if anchor_id %} id="r-{{ guid }}"{% endif %}>
+<div class="message" {%- if anchor_id %} id="r-{{ guid }}" {%- endif %}>
     <div class="{% if is_from_me %}sent {{ service }}{% else %}received{% endif %}">
         <p>
             <span class="timestamp">
