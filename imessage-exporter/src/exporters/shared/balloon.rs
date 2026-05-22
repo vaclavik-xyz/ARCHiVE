@@ -166,7 +166,7 @@ pub fn resolve_check_in_footer(balloon: &AppMessage) -> Option<CheckInState> {
 /// value) into the local-time display string. Returns `None` if the input
 /// isn't a parseable float or the resulting timestamp is out of range.
 fn format_check_in_date(date_str: &str) -> Option<String> {
-    let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
+    let date_stamp = date_str.parse::<f64>().ok()? as i64 * TIMESTAMP_FACTOR;
     let date_time = get_local_time(date_stamp, 0).ok()?;
     Some(format(&date_time))
 }
