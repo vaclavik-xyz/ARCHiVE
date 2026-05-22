@@ -11,7 +11,7 @@ use crate::{
             announcement::resolve_announcement,
             balloon::{dispatch_app_balloon, rewrite_fitness_receiver},
             driver::{ExportState, MessageWriter, apply_body},
-            edited::{EditDiff, NormalizedEdit, normalize_edited},
+            edited::{EditDiff, NormalizedEdit, normalize_edited, resolve_unsent_actor},
             time::{format_timestamp, message_time},
         },
     },
@@ -283,12 +283,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 EditedKind::Edited { rows }
             }
             NormalizedEdit::Unsent { diff } => {
-                let who = if msg.is_from_me() {
-                    self.config.options.custom_name.as_deref().unwrap_or(YOU)
-                } else {
-                    self.config
-                        .who(msg.handle_id, msg.is_from_me(), &msg.destination_caller_id)
-                };
+                let who = resolve_unsent_actor(msg, self.config, YOU);
                 match diff {
                     Some(diff) => EditedKind::UnsentWithDiff { who, diff },
                     None => EditedKind::Unsent { who },

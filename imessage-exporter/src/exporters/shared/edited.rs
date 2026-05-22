@@ -1,10 +1,27 @@
 use imessage_database::{
     message_types::edited::{EditStatus, EditedMessage},
-    tables::messages::{Message, models::BubbleComponent},
+    tables::{
+        messages::{Message, models::BubbleComponent},
+        table::ME,
+    },
     util::dates::{get_local_time, readable_diff},
 };
 
 use crate::app::runtime::Config;
+
+/// Resolve the display name for the actor of an [`EditStatus::Unsent`] event.
+pub fn resolve_unsent_actor<'a>(
+    msg: &'a Message,
+    config: &'a Config,
+    self_name: &'a str,
+) -> &'a str {
+    let who = config.who(msg.handle_id, msg.is_from_me(), &msg.destination_caller_id);
+    if who == ME {
+        config.options.custom_name.as_deref().unwrap_or(self_name)
+    } else {
+        who
+    }
+}
 
 /// Where an edit event sits relative to the previous one in the history.
 pub enum EditDiff {
@@ -56,9 +73,7 @@ pub enum NormalizedEdit<'a> {
     Edited(Vec<NormalizedEditEvent<'a>>),
     /// [`EditStatus::Unsent`]. `diff` is `Some(s)` when both `msg.date` and
     /// `msg.date_edited` are parseable AND `readable_diff` returns `Some`.
-    /// Resolving the actor's display name is left to the caller, since the
-    /// `is_from_me` / `custom_name` substitution rules are format-agnostic
-    /// but live alongside each renderer.
+    /// Resolve the actor's display name with [`resolve_unsent_actor`].
     Unsent { diff: Option<String> },
 }
 
@@ -124,8 +139,11 @@ mod tests {
         EditStatus, EditedEvent, EditedMessage, EditedMessagePart,
     };
 
-    use super::{EditDiff, NormalizedEdit, normalize_edited};
-    use crate::{Config, Options, app::export_type::ExportType};
+    use super::{EditDiff, NormalizedEdit, normalize_edited, resolve_unsent_actor};
+    use crate::{
+        Config, Options,
+        app::{contacts::Name, export_type::ExportType},
+    };
 
     // May 17, 2022  8:29:42 PM
     const DATE_A: i64 = 674526582885055488;
@@ -300,5 +318,43 @@ mod tests {
             Some(NormalizedEdit::Edited(events)) => assert!(events.is_empty()),
             _ => panic!("expected Edited with empty events"),
         }
+    }
+
+    #[test]
+    fn resolve_unsent_actor_self_default_falls_back_to_self_name() {
+        let config = make_config();
+        let mut msg = Config::fake_message();
+        msg.is_from_me = true;
+        assert_eq!(resolve_unsent_actor(&msg, &config, "You"), "You");
+    }
+
+    #[test]
+    fn resolve_unsent_actor_self_with_custom_name_uses_custom_name() {
+        let mut config = make_config();
+        config.options.custom_name = Some("Chris".to_string());
+        let mut msg = Config::fake_message();
+        msg.is_from_me = true;
+        assert_eq!(resolve_unsent_actor(&msg, &config, "You"), "Chris");
+    }
+
+    #[test]
+    fn resolve_unsent_actor_self_with_use_caller_id_returns_caller_id() {
+        let mut config = make_config();
+        config.options.use_caller_id = true;
+        let mut msg = Config::fake_message();
+        msg.is_from_me = true;
+        msg.destination_caller_id = Some("+15551234567".to_string());
+        assert_eq!(resolve_unsent_actor(&msg, &config, "You"), "+15551234567");
+    }
+
+    #[test]
+    fn resolve_unsent_actor_other_resolves_participant() {
+        let mut config = make_config();
+        config.participants.insert(7, Name::fake_name("Alice"));
+        config.real_participants.insert(7, 7);
+        let mut msg = Config::fake_message();
+        msg.is_from_me = false;
+        msg.handle_id = Some(7);
+        assert_eq!(resolve_unsent_actor(&msg, &config, "You"), "Alice");
     }
 }
