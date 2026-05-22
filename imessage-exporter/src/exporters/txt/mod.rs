@@ -2045,6 +2045,27 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn music_balloon_skips_empty_string_fields() {
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = MusicMessage {
+            url: Some("url"),
+            preview: None,
+            artist: Some("artist"),
+            album: Some(""),
+            track_name: Some("track_name"),
+            lyrics: None,
+        };
+
+        let actual = exporter.format_music(&balloon);
+        let expected = "track_name\nartist\nurl";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_txt_collaboration() {
         // Create exporter
         let options = Options::fake_options(Txt);

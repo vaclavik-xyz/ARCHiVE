@@ -1,2 +1,3 @@
-<div class="app_header">{% if let Some(app_name) = app_name %}<div class="name">{{ app_name }}</div>{% endif %}</div>
-<div class="app_footer">{% if let Some(ldtext) = ldtext %}<div class="caption">{{ ldtext }}</div>{% endif %}</div>
+<div class="app_header">{% if let Some(app_name) = app_name.get() %}<div class="name">{{ app_name }}</div>{% endif -%}
+</div>
+<div class="app_footer">{% if let Some(ldtext) = ldtext.get() %}<div class="caption">{{ ldtext }}</div>{% endif %}</div>

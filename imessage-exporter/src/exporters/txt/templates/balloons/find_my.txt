@@ -1,1 +1,1 @@
-{% if let Some(app_name) = app_name %}{{ app_name }}: {% endif %}{% if let Some(ldtext) = ldtext %}{{ ldtext }}{% endif %}
+{% if let Some(app_name) = app_name.get() %}{{ app_name }}: {% endif %}{% if let Some(ldtext) = ldtext.get() %}{{ ldtext }}{% endif %}

@@ -1,4 +1,4 @@
-{% if let Some(primary) = primary %}{{ primary }}
-{% endif %}{% if let Some(title) = title %}{{ title }}
-{% endif %}{% if let Some(summary) = summary %}{{ summary }}
+{% if let Some(primary) = primary.get() %}{{ primary }}
+{% endif %}{% if let Some(title) = title.get() %}{{ title }}
+{% endif %}{% if let Some(summary) = summary.get() %}{{ summary }}
 {% endif %}

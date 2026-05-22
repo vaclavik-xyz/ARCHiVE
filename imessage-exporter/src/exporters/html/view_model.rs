@@ -9,6 +9,8 @@ use imessage_database::{
     tables::messages::models::{GroupAction, Service},
 };
 
+use crate::exporters::shared::balloon::OptionalText;
+
 #[derive(Template)]
 #[template(path = "balloons/digital_touch.html")]
 pub(super) struct DigitalTouchVM {
@@ -18,96 +20,96 @@ pub(super) struct DigitalTouchVM {
 #[derive(Template)]
 #[template(path = "balloons/find_my.html")]
 pub(super) struct FindMyVM<'a> {
-    pub app_name: Option<&'a str>,
-    pub ldtext: Option<&'a str>,
+    pub app_name: OptionalText<'a>,
+    pub ldtext: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/apple_pay.html")]
 pub(super) struct ApplePayVM<'a> {
-    pub app_name: Option<&'a str>,
-    pub ldtext: Option<&'a str>,
+    pub app_name: OptionalText<'a>,
+    pub ldtext: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/app_card.html")]
 pub(super) struct AppCardVM<'a> {
-    pub url: Option<&'a str>,
-    pub image: Option<&'a str>,
+    pub url: OptionalText<'a>,
+    pub image: OptionalText<'a>,
     /// Pre-rendered HTML for an attachment, used when `image` is `None` and an
     /// attachment is present. Already escaped — emit with `{{ ... |safe }}`.
     pub attachment_html: Option<String>,
     pub name: &'a str,
-    pub title: Option<&'a str>,
-    pub subtitle: Option<&'a str>,
-    pub ldtext: Option<&'a str>,
-    pub caption: Option<&'a str>,
-    pub subcaption: Option<&'a str>,
-    pub trailing_caption: Option<&'a str>,
-    pub trailing_subcaption: Option<&'a str>,
+    pub title: OptionalText<'a>,
+    pub subtitle: OptionalText<'a>,
+    pub ldtext: OptionalText<'a>,
+    pub caption: OptionalText<'a>,
+    pub subcaption: OptionalText<'a>,
+    pub trailing_caption: OptionalText<'a>,
+    pub trailing_subcaption: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/url.html")]
 pub(super) struct UrlVM<'a> {
     /// Resolved outer-link target: `balloon.get_url()` falling back to `msg.text`.
-    pub wrapper_url: Option<&'a str>,
+    pub wrapper_url: OptionalText<'a>,
     /// Resolved label: `site_name` falling back to URL then `msg.text`.
-    pub name: Option<&'a str>,
+    pub name: OptionalText<'a>,
     pub images: &'a [&'a str],
     pub lazy: bool,
-    pub title: Option<&'a str>,
-    pub summary: Option<&'a str>,
+    pub title: OptionalText<'a>,
+    pub summary: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/music.html")]
 pub(super) struct MusicVM<'a> {
-    pub track_name: Option<&'a str>,
-    pub preview: Option<&'a str>,
+    pub track_name: OptionalText<'a>,
+    pub preview: OptionalText<'a>,
     pub lyrics: Option<&'a [&'a str]>,
-    pub url: Option<&'a str>,
-    pub artist: Option<&'a str>,
-    pub album: Option<&'a str>,
+    pub url: OptionalText<'a>,
+    pub artist: OptionalText<'a>,
+    pub album: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/collaboration.html")]
 pub(super) struct CollaborationVM<'a> {
-    pub name: Option<&'a str>,
+    pub name: OptionalText<'a>,
     /// `<a>` wrapper opens only when `balloon.url` is set (not the `original_url` fallback).
-    pub wrapper_url: Option<&'a str>,
-    pub title: Option<&'a str>,
+    pub wrapper_url: OptionalText<'a>,
+    pub title: OptionalText<'a>,
     /// Subcaption uses the resolved URL (`url` or `original_url`).
-    pub footer_url: Option<&'a str>,
+    pub footer_url: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/app_store.html")]
 pub(super) struct AppStoreVM<'a> {
-    pub app_name: Option<&'a str>,
-    pub url: Option<&'a str>,
-    pub description: Option<&'a str>,
-    pub platform: Option<&'a str>,
-    pub genre: Option<&'a str>,
+    pub app_name: OptionalText<'a>,
+    pub url: OptionalText<'a>,
+    pub description: OptionalText<'a>,
+    pub platform: OptionalText<'a>,
+    pub genre: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/placemark.html")]
 pub(super) struct PlacemarkVM<'a> {
-    pub url: Option<&'a str>,
-    pub name: Option<&'a str>,
-    pub address: Option<&'a str>,
-    pub postal_code: Option<&'a str>,
-    pub country: Option<&'a str>,
-    pub sub_administrative_area: Option<&'a str>,
+    pub url: OptionalText<'a>,
+    pub name: OptionalText<'a>,
+    pub address: OptionalText<'a>,
+    pub postal_code: OptionalText<'a>,
+    pub country: OptionalText<'a>,
+    pub sub_administrative_area: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/check_in.html")]
 pub(super) struct CheckInVM<'a> {
     pub name: &'a str,
-    pub ldtext: Option<&'a str>,
+    pub ldtext: OptionalText<'a>,
     /// Pre-formatted footer text (e.g. "Checked in at Oct 14, 2023…"). `None`
     /// when the balloon's metadata yields no recognized timestamp.
     pub footer: Option<String>,

@@ -2393,6 +2393,27 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn music_balloon_skips_empty_string_fields() {
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = MusicMessage {
+            url: Some("url"),
+            preview: None,
+            artist: Some(""),
+            album: Some(""),
+            track_name: Some("track_name"),
+            lyrics: None,
+        };
+
+        let actual = exporter.format_music(&balloon);
+        let expected = "<div class=\"app_header\"><div class=\"name\">track_name</div></div><a href=\"url\"></a>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_html_collaboration() {
         // Create exporter
         let options = Options::fake_options(Html);

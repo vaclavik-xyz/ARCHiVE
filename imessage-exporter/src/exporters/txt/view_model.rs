@@ -8,34 +8,34 @@ use imessage_database::{
     tables::messages::models::GroupAction,
 };
 
-use crate::exporters::exporter::RenderContext;
+use crate::exporters::{exporter::RenderContext, shared::balloon::OptionalText};
 
 #[derive(Template)]
 #[template(path = "balloons/apple_pay.txt")]
 pub(super) struct ApplePayVM<'a> {
-    pub caption: Option<&'a str>,
-    pub ldtext: Option<&'a str>,
+    pub caption: OptionalText<'a>,
+    pub ldtext: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/fitness.txt")]
 pub(super) struct FitnessVM<'a> {
-    pub app_name: Option<&'a str>,
-    pub ldtext: Option<&'a str>,
+    pub app_name: OptionalText<'a>,
+    pub ldtext: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/slideshow.txt")]
 pub(super) struct SlideshowVM<'a> {
-    pub ldtext: Option<&'a str>,
-    pub url: Option<&'a str>,
+    pub ldtext: OptionalText<'a>,
+    pub url: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/find_my.txt")]
 pub(super) struct FindMyVM<'a> {
-    pub app_name: Option<&'a str>,
-    pub ldtext: Option<&'a str>,
+    pub app_name: OptionalText<'a>,
+    pub ldtext: OptionalText<'a>,
 }
 
 #[derive(Template)]
@@ -71,69 +71,69 @@ pub(super) struct PollOptionVM<'a> {
 pub(super) struct GenericAppVM<'a> {
     /// `app_name` falling back to `bundle_id`.
     pub name: &'a str,
-    pub title: Option<&'a str>,
-    pub subtitle: Option<&'a str>,
-    pub caption: Option<&'a str>,
-    pub subcaption: Option<&'a str>,
-    pub trailing_caption: Option<&'a str>,
-    pub trailing_subcaption: Option<&'a str>,
+    pub title: OptionalText<'a>,
+    pub subtitle: OptionalText<'a>,
+    pub caption: OptionalText<'a>,
+    pub subcaption: OptionalText<'a>,
+    pub trailing_caption: OptionalText<'a>,
+    pub trailing_subcaption: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/url.txt")]
 pub(super) struct UrlVM<'a> {
     /// Resolved primary line: `balloon.get_url()` falling back to `msg.text`.
-    pub primary: Option<&'a str>,
-    pub title: Option<&'a str>,
-    pub summary: Option<&'a str>,
+    pub primary: OptionalText<'a>,
+    pub title: OptionalText<'a>,
+    pub summary: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/music.txt")]
 pub(super) struct MusicVM<'a> {
     pub lyrics: Option<&'a [&'a str]>,
-    pub track_name: Option<&'a str>,
-    pub album: Option<&'a str>,
-    pub artist: Option<&'a str>,
-    pub url: Option<&'a str>,
+    pub track_name: OptionalText<'a>,
+    pub album: OptionalText<'a>,
+    pub artist: OptionalText<'a>,
+    pub url: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/collaboration.txt")]
 pub(super) struct CollaborationVM<'a> {
     /// `app_name` falling back to `bundle_id`.
-    pub name: Option<&'a str>,
+    pub name: OptionalText<'a>,
     pub has_label: bool,
-    pub title: Option<&'a str>,
+    pub title: OptionalText<'a>,
     /// `balloon.get_url()`.
-    pub url: Option<&'a str>,
+    pub url: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/app_store.txt")]
 pub(super) struct AppStoreVM<'a> {
-    pub app_name: Option<&'a str>,
-    pub description: Option<&'a str>,
-    pub platform: Option<&'a str>,
-    pub genre: Option<&'a str>,
-    pub url: Option<&'a str>,
+    pub app_name: OptionalText<'a>,
+    pub description: OptionalText<'a>,
+    pub platform: OptionalText<'a>,
+    pub genre: OptionalText<'a>,
+    pub url: OptionalText<'a>,
 }
 
 #[derive(Template)]
 #[template(path = "balloons/placemark.txt")]
 pub(super) struct PlacemarkVM<'a> {
-    pub place_name: Option<&'a str>,
-    pub url: Option<&'a str>,
-    pub name: Option<&'a str>,
-    pub address: Option<&'a str>,
-    pub state: Option<&'a str>,
-    pub city: Option<&'a str>,
-    pub iso_country_code: Option<&'a str>,
-    pub postal_code: Option<&'a str>,
-    pub country: Option<&'a str>,
-    pub street: Option<&'a str>,
-    pub sub_administrative_area: Option<&'a str>,
-    pub sub_locality: Option<&'a str>,
+    pub place_name: OptionalText<'a>,
+    pub url: OptionalText<'a>,
+    pub name: OptionalText<'a>,
+    pub address: OptionalText<'a>,
+    pub state: OptionalText<'a>,
+    pub city: OptionalText<'a>,
+    pub iso_country_code: OptionalText<'a>,
+    pub postal_code: OptionalText<'a>,
+    pub country: OptionalText<'a>,
+    pub street: OptionalText<'a>,
+    pub sub_administrative_area: OptionalText<'a>,
+    pub sub_locality: OptionalText<'a>,
 }
 
 #[derive(Template)]

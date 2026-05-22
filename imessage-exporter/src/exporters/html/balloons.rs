@@ -31,12 +31,12 @@ impl BalloonFormatter for HTML<'_> {
         let balloon_url = balloon.get_url();
         let msg_text = msg.text.as_deref();
         UrlVM {
-            wrapper_url: balloon_url.or(msg_text),
-            name: balloon.site_name.or(balloon_url).or(msg_text),
+            wrapper_url: balloon_url.or(msg_text).into(),
+            name: balloon.site_name.or(balloon_url).or(msg_text).into(),
             images: &balloon.images,
             lazy: !self.config.options.no_lazy,
-            title: balloon.title,
-            summary: balloon.summary,
+            title: balloon.title.into(),
+            summary: balloon.summary.into(),
         }
         .render()
         .unwrap_or_default()
@@ -44,12 +44,12 @@ impl BalloonFormatter for HTML<'_> {
 
     fn format_music(&self, balloon: &MusicMessage) -> String {
         MusicVM {
-            track_name: balloon.track_name,
-            preview: balloon.preview,
+            track_name: balloon.track_name.into(),
+            preview: balloon.preview.into(),
             lyrics: balloon.lyrics.as_deref(),
-            url: balloon.url,
-            artist: balloon.artist,
-            album: balloon.album,
+            url: balloon.url.into(),
+            artist: balloon.artist.into(),
+            album: balloon.album.into(),
         }
         .render()
         .unwrap_or_default()
@@ -57,10 +57,10 @@ impl BalloonFormatter for HTML<'_> {
 
     fn format_collaboration(&self, balloon: &CollaborationMessage) -> String {
         CollaborationVM {
-            name: balloon.app_name.or(balloon.bundle_id),
-            wrapper_url: balloon.url,
-            title: balloon.title,
-            footer_url: balloon.get_url(),
+            name: balloon.app_name.or(balloon.bundle_id).into(),
+            wrapper_url: balloon.url.into(),
+            title: balloon.title.into(),
+            footer_url: balloon.get_url().into(),
         }
         .render()
         .unwrap_or_default()
@@ -68,11 +68,11 @@ impl BalloonFormatter for HTML<'_> {
 
     fn format_app_store(&self, balloon: &AppStoreMessage) -> String {
         AppStoreVM {
-            app_name: balloon.app_name,
-            url: balloon.url,
-            description: balloon.description,
-            platform: balloon.platform,
-            genre: balloon.genre,
+            app_name: balloon.app_name.into(),
+            url: balloon.url.into(),
+            description: balloon.description.into(),
+            platform: balloon.platform.into(),
+            genre: balloon.genre.into(),
         }
         .render()
         .unwrap_or_default()
@@ -81,12 +81,12 @@ impl BalloonFormatter for HTML<'_> {
     fn format_placemark(&self, balloon: &PlacemarkMessage) -> String {
         let url = balloon.get_url();
         PlacemarkVM {
-            url,
-            name: balloon.place_name.or(url),
-            address: balloon.placemark.address,
-            postal_code: balloon.placemark.postal_code,
-            country: balloon.placemark.country,
-            sub_administrative_area: balloon.placemark.sub_administrative_area,
+            url: url.into(),
+            name: balloon.place_name.or(url).into(),
+            address: balloon.placemark.address.into(),
+            postal_code: balloon.placemark.postal_code.into(),
+            country: balloon.placemark.country.into(),
+            sub_administrative_area: balloon.placemark.sub_administrative_area.into(),
         }
         .render()
         .unwrap_or_default()
@@ -106,8 +106,8 @@ impl BalloonFormatter for HTML<'_> {
 
     fn format_apple_pay(&self, balloon: &AppMessage) -> String {
         ApplePayVM {
-            app_name: balloon.app_name,
-            ldtext: balloon.ldtext,
+            app_name: balloon.app_name.into(),
+            ldtext: balloon.ldtext.into(),
         }
         .render()
         .unwrap_or_default()
@@ -123,8 +123,8 @@ impl BalloonFormatter for HTML<'_> {
 
     fn format_find_my(&self, balloon: &AppMessage) -> String {
         FindMyVM {
-            app_name: balloon.app_name,
-            ldtext: balloon.ldtext,
+            app_name: balloon.app_name.into(),
+            ldtext: balloon.ldtext.into(),
         }
         .render()
         .unwrap_or_default()
@@ -139,7 +139,7 @@ impl BalloonFormatter for HTML<'_> {
 
         CheckInVM {
             name: balloon.app_name.unwrap_or("Check In"),
-            ldtext: balloon.ldtext,
+            ldtext: balloon.ldtext.into(),
             footer,
         }
         .render()
@@ -203,17 +203,17 @@ impl HTML<'_> {
         attachment_html: Option<String>,
     ) -> String {
         AppCardVM {
-            url: balloon.url,
-            image: balloon.image,
+            url: balloon.url.into(),
+            image: balloon.image.into(),
             attachment_html,
             name: balloon.app_name.unwrap_or(bundle_id),
-            title: balloon.title,
-            subtitle: balloon.subtitle,
-            ldtext: balloon.ldtext,
-            caption: balloon.caption,
-            subcaption: balloon.subcaption,
-            trailing_caption: balloon.trailing_caption,
-            trailing_subcaption: balloon.trailing_subcaption,
+            title: balloon.title.into(),
+            subtitle: balloon.subtitle.into(),
+            ldtext: balloon.ldtext.into(),
+            caption: balloon.caption.into(),
+            subcaption: balloon.subcaption.into(),
+            trailing_caption: balloon.trailing_caption.into(),
+            trailing_subcaption: balloon.trailing_subcaption.into(),
         }
         .render()
         .unwrap_or_default()
