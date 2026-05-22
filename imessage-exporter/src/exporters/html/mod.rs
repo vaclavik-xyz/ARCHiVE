@@ -360,7 +360,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
 
     fn format_attributes(&'a self, text: &'a str, attributes: &'a [TextAttributes]) -> String {
         if attributes.is_empty() {
-            return text.to_string();
+            return sanitize_html(text).into_owned();
         }
 
         // Create events for attribute starts and ends
