@@ -319,10 +319,6 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         context: RenderContext,
         out: &mut String,
     ) -> Result<(), TableError> {
-        let indent: &'static str = match context {
-            RenderContext::TopLevel => "",
-            RenderContext::Reply => REPLY_INDENT,
-        };
         let mut attachments = Attachment::from_message(self.config.data_source.db(), message)?;
         let mut replies_map = message.get_replies(self.config.data_source.db())?;
         let mut attachment_index: usize = 0;
@@ -341,16 +337,14 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 &mut attachment_index,
             );
             parts.push(MessagePartVM {
-                indent,
                 body,
                 expressive,
-                tapbacks: self.build_tapbacks(message, idx, indent)?,
+                tapbacks: self.build_tapbacks(message, idx)?,
                 replies: self.build_replies(replies_map.get_mut(&idx))?,
             });
         }
 
         let vm = MessageVM {
-            indent,
             timestamp: self.get_time(message),
             sender: self.config.who(
                 message.handle_id,
@@ -372,10 +366,22 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 None
             },
             parts,
-            trailing_reply_context: message.is_reply() && indent.is_empty(),
-            top_level: indent.is_empty(),
+            is_reply: message.is_reply(),
+            context,
         };
-        let _ = vm.render_into(out);
+
+        match context {
+            RenderContext::TopLevel => {
+                let _ = vm.render_into(out);
+            }
+            RenderContext::Reply => {
+                // Render to a scratch buffer, then prefix every non-blank
+                // line with REPLY_INDENT on the way out
+                let mut buf = String::with_capacity(Self::BUFFER_CAPACITY);
+                let _ = vm.render_into(&mut buf);
+                Self::push_indented(out, &buf, REPLY_INDENT);
+            }
+        }
         Ok(())
     }
 }
@@ -473,12 +479,11 @@ impl TXT<'_> {
         }
     }
 
-    fn build_tapbacks<'b>(
+    fn build_tapbacks(
         &self,
         message: &Message,
         idx: usize,
-        indent: &'b str,
-    ) -> Result<Option<TapbacksVM<'b>>, TableError> {
+    ) -> Result<Option<TapbacksVM>, TableError> {
         let Some(tapbacks) = self
             .config
             .tapbacks
@@ -499,10 +504,7 @@ impl TXT<'_> {
         if rendered.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(TapbacksVM {
-                indent,
-                tapbacks: rendered,
-            }))
+            Ok(Some(TapbacksVM { tapbacks: rendered }))
         }
     }
 
@@ -526,6 +528,19 @@ impl TXT<'_> {
             Ok(None)
         } else {
             Ok(Some(RepliesVM { replies: rendered }))
+        }
+    }
+
+    /// Append `source` to `out`, prefixing every non-blank line with `prefix`.
+    /// Blank lines (`"\n"` only) pass through unprefixed so the output has
+    /// no trailing-whitespace artifacts.
+    fn push_indented(out: &mut String, source: &str, prefix: &str) {
+        out.reserve(source.len() + prefix.len() * 4);
+        for line in source.split_inclusive('\n') {
+            if !line.trim_end_matches('\n').is_empty() {
+                out.push_str(prefix);
+            }
+            out.push_str(line);
         }
     }
 }
@@ -1797,15 +1812,14 @@ mod tests {
     }
 
     #[test]
-    fn message_part_indents_every_line_of_multi_line_text() {
+    fn message_part_emits_one_output_line_per_source_line() {
         // Locks in the `text.lines()` iteration in message_part.txt: a
-        // PartBody::Line carrying multi-line text must emit one prefixed line
-        // per source line, not just prefix the first.
+        // PartBody::Line carrying multi-line text must emit one output line
+        // per source line. Indentation is applied later by `push_indented`.
         use crate::exporters::txt::view_model::{MessagePartVM, PartBody};
         use askama::Template;
 
         let vm = MessagePartVM {
-            indent: "    ",
             body: PartBody::Line {
                 text: "line1\nline2\nline3".to_string(),
             },
@@ -1815,34 +1829,60 @@ mod tests {
         };
 
         let rendered = vm.render().unwrap();
-        assert_eq!(rendered, "    line1\n    line2\n    line3\n");
+        assert_eq!(rendered, "line1\nline2\nline3\n");
     }
 
     #[test]
-    fn tapbacks_render_with_outer_indent_and_inner_inset() {
+    fn tapbacks_render_with_inner_inset_only() {
         // The 4-space inset on each tapback line is intentional (visual cue
-        // for what's being reacted to). In a reply context the outer indent
-        // stacks on top: "Tapbacks:" at 4 spaces, each tapback at 8.
+        // for what's being reacted to). The outer reply indent is applied by
+        // `push_indented`, not by the template.
         use crate::exporters::txt::view_model::TapbacksVM;
         use askama::Template;
 
         let vm = TapbacksVM {
-            indent: "    ",
             tapbacks: vec!["Loved by Me".to_string(), "Liked by Sample".to_string()],
         };
 
         let rendered = vm.render().unwrap();
         assert_eq!(
             rendered,
+            "Tapbacks:\n    Loved by Me\n    Liked by Sample\n",
+        );
+    }
+
+    #[test]
+    fn push_indented_stacks_on_tapback_inner_inset() {
+        // When the reply indent is stacked on top of `tapbacks.txt`'s inner
+        // 4-space inset, the resulting tapback lines sit at 8 spaces.
+        use crate::exporters::txt::view_model::TapbacksVM;
+        use askama::Template;
+
+        let vm = TapbacksVM {
+            tapbacks: vec!["Loved by Me".to_string(), "Liked by Sample".to_string()],
+        };
+        let rendered = vm.render().unwrap();
+        let mut indented = String::new();
+        super::TXT::push_indented(&mut indented, &rendered, "    ");
+        assert_eq!(
+            indented,
             "    Tapbacks:\n        Loved by Me\n        Liked by Sample\n",
         );
     }
 
     #[test]
-    fn edited_history_renders_unindented_so_message_part_can_apply_indent() {
+    fn push_indented_skips_blank_lines() {
+        // Blank lines stay blank — no trailing-whitespace artifacts.
+        let mut out = String::new();
+        super::TXT::push_indented(&mut out, "a\n\nb\n", "    ");
+        assert_eq!(out, "    a\n\n    b\n");
+    }
+
+    #[test]
+    fn edited_history_renders_unindented() {
         // format_edited returns rows separated by `\n` with no indent baked
-        // in. message_part.txt's text.lines() loop is what indents them.
-        // This test pins the unindented contract.
+        // in. `push_indented` applies the reply prefix uniformly across all
+        // lines downstream.
         use crate::exporters::txt::view_model::{EditedKind, EditedRow, EditedVM};
         use askama::Template;
 
@@ -1867,12 +1907,10 @@ mod tests {
             "5:29:42 PM first\nEdited 30 seconds later: second\n",
         );
 
-        // And when this multi-line output is wrapped in PartBody::Line and
-        // run through message_part.txt at indent="    ", every line should
-        // pick up the same 4-space prefix.
+        // Wrapping in PartBody::Line, rendering, and applying push_indented
+        // produces a uniformly prefixed block.
         use crate::exporters::txt::view_model::{MessagePartVM, PartBody};
         let part = MessagePartVM {
-            indent: "    ",
             body: PartBody::Line {
                 text: rendered.trim_end_matches('\n').to_string(),
             },
@@ -1880,7 +1918,9 @@ mod tests {
             tapbacks: None,
             replies: None,
         };
-        let full = part.render().unwrap();
+        let unindented = part.render().unwrap();
+        let mut full = String::new();
+        super::TXT::push_indented(&mut full, &unindented, "    ");
         assert_eq!(
             full,
             "    5:29:42 PM first\n    Edited 30 seconds later: second\n",

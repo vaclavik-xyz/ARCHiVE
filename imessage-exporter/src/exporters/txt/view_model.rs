@@ -8,6 +8,8 @@ use imessage_database::{
     tables::messages::models::GroupAction,
 };
 
+use crate::exporters::exporter::RenderContext;
+
 #[derive(Template)]
 #[template(path = "balloons/apple_pay.txt")]
 pub(super) struct ApplePayVM<'a> {
@@ -215,7 +217,6 @@ pub(super) enum AnnouncementBody<'a> {
 #[derive(Template)]
 #[template(path = "message.txt")]
 pub(super) struct MessageVM<'a> {
-    pub indent: &'a str,
     pub timestamp: String,
     pub sender: &'a str,
     pub is_deleted: bool,
@@ -225,25 +226,24 @@ pub(super) struct MessageVM<'a> {
     /// Static shared-location marker.
     pub shared_location: Option<&'a str>,
     pub parts: Vec<MessagePartVM<'a>>,
-    pub trailing_reply_context: bool,
-    /// Top-level messages get an extra blank-line separator at the end.
-    pub top_level: bool,
+    /// Whether the source message is itself a reply
+    pub is_reply: bool,
+    /// Where this message sits in the rendered hierarchy
+    pub context: RenderContext,
 }
 
 #[derive(Template)]
 #[template(path = "message_part.txt")]
 pub(super) struct MessagePartVM<'a> {
-    pub indent: &'a str,
     pub body: PartBody,
     pub expressive: Option<Expressive<'a>>,
-    pub tapbacks: Option<TapbacksVM<'a>>,
+    pub tapbacks: Option<TapbacksVM>,
     pub replies: Option<RepliesVM>,
 }
 
 #[derive(Template)]
 #[template(path = "tapbacks.txt")]
-pub(super) struct TapbacksVM<'a> {
-    pub indent: &'a str,
+pub(super) struct TapbacksVM {
     /// Each entry is one fully-rendered tapback line (e.g. `"Loved by Me"`).
     pub tapbacks: Vec<String>,
 }
@@ -251,8 +251,9 @@ pub(super) struct TapbacksVM<'a> {
 #[derive(Template)]
 #[template(path = "replies.txt")]
 pub(super) struct RepliesVM {
-    /// Each entry is a fully-rendered nested message (multi-line, with its
-    /// own internal indent already applied).
+    /// Each entry is a fully-rendered nested reply (multi-line, with its
+    /// own [`REPLY_INDENT`](super::REPLY_INDENT) already applied by the
+    /// recursive [`format_message_into`](super::TXT::format_message_into) call).
     pub replies: Vec<String>,
 }
 
