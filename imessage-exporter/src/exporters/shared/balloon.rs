@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use imessage_database::{
     error::{message::MessageError, plist::PlistParseError},
     message_types::{
@@ -130,11 +132,41 @@ pub fn rewrite_fitness_receiver(text: String) -> String {
 
 // MARK: Check In
 
-/// Parse a Check In timestamp from a `parse_query_string` value and render it
-/// with the given prefix (e.g. `"Checked in at "`). Returns `None` if the
-/// value is unparseable.
-pub fn format_check_in_caption(date_str: &str, prefix: &str) -> Option<String> {
+/// One of the three metadata states a Check In balloon can advertise, paired
+/// with the resolved local-time string. The variant choice mirrors the
+/// `parse_query_string` key the timestamp came from (`estimatedEndTime`,
+/// `triggerTime`, `sendDate`); each format applies its own user-visible
+/// prefix.
+pub enum CheckInState {
+    /// `estimatedEndTime` — Check In is scheduled and still pending.
+    Expected(String),
+    /// `triggerTime` — Check In window has passed without confirmation.
+    WasExpected(String),
+    /// `sendDate` — Check In was manually confirmed.
+    CheckedIn(String),
+}
+
+/// Resolve a Check In balloon's footer kind from its metadata. Returns `None`
+/// when the balloon has no recognized timestamp key or the value is
+/// unparsable.
+pub fn resolve_check_in_footer(balloon: &AppMessage) -> Option<CheckInState> {
+    let metadata: HashMap<&str, &str> = balloon.parse_query_string();
+    if let Some(date_str) = metadata.get("estimatedEndTime") {
+        format_check_in_date(date_str).map(CheckInState::Expected)
+    } else if let Some(date_str) = metadata.get("triggerTime") {
+        format_check_in_date(date_str).map(CheckInState::WasExpected)
+    } else if let Some(date_str) = metadata.get("sendDate") {
+        format_check_in_date(date_str).map(CheckInState::CheckedIn)
+    } else {
+        None
+    }
+}
+
+/// Format an iMessage timestamp string (as found in a `parse_query_string`
+/// value) into the local-time display string. Returns `None` if the input
+/// isn't a parseable float or the resulting timestamp is out of range.
+fn format_check_in_date(date_str: &str) -> Option<String> {
     let date_stamp = date_str.parse::<f64>().unwrap_or(0.) as i64 * TIMESTAMP_FACTOR;
     let date_time = get_local_time(date_stamp, 0).ok()?;
-    Some(format!("{prefix}{}", format(&date_time)))
+    Some(format(&date_time))
 }

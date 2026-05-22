@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use askama::Template;
 
 use imessage_database::{
@@ -13,7 +11,10 @@ use imessage_database::{
 
 use crate::{
     app::compatibility::attachment_manager::AttachmentManagerMode,
-    exporters::{exporter::BalloonFormatter, shared::balloon::format_check_in_caption},
+    exporters::{
+        exporter::BalloonFormatter,
+        shared::balloon::{CheckInState, resolve_check_in_footer},
+    },
 };
 
 use super::{
@@ -152,16 +153,11 @@ impl BalloonFormatter for TXT<'_> {
     }
 
     fn format_check_in(&self, balloon: &AppMessage) -> String {
-        let metadata: HashMap<&str, &str> = balloon.parse_query_string();
-        let footer = if let Some(date_str) = metadata.get("estimatedEndTime") {
-            format_check_in_caption(date_str, "Expected at ")
-        } else if let Some(date_str) = metadata.get("triggerTime") {
-            format_check_in_caption(date_str, "Was expected at ")
-        } else if let Some(date_str) = metadata.get("sendDate") {
-            format_check_in_caption(date_str, "Checked in at ")
-        } else {
-            None
-        };
+        let footer = resolve_check_in_footer(balloon).map(|f| match f {
+            CheckInState::Expected(at) => format!("Expected at {at}"),
+            CheckInState::WasExpected(at) => format!("Was expected at {at}"),
+            CheckInState::CheckedIn(at) => format!("Checked in at {at}"),
+        });
 
         CheckInVM {
             caption: balloon.caption.unwrap_or("Check In"),
