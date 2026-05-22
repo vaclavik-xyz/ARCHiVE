@@ -2130,7 +2130,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_find_my(&balloon);
-        let actual = "app_name:  ldtext";
+        let actual = "app_name: ldtext";
 
         assert_eq!(expected, actual);
     }
