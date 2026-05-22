@@ -1871,6 +1871,18 @@ mod tests {
     }
 
     #[test]
+    fn replies_vm_separates_siblings_with_blank_line() {
+        use crate::exporters::txt::view_model::RepliesVM;
+        use askama::Template;
+
+        let vm = RepliesVM {
+            replies: vec!["reply one\n".to_string(), "reply two\n".to_string()],
+        };
+        let rendered = vm.render().unwrap();
+        assert_eq!(rendered, "reply one\n\nreply two\n\n");
+    }
+
+    #[test]
     fn push_indented_skips_blank_lines() {
         // Blank lines stay blank — no trailing-whitespace artifacts.
         let mut out = String::new();
@@ -2189,6 +2201,29 @@ mod balloon_format_tests {
         let actual = "app_name: ldtext";
 
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn find_my_balloon_drops_trailing_colon_when_ldtext_missing() {
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = AppMessage {
+            image: None,
+            url: None,
+            title: None,
+            subtitle: None,
+            caption: None,
+            subcaption: None,
+            trailing_caption: None,
+            trailing_subcaption: None,
+            app_name: Some("Find My"),
+            ldtext: None,
+        };
+
+        let actual = exporter.format_find_my(&balloon);
+        assert_eq!(actual, "Find My");
     }
 
     #[test]

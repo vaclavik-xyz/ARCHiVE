@@ -254,6 +254,8 @@ pub(super) struct RepliesVM {
     /// Each entry is a fully-rendered nested reply (multi-line, with its
     /// own [`REPLY_INDENT`](super::REPLY_INDENT) already applied by the
     /// recursive [`format_message_into`](super::TXT::format_message_into) call).
+    /// Each entry already ends in `\n`; the template adds a second `\n` after
+    /// it so siblings are separated by a blank line.
     pub replies: Vec<String>,
 }
 
