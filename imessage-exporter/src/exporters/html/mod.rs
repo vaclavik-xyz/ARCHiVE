@@ -2998,6 +2998,8 @@ mod balloon_format_tests {
 
 #[cfg(test)]
 mod text_effect_tests {
+    use std::borrow::Cow;
+
     use imessage_database::{
         message_types::text_effects::{Animation, Style, TextEffect, Unit},
         tables::messages::models::{BubbleComponent, TextAttributes},
@@ -3119,6 +3121,76 @@ mod text_effect_tests {
         let actual = "<u>100 Miles</u>";
 
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn can_format_html_animated() {
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let actual = exporter.format_animated("party", &Animation::Big);
+        assert_eq!(actual, "<span class=\"animationBig\">party</span>");
+
+        // Unknown(i64) round-trips its integer in the Debug form.
+        let actual = exporter.format_animated("oops", &Animation::Unknown(42));
+        assert_eq!(actual, "<span class=\"animationUnknown(42)\">oops</span>");
+    }
+
+    #[test]
+    fn format_effect_default_is_borrowed() {
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let owned_text = String::from("hello");
+        let result = exporter.format_effect(&owned_text, &TextEffect::Default);
+        assert!(
+            matches!(result, Cow::Borrowed(_)),
+            "Default arm must not allocate"
+        );
+
+        let owned_url = String::from("https://example.com");
+        let link = TextEffect::Link(owned_url);
+        let result = exporter.format_effect(&owned_text, &link);
+        assert!(
+            matches!(result, Cow::Owned(_)),
+            "Link arm wraps in <a> and must own"
+        );
+    }
+
+    #[test]
+    fn format_mention_escapes_name_to_prevent_attribute_injection() {
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let actual = exporter.format_mention("Chris", "\"><script>alert(1)</script>");
+        assert_eq!(
+            actual,
+            "<span title=\"&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;\"><b>Chris</b></span>"
+        );
+        assert!(
+            !actual.contains("<script>"),
+            "raw <script> must not survive"
+        );
+    }
+
+    #[test]
+    fn format_link_escapes_url_to_prevent_attribute_injection() {
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let actual = exporter.format_link("click me", "https://x.test/?q=\"><script>");
+        assert_eq!(
+            actual,
+            "<a href=\"https://x.test/?q=&quot;&gt;&lt;script&gt;\">click me</a>"
+        );
+        assert!(
+            !actual.contains("<script>"),
+            "raw <script> must not survive"
+        );
     }
 
     #[test]
