@@ -2860,16 +2860,9 @@ mod edited_tests {
         exporter
             .format_message_into(&message, RenderContext::TopLevel, &mut actual)
             .unwrap();
-        assert!(
-            actual.contains(
-                "Sample Contact unsent this message part 1 hour, 49 seconds after sending!"
-            ),
-            "expected resolved contact name in unsent notice, got: {actual}"
-        );
-        assert!(
-            !actual.contains("They unsent"),
-            "unsent notice should not fall back to the literal \"They\", got: {actual}"
-        );
+        let expected = "May 17, 2022  5:29:42 PM\nSample Contact\nSample Contact unsent this message part 1 hour, 49 seconds after sending!\n\n";
+
+        assert_eq!(actual, expected);
     }
 
     #[test]

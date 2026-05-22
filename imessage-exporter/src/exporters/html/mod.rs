@@ -1038,14 +1038,9 @@ mod tests {
         message.item_type = 3; // ParticipantLeft
 
         let actual = exporter.format_announcement(&message);
-        assert!(
-            actual.contains("Bob &amp; &lt;Alice&gt; left the conversation."),
-            "expected single-escaped name, got: {actual}"
-        );
-        assert!(
-            !actual.contains("&amp;amp;") && !actual.contains("&amp;lt;"),
-            "name was double-escaped, got: {actual}"
-        );
+        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> Bob &amp; &lt;Alice&gt; left the conversation.</p>\n</div>\n";
+
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1070,28 +1065,9 @@ mod tests {
         exporter
             .format_message_into(&message, RenderContext::TopLevel, &mut actual)
             .unwrap();
+        let expected = "<div class=\"message\" id=\"r-TOP-GUID\">\n    <div class=\"sent iMessage\">\n        <p>\n            <span class=\"timestamp\">\n                <a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=TOP-GUID\">May 17, 2022  5:29:42 PM</a>\n                \n            </span>\n            \n            \n            <span class=\"reply_anchor\"><a title=\"View in thread\" href=\"#TOP-GUID\">⇱</a></span>\n            \n            \n            <span class=\"sender\">Me</span>\n        </p>\n        \n        \n        \n        \n        \n        <hr>\n<div class=\"message_part\">\n    <span class=\"bubble\">hello</span>\n    </div>\n\n        \n        \n        <span class=\"reply_context\">This message responded to an earlier message.</span>\n        \n    </div>\n</div>\n";
 
-        // Outer wrapper carries id="r-{guid}" so in-thread anchors can link back
-        assert!(
-            actual.contains("<div class=\"message\" id=\"r-TOP-GUID\">"),
-            "missing top-level anchor id, got: {actual}"
-        );
-        // TopLevel arrow points "View in thread" → #{guid}. The two
-        // attributes can be split across lines by the template auto-formatter,
-        // so check them independently rather than as one substring.
-        assert!(
-            actual.contains("title=\"View in thread\"")
-                && actual.contains("href=\"#TOP-GUID\">⇱</a>"),
-            "missing TopLevel arrow, got: {actual}"
-        );
-        // Trailing reply context only appears for top-level replies. The
-        // template auto-formatter can split the opening `<span>` tag across
-        // lines, so check class and content separately.
-        assert!(
-            actual.contains("class=\"reply_context\"")
-                && actual.contains(">This message responded to an earlier message.</span>"),
-            "missing trailing reply context, got: {actual}"
-        );
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1117,22 +1093,9 @@ mod tests {
             .format_message_into(&message, RenderContext::Reply, &mut buf)
             .unwrap();
         let actual = buf;
+        let expected = "<div class=\"message\">\n    <div class=\"sent iMessage\">\n        <p>\n            <span class=\"timestamp\">\n                <a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=INNER-GUID\">May 17, 2022  5:29:42 PM</a>\n                \n            </span>\n            \n            \n            <span class=\"reply_anchor\"><a title=\"View in context\" href=\"#r-INNER-GUID\">⇲</a></span>\n            \n            \n            <span class=\"sender\">Me</span>\n        </p>\n        \n        \n        \n        \n        \n        <hr>\n<div class=\"message_part\">\n    <span class=\"bubble\">hello</span>\n    </div>\n\n        \n        \n    </div>\n</div>\n";
 
-        // No id attribute on the outer wrapper for nested copies
-        assert!(
-            actual.starts_with("<div class=\"message\">"),
-            "in-thread copy should not carry id, got: {actual}"
-        );
-        // InThread arrow points "View in context" → #r-{guid}
-        assert!(
-            actual.contains("<a title=\"View in context\" href=\"#r-INNER-GUID\">⇲</a>"),
-            "missing InThread arrow, got: {actual}"
-        );
-        // No trailing reply_context for nested copies
-        assert!(
-            !actual.contains("class=\"reply_context\""),
-            "in-thread copy should not include trailing reply context, got: {actual}"
-        );
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1156,19 +1119,9 @@ mod tests {
         exporter
             .format_message_into(&message, RenderContext::TopLevel, &mut actual)
             .unwrap();
+        let expected = "<div class=\"message\">\n    <div class=\"sent iMessage\">\n        <p>\n            <span class=\"timestamp\">\n                <a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=PLAIN-GUID\">May 17, 2022  5:29:42 PM</a>\n                \n            </span>\n            \n            <span class=\"sender\">Me</span>\n        </p>\n        \n        \n        \n        \n        \n        <hr>\n<div class=\"message_part\">\n    <span class=\"bubble\">hello</span>\n    </div>\n\n        \n        \n    </div>\n</div>\n";
 
-        assert!(
-            actual.starts_with("<div class=\"message\">"),
-            "non-reply should not carry anchor id, got: {actual}"
-        );
-        assert!(
-            !actual.contains("class=\"reply_anchor\""),
-            "non-reply should not render reply_anchor, got: {actual}"
-        );
-        assert!(
-            !actual.contains("class=\"reply_context\""),
-            "non-reply should not render trailing reply context, got: {actual}"
-        );
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1190,11 +1143,9 @@ mod tests {
         exporter
             .format_message_into(&message, RenderContext::TopLevel, &mut actual)
             .unwrap();
+        let expected = "<div class=\"message\">\n    <div class=\"sent iMessage\">\n        <p>\n            <span class=\"timestamp\">\n                <a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a>\n                \n            </span>\n            \n            <span class=\"sender\">Me</span>\n        </p>\n        \n        \n        \n        \n        \n        <hr>\n<div class=\"message_part\">\n    <span class=\"attachment_error\">Attachment does not exist!</span>\n    </div>\n\n        \n        \n    </div>\n</div>\n";
 
-        assert!(
-            actual.contains("<span class=\"attachment_error\">Attachment does not exist!</span>"),
-            "missing AttachmentMissing rendering, got: {actual}"
-        );
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1219,19 +1170,9 @@ mod tests {
         exporter
             .format_message_into(&message, RenderContext::TopLevel, &mut actual)
             .unwrap();
+        let expected = "<div class=\"message\">\n    <div class=\"sent iMessage\">\n        <p>\n            <span class=\"timestamp\">\n                <a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a>\n                \n            </span>\n            \n            <span class=\"sender\">Me</span>\n        </p>\n        \n        \n        \n        \n        \n        <hr>\n<div class=\"message_part\">\n    <div class=\"app\"><a href=\"https://example.com\"><div class=\"app_header\"><div class=\"name\">https://example.com</div></div></a></div>\n    </div>\n\n        \n        \n    </div>\n</div>\n";
 
-        assert!(
-            actual.contains("<a href=\"https://example.com\">"),
-            "missing fallback anchor, got: {actual}"
-        );
-        assert!(
-            actual.contains("<div class=\"name\">https://example.com</div>"),
-            "missing fallback name, got: {actual}"
-        );
-        assert!(
-            !actual.contains("Unable to format"),
-            "should not have fallen through to error path, got: {actual}"
-        );
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1255,15 +1196,9 @@ mod tests {
         exporter
             .format_message_into(&message, RenderContext::TopLevel, &mut actual)
             .unwrap();
+        let expected = "<div class=\"message\">\n    <div class=\"sent iMessage\">\n        <p>\n            <span class=\"timestamp\">\n                <a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a>\n                \n            </span>\n            \n            <span class=\"sender\">Me</span>\n        </p>\n        \n        \n        \n        \n        \n        <hr>\n<div class=\"message_part\">\n    <div class=\"app\"><a href=\"https://x.test/?q=&lt;script&gt;\"><div class=\"app_header\"><div class=\"name\">https://x.test/?q=&lt;script&gt;</div></div></a></div>\n    </div>\n\n        \n        \n    </div>\n</div>\n";
 
-        assert!(
-            !actual.contains("<script>"),
-            "raw <script> must not survive into output: {actual}"
-        );
-        assert!(
-            actual.contains("&lt;script&gt;"),
-            "expected escaped form, got: {actual}"
-        );
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1287,11 +1222,9 @@ mod tests {
         exporter
             .format_message_into(&message, RenderContext::TopLevel, &mut actual)
             .unwrap();
+        let expected = "<div class=\"message\">\n    <div class=\"sent iMessage\">\n        <p>\n            <span class=\"timestamp\">\n                <a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a>\n                \n            </span>\n            \n            <span class=\"sender\">Me</span>\n        </p>\n        \n        \n        \n        \n        \n        <hr>\n<div class=\"message_part\">\n    <span class=\"bubble\">Hello world</span>\n    </div>\n<span class=\"expressive\">Sent with Confetti</span>\n\n        \n        \n    </div>\n</div>\n";
 
-        assert!(
-            actual.contains("<span class=\"expressive\">Sent with Confetti</span>"),
-            "expected expressive span, got: {actual}"
-        );
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1315,17 +1248,9 @@ mod tests {
         exporter
             .format_message_into(&message, RenderContext::TopLevel, &mut actual)
             .unwrap();
+        let expected = "<div class=\"message\">\n    <div class=\"sent iMessage\">\n        <p>\n            <span class=\"timestamp\">\n                <a title=\"Reveal in Messages app\" href=\"sms://open?message-guid=\">May 17, 2022  5:29:42 PM</a>\n                \n            </span>\n            \n            <span class=\"sender\">Me</span>\n        </p>\n        \n        \n        \n        \n        \n        <hr>\n<div class=\"message_part\">\n    <div class=\"app_error\">Unable to format Normal message: Failed to parse property list: Message is not an app message!</div>\n    </div>\n\n        \n        \n    </div>\n</div>\n";
 
-        assert!(
-            actual.contains("<div class=\"app_error\">"),
-            "missing app_error wrapper, got: {actual}"
-        );
-        // The error string is built with format!("Unable to format {variant:?} message: {why}")
-        // and then HTML-escaped — Variant::Normal stringifies as "Normal".
-        assert!(
-            actual.contains("Unable to format Normal message:"),
-            "missing escaped error message, got: {actual}"
-        );
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2025,10 +1950,17 @@ mod tests {
             .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
             .unwrap();
 
-        // Template auto-formatter can split this across lines, so check the
-        // pieces independently rather than as one contiguous substring.
-        assert!(actual.contains("Folder: <i>test_data</i> (100.00 B)"));
-        assert!(actual.contains("<a href="));
+        let abs_path = current_dir()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("imessage-database/test_data/");
+        let expected = format!(
+            "<p>\n    Folder: <i>test_data</i> (100.00 B)\n    <a href=\"{}\">Click to open</a>\n</p>",
+            abs_path.display()
+        );
+
+        assert_eq!(actual, expected);
     }
 
     #[test]
