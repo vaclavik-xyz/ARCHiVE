@@ -2456,9 +2456,38 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_apple_pay(&balloon);
-        let actual = "<div class=\"app_header\"><div class=\"name\">app_name</div></div>\n<div class=\"app_footer\"><div class=\"caption\">ldtext</div></div>";
+        let actual = "<div class=\"app_header\">\n    <div class=\"name\">app_name</div>\n</div><div class=\"app_footer\">\n    <div class=\"caption\">ldtext</div>\n</div>";
 
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn apple_pay_balloon_emits_nothing_when_both_fields_missing() {
+        // Pre-OptionalText, the template unconditionally emitted both
+        // `<div class="app_header">` and `<div class="app_footer">` wrappers
+        // even when `app_name` and `ldtext` were `None`. `.app_footer` has a
+        // grey background + borders in style.css, so the empty wrapper rendered
+        // as a visible bordered strip. Each wrapper must now be gated on its
+        // content; the both-missing case must produce no output.
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = AppMessage {
+            image: None,
+            url: None,
+            title: None,
+            subtitle: None,
+            caption: None,
+            subcaption: None,
+            trailing_caption: None,
+            trailing_subcaption: None,
+            app_name: None,
+            ldtext: None,
+        };
+
+        let actual = exporter.format_apple_pay(&balloon);
+        assert_eq!(actual, "");
     }
 
     #[test]
@@ -2534,9 +2563,35 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_find_my(&balloon);
-        let actual = "<div class=\"app_header\"><div class=\"name\">app_name</div></div>\n<div class=\"app_footer\"><div class=\"caption\">ldtext</div></div>";
+        let actual = "<div class=\"app_header\">\n    <div class=\"name\">app_name</div>\n</div><div class=\"app_footer\">\n    <div class=\"caption\">ldtext</div>\n</div>";
 
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn find_my_balloon_emits_nothing_when_both_fields_missing() {
+        // Mirrors the apple_pay regression: an empty Find My payload must not
+        // render bare `.app_header` / `.app_footer` wrappers, which would show
+        // as a styled grey strip with no content.
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = AppMessage {
+            image: None,
+            url: None,
+            title: None,
+            subtitle: None,
+            caption: None,
+            subcaption: None,
+            trailing_caption: None,
+            trailing_subcaption: None,
+            app_name: None,
+            ldtext: None,
+        };
+
+        let actual = exporter.format_find_my(&balloon);
+        assert_eq!(actual, "");
     }
 
     #[test]
