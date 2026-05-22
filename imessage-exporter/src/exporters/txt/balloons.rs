@@ -40,10 +40,11 @@ fn render_trimmed<T: Template>(template: &T) -> String {
 // MARK: Balloon
 impl BalloonFormatter for TXT<'_> {
     fn format_url(&self, msg: &Message, balloon: &URLMessage) -> String {
+        let non_empty = |s: &&str| !s.is_empty();
         render_trimmed(&UrlVM {
-            primary: balloon.get_url().or(msg.text.as_deref()),
-            title: balloon.title,
-            summary: balloon.summary,
+            primary: balloon.get_url().or(msg.text.as_deref()).filter(non_empty),
+            title: balloon.title.filter(non_empty),
+            summary: balloon.summary.filter(non_empty),
         })
     }
 
