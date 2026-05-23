@@ -6,9 +6,6 @@ use std::fmt;
 /// passed through escaping (`sanitize_html`, an Askama render with
 /// [`ChatEscaper`](crate::app::escaping::ChatEscaper), or hand-built markup
 /// whose only interpolations are non-string).
-///
-/// The only construction path is [`Html::trust`]: searching the codebase for
-/// that name enumerates every place HTML enters the rendering pipeline.
 pub(super) struct Html<S = String>(S);
 
 impl<S> Html<S> {
