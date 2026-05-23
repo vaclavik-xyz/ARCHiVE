@@ -2,9 +2,10 @@ use std::borrow::Cow;
 
 use imessage_database::message_types::text_effects::{Animation, Style, TextEffect, Unit};
 
-use crate::{app::sanitizers::sanitize_html, exporters::exporter::TextEffectFormatter};
-
-use super::HTML;
+use crate::{
+    app::sanitizers::sanitize_html,
+    exporters::{exporter::TextEffectFormatter, html::HTML},
+};
 
 // MARK: Text Effects
 impl<'a> TextEffectFormatter<'a> for HTML<'a> {

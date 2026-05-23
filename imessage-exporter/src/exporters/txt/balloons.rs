@@ -14,14 +14,14 @@ use crate::{
     exporters::{
         exporter::BalloonFormatter,
         shared::balloon::{CheckInState, resolve_check_in_footer},
-    },
-};
-
-use super::{
-    TXT,
-    view_model::{
-        AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, DigitalTouchVM, FindMyVM, FitnessVM,
-        GenericAppVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, SlideshowVM, UrlVM,
+        txt::{
+            TXT,
+            view_model::{
+                AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, DigitalTouchVM, FindMyVM,
+                FitnessVM, GenericAppVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, SlideshowVM,
+                UrlVM,
+            },
+        },
     },
 };
 

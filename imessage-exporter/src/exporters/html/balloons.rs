@@ -14,16 +14,15 @@ use askama::Template;
 
 use crate::exporters::{
     exporter::{BalloonFormatter, MessageFormatter},
-    shared::balloon::{CheckInState, resolve_check_in_footer},
-};
-
-use super::{
-    HTML,
-    safe::Html,
-    view_model::{
-        AppCardVM, AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, DigitalTouchVM, FindMyVM,
-        MusicVM, PlacemarkVM, PollOptionVM, PollVM, UrlVM,
+    html::{
+        HTML,
+        safe::Html,
+        view_model::{
+            AppCardVM, AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, DigitalTouchVM,
+            FindMyVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, UrlVM,
+        },
     },
+    shared::balloon::{CheckInState, resolve_check_in_footer},
 };
 
 // MARK: Balloons

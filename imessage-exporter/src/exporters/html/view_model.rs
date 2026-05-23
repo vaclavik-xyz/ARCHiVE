@@ -9,9 +9,7 @@ use imessage_database::{
     tables::messages::models::{GroupAction, Service},
 };
 
-use crate::exporters::shared::balloon::OptionalText;
-
-use super::safe::Html;
+use crate::exporters::{html::safe::Html, shared::balloon::OptionalText};
 
 #[derive(Template)]
 #[template(path = "balloons/digital_touch.html")]
