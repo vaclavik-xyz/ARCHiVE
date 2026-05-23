@@ -337,7 +337,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                         EditedRow {
                             is_last: event.is_last,
                             timestamp,
-                            text: Html::trust(rendered_text),
+                            text_html: Html::trust(rendered_text),
                         }
                     })
                     .collect();
@@ -1005,7 +1005,7 @@ mod tests {
         message.item_type = 2;
 
         let actual = exporter.format_announcement(&message);
-        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You named the conversation <b>Hello world</b></p>\n</div>\n";
+        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You named the conversation <b>Hello world</b>.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
     }
@@ -1028,7 +1028,7 @@ mod tests {
         message.item_type = 2;
 
         let actual = exporter.format_announcement(&message);
-        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> Name named the conversation <b>Hello world</b></p>\n</div>\n";
+        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> Name named the conversation <b>Hello world</b>.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
     }
@@ -2734,7 +2734,7 @@ mod balloon_format_tests {
         };
 
         let expected = exporter.format_placemark(&balloon);
-        let actual = "<a href=\"url\"><div class=\"app_header\"><div class=\"name\">Name</div></div><div class=\"app_footer\"><div class=\"caption\">address</div><div class=\"trailing_caption\">postal_code</div><div class=\"subcaption\">country</div><div class=\"trailing_subcaption\">sub_administrative_area</div></div></a>";
+        let actual = "<a href=\"url\"><div class=\"app_header\"><div class=\"name\">Name</div><div class=\"image_title\">name</div></div><div class=\"app_footer\"><div class=\"caption\">address</div><div class=\"trailing_caption\">postal_code</div><div class=\"subcaption\">country</div><div class=\"trailing_subcaption\">sub_administrative_area</div><div class=\"street\">street</div><div class=\"city\">city</div><div class=\"state\">state</div><div class=\"sub_locality\">sub_locality</div><div class=\"iso_country_code\">iso_country_code</div></div></a>";
 
         assert_eq!(expected, actual);
     }

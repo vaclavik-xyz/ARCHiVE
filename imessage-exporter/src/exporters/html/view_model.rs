@@ -97,12 +97,18 @@ pub(super) struct AppStoreVM<'a> {
 #[derive(Template)]
 #[template(path = "balloons/placemark.html")]
 pub(super) struct PlacemarkVM<'a> {
+    pub place_name: OptionalText<'a>,
     pub url: OptionalText<'a>,
     pub name: OptionalText<'a>,
     pub address: OptionalText<'a>,
+    pub state: OptionalText<'a>,
+    pub city: OptionalText<'a>,
+    pub iso_country_code: OptionalText<'a>,
     pub postal_code: OptionalText<'a>,
     pub country: OptionalText<'a>,
+    pub street: OptionalText<'a>,
     pub sub_administrative_area: OptionalText<'a>,
+    pub sub_locality: OptionalText<'a>,
 }
 
 #[derive(Template)]
@@ -220,7 +226,7 @@ pub(super) struct EditedRow {
     pub is_last: bool,
     pub timestamp: String,
     /// Pre-rendered HTML for the edited text (text-effect output or escaped plain text).
-    pub text: Html,
+    pub text_html: Html,
 }
 
 #[derive(Template)]
