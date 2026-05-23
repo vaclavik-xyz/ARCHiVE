@@ -2637,6 +2637,34 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_txt_poll_option_with_zero_votes() {
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut poll_options: HashMap<PollOptionID, PollOption> = HashMap::new();
+        let id: PollOptionID = "1".to_string();
+        poll_options.insert(
+            id.clone(),
+            PollOption {
+                text: "Rust".to_string(),
+                creator: "alice".to_string(),
+                votes: vec![],
+            },
+        );
+
+        let poll = Poll {
+            options: poll_options,
+            order: vec![id],
+        };
+
+        let actual = exporter.format_poll(&poll);
+        let expected = "- Rust (0)";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_txt_url_no_url_falls_back_to_msg_text() {
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
@@ -2682,6 +2710,48 @@ mod balloon_format_tests {
 
         let actual = exporter.format_collaboration(&balloon);
         let expected = "App message:\nDoc title\nhttps://example.com/original";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_collaboration_drops_label_when_no_app_name_or_bundle_id() {
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = CollaborationMessage {
+            original_url: None,
+            url: Some("https://example.com/doc"),
+            title: Some("Doc title"),
+            creation_date: None,
+            bundle_id: None,
+            app_name: None,
+        };
+
+        let actual = exporter.format_collaboration(&balloon);
+        let expected = "Doc title\nhttps://example.com/doc";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_collaboration_drops_label_when_app_name_is_empty_string() {
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = CollaborationMessage {
+            original_url: None,
+            url: Some("https://example.com/doc"),
+            title: Some("Doc title"),
+            creation_date: None,
+            bundle_id: None,
+            app_name: Some(""),
+        };
+
+        let actual = exporter.format_collaboration(&balloon);
+        let expected = "Doc title\nhttps://example.com/doc";
 
         assert_eq!(actual, expected);
     }

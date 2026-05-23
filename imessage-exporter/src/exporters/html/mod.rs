@@ -2988,6 +2988,34 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_html_poll_option_with_zero_votes() {
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let mut poll_options: HashMap<PollOptionID, PollOption> = HashMap::new();
+        let id: PollOptionID = "1".to_string();
+        poll_options.insert(
+            id.clone(),
+            PollOption {
+                text: "Rust".to_string(),
+                creator: "alice".to_string(),
+                votes: vec![],
+            },
+        );
+
+        let poll = Poll {
+            options: poll_options,
+            order: vec![id],
+        };
+
+        let actual = exporter.format_poll(&poll);
+        let expected = "<div class=\"poll-container\"><div class=\"poll-option\">\n        <div class=\"option-header\"><span>Rust</span><span class=\"vote-count\">0</span>\n        </div>\n        <div class=\"vote-bar-container\">\n            <div class=\"vote-bar\" style=\"width: 0%;\"></div>\n        </div></div></div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_html_url_no_site_name_falls_back_to_url() {
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);

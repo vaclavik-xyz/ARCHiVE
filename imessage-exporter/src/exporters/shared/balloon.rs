@@ -170,3 +170,82 @@ fn format_check_in_date(date_str: &str) -> Option<String> {
     let date_time = get_local_time(date_stamp, 0).ok()?;
     Some(format(&date_time))
 }
+
+#[cfg(test)]
+mod tests {
+    use imessage_database::message_types::app::AppMessage;
+
+    use super::{CheckInState, resolve_check_in_footer, rewrite_fitness_receiver};
+
+    fn check_in_msg(url: &str) -> AppMessage<'_> {
+        AppMessage {
+            image: None,
+            url: Some(url),
+            title: None,
+            subtitle: None,
+            caption: None,
+            subcaption: None,
+            trailing_caption: None,
+            trailing_subcaption: None,
+            app_name: Some("Check In"),
+            ldtext: None,
+        }
+    }
+
+    #[test]
+    fn rewrite_fitness_receiver_replaces_sentinel_prefix() {
+        let input = "$(kIMTranscriptPluginBreadcrumbTextReceiverIdentifier) closed all three rings"
+            .to_string();
+        assert_eq!(
+            rewrite_fitness_receiver(input),
+            "You closed all three rings".to_string(),
+        );
+    }
+
+    #[test]
+    fn rewrite_fitness_receiver_passes_non_sentinel_text_through() {
+        let input = "Alice closed all three rings".to_string();
+        assert_eq!(rewrite_fitness_receiver(input.clone()), input);
+    }
+
+    #[test]
+    fn resolve_check_in_footer_prefers_estimated_end_time() {
+        let balloon = check_in_msg(
+            "?estimatedEndTime=1697316869.688709&triggerTime=1697316869.688709&sendDate=1697316869.688709",
+        );
+        assert!(matches!(
+            resolve_check_in_footer(&balloon),
+            Some(CheckInState::Expected(_)),
+        ));
+    }
+
+    #[test]
+    fn resolve_check_in_footer_falls_back_to_trigger_time() {
+        let balloon = check_in_msg("?triggerTime=1697316869.688709&sendDate=1697316869.688709");
+        assert!(matches!(
+            resolve_check_in_footer(&balloon),
+            Some(CheckInState::WasExpected(_)),
+        ));
+    }
+
+    #[test]
+    fn resolve_check_in_footer_uses_send_date_when_only_option() {
+        let balloon = check_in_msg("?messageType=1&interfaceVersion=1&sendDate=1697316869.688709");
+        assert!(matches!(
+            resolve_check_in_footer(&balloon),
+            Some(CheckInState::CheckedIn(_)),
+        ));
+    }
+
+    #[test]
+    fn resolve_check_in_footer_returns_none_for_unparsable_timestamp() {
+        let balloon = check_in_msg("?sendDate=not_a_number");
+        assert!(resolve_check_in_footer(&balloon).is_none());
+    }
+
+    #[test]
+    fn resolve_check_in_footer_returns_none_without_recognized_key() {
+        let balloon = check_in_msg("?messageType=1&interfaceVersion=1");
+        assert!(resolve_check_in_footer(&balloon).is_none());
+    }
+}
