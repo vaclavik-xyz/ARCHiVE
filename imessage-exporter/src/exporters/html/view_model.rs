@@ -11,6 +11,8 @@ use imessage_database::{
 
 use crate::exporters::shared::balloon::OptionalText;
 
+use super::safe::Html;
+
 #[derive(Template)]
 #[template(path = "balloons/digital_touch.html")]
 pub(super) struct DigitalTouchVM {
@@ -37,8 +39,8 @@ pub(super) struct AppCardVM<'a> {
     pub url: OptionalText<'a>,
     pub image: OptionalText<'a>,
     /// Pre-rendered HTML for an attachment, used when `image` is `None` and an
-    /// attachment is present. Already escaped — emit with `{{ ... |safe }}`.
-    pub attachment_html: Option<String>,
+    /// attachment is present.
+    pub attachment_html: Option<Html>,
     pub name: &'a str,
     pub title: OptionalText<'a>,
     pub subtitle: OptionalText<'a>,
@@ -128,7 +130,7 @@ pub(super) struct PollOptionVM<'a> {
     /// Rust because keeping `{{ }}` inside a `style=` attribute trips the
     /// CSS linter no matter what value-shape we use; emitting the entire
     /// element as a `|safe` string keeps the template's source clean.
-    pub bar_html: String,
+    pub bar_html: Html,
     pub voters: Vec<&'a str>,
 }
 
@@ -194,8 +196,8 @@ pub(super) enum TapbackKind<'a> {
     Reaction { tapback: Tapback<'a>, who: &'a str },
     /// Sticker tapback whose attachment was found and rendered.
     Sticker {
-        /// Pre-rendered sticker HTML (already escaped).
-        html: String,
+        /// Pre-rendered sticker HTML.
+        html: Html,
         who: &'a str,
     },
     /// Sticker tapback whose attachment is missing.
@@ -220,7 +222,7 @@ pub(super) struct EditedRow {
     pub is_last: bool,
     pub timestamp: String,
     /// Pre-rendered HTML for the edited text (text-effect output or escaped plain text).
-    pub text: String,
+    pub text: Html,
 }
 
 #[derive(Template)]
@@ -258,9 +260,9 @@ pub(super) struct MessageVM<'a> {
     pub is_deleted: bool,
     pub subject: Option<&'a str>,
     /// SharePlay marker (`<hr>SharePlay …`) — currently always a `'static` literal.
-    pub shareplay: Option<&'a str>,
+    pub shareplay: Option<Html<&'a str>>,
     /// Shared-location marker — currently always a `'static` literal.
-    pub shared_location: Option<&'a str>,
+    pub shared_location: Option<Html<&'a str>>,
     /// Rendered directly into the outer buffer via [`MessagePartVM`]'s `Display`
     /// impl, avoiding a per-part `String` allocation.
     pub parts: Vec<MessagePartVM<'a>>,
@@ -280,44 +282,44 @@ pub(super) struct MessagePartVM<'a> {
     pub body: PartBody,
     pub expressive: Option<Expressive<'a>>,
     /// Pre-rendered tapbacks block (already includes its trailing newline).
-    pub tapbacks: Option<String>,
+    pub tapbacks: Option<Html>,
     /// Pre-rendered replies block (already includes its trailing newline).
-    pub replies: Option<String>,
+    pub replies: Option<Html>,
 }
 
-/// Each `String` is pre-rendered HTML — emitted with `|safe`. Wrapping per
-/// variant happens in `message_part.html`, so leaf renderers can move their
-/// HTML in without an extra `format!()` allocation.
+/// Each [`Html`] field holds pre-rendered HTML — emitted with `|safe`. Wrapping
+/// per variant happens in `message_part.html`, so leaf renderers can move
+/// their HTML in without an extra `format!()` allocation.
 pub(super) enum PartBody {
     /// Empty body (no text, edited content missing, etc.) — emits nothing.
     Empty,
     TextBubble {
-        html: String,
+        html: Html,
     },
     TextTranslated {
-        translated: String,
-        original: String,
+        translated: Html,
+        original: Html,
     },
     TextEdited {
-        html: String,
+        html: Html,
     },
     Attachment {
-        html: String,
+        html: Html,
     },
     AttachmentError {
-        error: String,
+        error: Html,
     },
     AttachmentMissing,
     Sticker {
-        html: String,
+        html: Html,
     },
     App {
-        html: String,
+        html: Html,
     },
     AppError {
-        html: String,
+        html: Html,
     },
     Retracted {
-        html: String,
+        html: Html,
     },
 }

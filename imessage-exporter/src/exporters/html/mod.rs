@@ -44,10 +44,12 @@ use imessage_database::{
 };
 
 mod balloons;
+mod safe;
 mod text_effects;
 mod view_model;
 
 use askama::Template;
+use safe::Html;
 use view_model::{
     AnnouncementBody, AnnouncementInnerVM, AttachmentVM, AttachmentVariant, EditedKind, EditedRow,
     EditedVM, MessagePartVM, MessageVM, PartBody, ReplyAnchorKind, StickerSuffixVM, TapbackKind,
@@ -251,7 +253,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 let mut paths = Attachment::from_message(self.config.data_source.db(), msg)?;
                 match paths.get_mut(0) {
                     Some(sticker) => TapbackKind::Sticker {
-                        html: self.format_sticker(sticker, msg),
+                        html: Html::trust(self.format_sticker(sticker, msg)),
                         who,
                     },
                     None => TapbackKind::StickerMissing { who },
@@ -335,7 +337,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                         EditedRow {
                             is_last: event.is_last,
                             timestamp,
-                            text: rendered_text,
+                            text: Html::trust(rendered_text),
                         }
                     })
                     .collect();
@@ -469,14 +471,14 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             is_deleted: message.is_deleted(),
             subject: message.subject.as_deref(),
             shareplay: if message.is_shareplay() {
-                Some(self.format_shareplay())
+                Some(Html::trust(self.format_shareplay()))
             } else {
                 None
             },
             shared_location: if message.started_sharing_location()
                 || message.stopped_sharing_location()
             {
-                Some(self.format_shared_location(message))
+                Some(Html::trust(self.format_shared_location(message)))
             } else {
                 None
             },
@@ -552,7 +554,9 @@ impl HTML<'_> {
                     return match &message.edited_parts {
                         Some(edited_parts) => {
                             match self.format_edited(message, edited_parts, idx) {
-                                Some(html) => PartBody::TextEdited { html },
+                                Some(html) => PartBody::TextEdited {
+                                    html: Html::trust(html),
+                                },
                                 None => PartBody::Empty,
                             }
                         }
@@ -570,12 +574,14 @@ impl HTML<'_> {
                         message.get_translation(self.config.data_source.db())
                 {
                     PartBody::TextTranslated {
-                        translated: sanitize_html(&translation.translated_text).into_owned(),
-                        original: formatted_text,
+                        translated: Html::trust(
+                            sanitize_html(&translation.translated_text).into_owned(),
+                        ),
+                        original: Html::trust(formatted_text),
                     }
                 } else {
                     PartBody::TextBubble {
-                        html: rewrite_fitness_receiver(formatted_text),
+                        html: Html::trust(rewrite_fitness_receiver(formatted_text)),
                     }
                 }
             }
@@ -585,31 +591,39 @@ impl HTML<'_> {
                 };
                 if attachment.is_sticker {
                     return PartBody::Sticker {
-                        html: self.format_sticker(attachment, message),
+                        html: Html::trust(self.format_sticker(attachment, message)),
                     };
                 }
                 let body = match self.format_attachment(attachment, message, metadata) {
-                    Ok(html) => PartBody::Attachment { html },
+                    Ok(html) => PartBody::Attachment {
+                        html: Html::trust(html),
+                    },
                     Err(error) => PartBody::AttachmentError {
-                        error: sanitize_html(error).into_owned(),
+                        error: Html::trust(sanitize_html(error).into_owned()),
                     },
                 };
                 *attachment_index += 1;
                 body
             }
             BubbleComponent::App => match self.format_app(message, attachments) {
-                Ok(html) => PartBody::App { html },
+                Ok(html) => PartBody::App {
+                    html: Html::trust(html),
+                },
                 Err(why) => PartBody::AppError {
-                    html: sanitize_html(&format!(
-                        "Unable to format {:?} message: {why}",
-                        message.variant()
-                    ))
-                    .into_owned(),
+                    html: Html::trust(
+                        sanitize_html(&format!(
+                            "Unable to format {:?} message: {why}",
+                            message.variant()
+                        ))
+                        .into_owned(),
+                    ),
                 },
             },
             BubbleComponent::Retracted => match &message.edited_parts {
                 Some(edited_parts) => match self.format_edited(message, edited_parts, idx) {
-                    Some(html) => PartBody::Retracted { html },
+                    Some(html) => PartBody::Retracted {
+                        html: Html::trust(html),
+                    },
                     None => PartBody::Empty,
                 },
                 None => PartBody::Empty,
@@ -617,7 +631,7 @@ impl HTML<'_> {
         }
     }
 
-    fn build_tapbacks(&self, message: &Message, idx: usize) -> Result<Option<String>, TableError> {
+    fn build_tapbacks(&self, message: &Message, idx: usize) -> Result<Option<Html>, TableError> {
         let Some(tapbacks) = self
             .config
             .tapbacks
@@ -642,14 +656,14 @@ impl HTML<'_> {
             Ok(None)
         } else {
             out.push_str("\n</div>\n");
-            Ok(Some(out))
+            Ok(Some(Html::trust(out)))
         }
     }
 
     fn build_replies(
         &self,
         replies: Option<&mut Vec<Message>>,
-    ) -> Result<Option<String>, TableError> {
+    ) -> Result<Option<Html>, TableError> {
         let Some(replies) = replies else {
             return Ok(None);
         };
@@ -665,7 +679,7 @@ impl HTML<'_> {
             }
         }
         out.push_str("</div>\n");
-        Ok(Some(out))
+        Ok(Some(Html::trust(out)))
     }
 }
 

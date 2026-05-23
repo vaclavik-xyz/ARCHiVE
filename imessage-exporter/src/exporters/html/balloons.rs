@@ -19,6 +19,7 @@ use crate::exporters::{
 
 use super::{
     HTML,
+    safe::Html,
     view_model::{
         AppCardVM, AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, DigitalTouchVM, FindMyVM,
         MusicVM, PlacemarkVM, PollOptionVM, PollVM, UrlVM,
@@ -165,9 +166,9 @@ impl BalloonFormatter for HTML<'_> {
                 PollOptionVM {
                     text: &opt.text,
                     vote_count,
-                    bar_html: format!(
+                    bar_html: Html::trust(format!(
                         "<div class=\"vote-bar\" style=\"width: {bar_width}%;\"></div>"
-                    ),
+                    )),
                     voters: opt.votes.iter().map(|v| v.voter.as_str()).collect(),
                 }
             })
@@ -185,8 +186,10 @@ impl BalloonFormatter for HTML<'_> {
     ) -> String {
         let attachment_html = if balloon.image.is_none() {
             attachments.get_mut(0).map(|attachment| {
-                self.format_attachment(attachment, msg, &AttachmentMeta::default())
-                    .unwrap_or_default()
+                Html::trust(
+                    self.format_attachment(attachment, msg, &AttachmentMeta::default())
+                        .unwrap_or_default(),
+                )
             })
         } else {
             None
@@ -200,7 +203,7 @@ impl HTML<'_> {
         &self,
         balloon: &AppMessage,
         bundle_id: &str,
-        attachment_html: Option<String>,
+        attachment_html: Option<Html>,
     ) -> String {
         AppCardVM {
             url: balloon.url.into(),
