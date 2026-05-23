@@ -2178,6 +2178,72 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_txt_slideshow_url_only_no_leading_space() {
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = AppMessage {
+            image: None,
+            url: Some("url"),
+            title: None,
+            subtitle: None,
+            caption: None,
+            subcaption: None,
+            trailing_caption: None,
+            trailing_subcaption: None,
+            app_name: None,
+            ldtext: None,
+        };
+
+        assert_eq!(exporter.format_slideshow(&balloon), "url");
+    }
+
+    #[test]
+    fn can_format_txt_slideshow_ldtext_only() {
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = AppMessage {
+            image: None,
+            url: None,
+            title: None,
+            subtitle: None,
+            caption: None,
+            subcaption: None,
+            trailing_caption: None,
+            trailing_subcaption: None,
+            app_name: None,
+            ldtext: Some("ldtext"),
+        };
+
+        assert_eq!(exporter.format_slideshow(&balloon), "Photo album: ldtext");
+    }
+
+    #[test]
+    fn can_format_txt_slideshow_empty_when_both_missing() {
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = AppMessage {
+            image: None,
+            url: None,
+            title: None,
+            subtitle: None,
+            caption: None,
+            subcaption: None,
+            trailing_caption: None,
+            trailing_subcaption: None,
+            app_name: None,
+            ldtext: None,
+        };
+
+        assert_eq!(exporter.format_slideshow(&balloon), "");
+    }
+
+    #[test]
     fn can_format_txt_find_my() {
         // Create exporter
         let options = Options::fake_options(Txt);
