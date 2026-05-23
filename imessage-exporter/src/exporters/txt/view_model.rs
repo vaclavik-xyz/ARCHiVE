@@ -8,8 +8,7 @@ use imessage_database::{
 use crate::exporters::{
     exporter::RenderContext,
     shared::{
-        announcement::AnnouncementBody, balloon::OptionalText, edited::Edit,
-        tapback::TapbackKind,
+        announcement::AnnouncementBody, edited::Edit, tapback::TapbackKind, text::OptionalText,
     },
 };
 
