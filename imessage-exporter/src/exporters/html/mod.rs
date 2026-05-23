@@ -53,7 +53,7 @@ use askama::Template;
 use safe::Html;
 use view_model::{
     AnnouncementInnerVM, AttachmentVM, AttachmentVariant, EditedRow, EditedVM, MessagePartVM,
-    MessageVM, PartBody, ReplyAnchorKind, StickerSuffixVM, TapbackVM,
+    MessageVM, PartBody, RepliesVM, ReplyAnchorKind, StickerSuffixVM, TapbackVM, TapbacksVM,
 };
 
 // MARK: HTML
@@ -606,7 +606,11 @@ impl HTML<'_> {
         }
     }
 
-    fn build_tapbacks(&self, message: &Message, idx: usize) -> Result<Option<Html>, TableError> {
+    fn build_tapbacks(
+        &self,
+        message: &Message,
+        idx: usize,
+    ) -> Result<Option<TapbacksVM>, TableError> {
         let Some(tapbacks) = self
             .config
             .tapbacks
@@ -616,45 +620,46 @@ impl HTML<'_> {
             return Ok(None);
         };
 
-        let mut out = String::from("<div class=\"tapbacks\"><hr><p>Tapbacks:</p>\n");
-        let prefix_len = out.len();
+        let mut rendered = Vec::new();
         for tapback in tapbacks {
             let f = self.format_tapback(tapback)?;
             if !f.is_empty() {
-                out.push_str("<div class=\"tapback\">");
-                out.push_str(&f);
-                out.push_str("</div>\n");
+                rendered.push(Html::trust(f));
             }
         }
 
-        if out.len() == prefix_len {
+        if rendered.is_empty() {
             Ok(None)
         } else {
-            out.push_str("\n</div>\n");
-            Ok(Some(Html::trust(out)))
+            Ok(Some(TapbacksVM { tapbacks: rendered }))
         }
     }
 
     fn build_replies(
         &self,
         replies: Option<&mut Vec<Message>>,
-    ) -> Result<Option<Html>, TableError> {
+    ) -> Result<Option<RepliesVM>, TableError> {
         let Some(replies) = replies else {
             return Ok(None);
         };
-        let mut out = String::from("<div class=\"replies\">\n");
+        let mut rendered = Vec::new();
         for reply in replies.iter_mut() {
             apply_body(reply, self.config.data_source.db());
             if !reply.is_tapback() {
-                out.push_str("<div class=\"reply\" id=\"");
-                out.push_str(&sanitize_html(&reply.guid));
-                out.push_str("\">");
-                self.format_message_into(reply, RenderContext::Reply, &mut out)?;
-                out.push_str("</div>\n");
+                let mut buf = String::new();
+                buf.push_str("<div class=\"reply\" id=\"");
+                buf.push_str(&sanitize_html(&reply.guid));
+                buf.push_str("\">");
+                self.format_message_into(reply, RenderContext::Reply, &mut buf)?;
+                buf.push_str("</div>\n");
+                rendered.push(Html::trust(buf));
             }
         }
-        out.push_str("</div>\n");
-        Ok(Some(Html::trust(out)))
+        if rendered.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(RepliesVM { replies: rendered }))
+        }
     }
 }
 

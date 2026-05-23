@@ -254,10 +254,27 @@ pub(super) enum ReplyAnchorKind {
 pub(super) struct MessagePartVM<'a> {
     pub body: PartBody,
     pub expressive: Option<Expressive<'a>>,
-    /// Pre-rendered tapbacks block (already includes its trailing newline).
-    pub tapbacks: Option<Html>,
-    /// Pre-rendered replies block (already includes its trailing newline).
-    pub replies: Option<Html>,
+    pub tapbacks: Option<TapbacksVM>,
+    pub replies: Option<RepliesVM>,
+}
+
+#[derive(Template)]
+#[template(path = "tapbacks.html")]
+pub(super) struct TapbacksVM {
+    /// Each entry is the inner content of one tapback (e.g. the render of
+    /// `TapbackVM`). The `<div class="tapback">` wrapper is added by the
+    /// template, not by the builder.
+    pub tapbacks: Vec<Html>,
+}
+
+#[derive(Template)]
+#[template(path = "replies.html")]
+pub(super) struct RepliesVM {
+    /// Each entry is a fully-rendered reply, already wrapped in
+    /// `<div class="reply" id="…">…</div>\n`. The per-entry wrapper stays
+    /// in Rust because the `id` is per-reply and the body comes from a
+    /// recursive `format_message_into` call.
+    pub replies: Vec<Html>,
 }
 
 /// Each [`Html`] field holds pre-rendered HTML — emitted with `|safe`. Wrapping
