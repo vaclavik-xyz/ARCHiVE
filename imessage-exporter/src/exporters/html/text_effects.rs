@@ -4,7 +4,7 @@ use imessage_database::message_types::text_effects::{Animation, Style, TextEffec
 
 use crate::{
     app::sanitizers::sanitize_html,
-    exporters::{exporter::TextEffectFormatter, html::HTML},
+    exporters::{formatter::TextEffectFormatter, html::HTML},
 };
 
 // MARK: Text Effects

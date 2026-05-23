@@ -6,7 +6,7 @@ use imessage_database::{
 };
 
 use crate::exporters::{
-    exporter::RenderContext,
+    formatter::RenderContext,
     shared::{
         announcement::AnnouncementBody, edited::Edit, tapback::TapbackKind, text::OptionalText,
     },

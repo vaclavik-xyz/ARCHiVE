@@ -12,7 +12,7 @@ use imessage_database::{
 use crate::{
     app::compatibility::attachment_manager::AttachmentManagerMode,
     exporters::{
-        exporter::BalloonFormatter,
+        formatter::BalloonFormatter,
         shared::balloon::{CheckInState, resolve_check_in_footer},
         txt::{
             TXT,

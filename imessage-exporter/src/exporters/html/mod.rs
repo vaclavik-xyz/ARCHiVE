@@ -14,7 +14,7 @@ use crate::{
         runtime::Config, sanitizers::sanitize_html,
     },
     exporters::{
-        exporter::{ATTACHMENT_NO_FILENAME, MessageFormatter, RenderContext, TextEffectFormatter},
+        formatter::{ATTACHMENT_NO_FILENAME, MessageFormatter, RenderContext, TextEffectFormatter},
         shared::{
             announcement::{AnnouncementBody, resolve_announcement},
             balloon::{dispatch_app_balloon, rewrite_fitness_receiver},
@@ -670,7 +670,7 @@ mod tests {
             compatibility::attachment_manager::AttachmentManagerMode, contacts::Name,
             export_type::ExportType,
         },
-        exporters::exporter::{MessageFormatter, RenderContext},
+        exporters::formatter::{MessageFormatter, RenderContext},
     };
 
     use imessage_database::{
@@ -2272,7 +2272,7 @@ mod balloon_format_tests {
 
     use crate::{
         Config, HTML, Options, app::export_type::ExportType::Html,
-        exporters::exporter::BalloonFormatter,
+        exporters::formatter::BalloonFormatter,
     };
     use imessage_database::message_types::{
         app::AppMessage,
@@ -3073,7 +3073,7 @@ mod text_effect_tests {
     use crate::{
         Config, HTML, Options,
         app::export_type::ExportType::Html,
-        exporters::exporter::{MessageFormatter, RenderContext, TextEffectFormatter},
+        exporters::formatter::{MessageFormatter, RenderContext, TextEffectFormatter},
     };
 
     #[test]
@@ -3647,7 +3647,7 @@ mod edited_tests {
     use crate::{
         Config, HTML, Options,
         app::export_type::ExportType::Html,
-        exporters::exporter::{MessageFormatter, RenderContext},
+        exporters::formatter::{MessageFormatter, RenderContext},
     };
     use imessage_database::{
         message_types::{

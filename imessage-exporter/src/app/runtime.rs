@@ -33,7 +33,7 @@ use crate::{
         data_source::DataSource, error::RuntimeError, export_type::ExportType, options::Options,
         sanitizers::sanitize_filename,
     },
-    exporters::{exporter::ATTACHMENT_NO_FILENAME, shared::driver::run_export},
+    exporters::{formatter::ATTACHMENT_NO_FILENAME, shared::driver::run_export},
 };
 
 // Maximum length for filenames

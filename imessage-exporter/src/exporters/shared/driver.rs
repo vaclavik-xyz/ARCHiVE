@@ -18,7 +18,7 @@ use rusqlite::Connection;
 
 use crate::{
     app::{error::RuntimeError, progress::ExportProgress, runtime::Config},
-    exporters::exporter::{MessageFormatter, RenderContext},
+    exporters::formatter::{MessageFormatter, RenderContext},
 };
 
 /// Shared per-export mutable state held by every concrete `MessageWriter`.

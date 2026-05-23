@@ -20,7 +20,7 @@ use imessage_database::{
     },
 };
 
-use crate::{app::runtime::Config, exporters::exporter::BalloonFormatter};
+use crate::{app::runtime::Config, exporters::formatter::BalloonFormatter};
 
 // MARK: Dispatch
 

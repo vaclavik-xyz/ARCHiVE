@@ -13,7 +13,7 @@ use imessage_database::{
 use askama::Template;
 
 use crate::exporters::{
-    exporter::{BalloonFormatter, MessageFormatter},
+    formatter::{BalloonFormatter, MessageFormatter},
     html::{
         HTML,
         safe::Html,
