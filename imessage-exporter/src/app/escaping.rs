@@ -13,7 +13,7 @@ use askama::filters::Escaper;
 /// a non-breaking-space replacement.
 ///
 /// Bulk-writes runs of safe bytes between escape positions so a clean string
-/// costs one `write_str`, matching the pattern in `askama::filters::Html`.
+/// costs one `write_str`, matching the pattern in [`askama::filters::Html`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ChatEscaper;
 
