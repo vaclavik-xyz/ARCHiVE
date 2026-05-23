@@ -8,10 +8,11 @@ use crate::{
     exporters::{
         exporter::{ATTACHMENT_NO_FILENAME, MessageFormatter, RenderContext},
         shared::{
-            announcement::resolve_announcement,
+            announcement::{AnnouncementBody, resolve_announcement},
             balloon::{dispatch_app_balloon, rewrite_fitness_receiver},
             driver::{ExportState, MessageWriter, apply_body},
-            edited::{EditDiff, NormalizedEdit, normalize_edited, resolve_unsent_actor},
+            edited::{EditDiff, normalize_edited},
+            tapback::TapbackKind,
             time::{format_timestamp, message_time},
         },
     },
@@ -40,8 +41,8 @@ mod view_model;
 
 use askama::Template;
 use view_model::{
-    AnnouncementBody, AnnouncementVM, AttachmentVM, EditedKind, EditedRow, EditedVM, MessagePartVM,
-    MessageVM, PartBody, RepliesVM, StickerVM, TapbackKind, TapbackVM, TapbacksVM,
+    AnnouncementVM, AttachmentVM, EditedRow, EditedVM, MessagePartVM, MessageVM, PartBody,
+    RepliesVM, StickerVM, TapbackVM, TapbacksVM,
 };
 
 /// Indentation prepended to every line of a reply rendered inside its
@@ -202,7 +203,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 let mut paths = Attachment::from_message(self.config.data_source.db(), msg)?;
                 match paths.get_mut(0) {
                     Some(sticker) => TapbackKind::Sticker {
-                        text: self.format_sticker(sticker, msg),
+                        payload: self.format_sticker(sticker, msg),
                         who,
                     },
                     None => TapbackKind::StickerMissing { who },
@@ -217,24 +218,9 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
     }
 
     fn format_announcement(&self, msg: &Message) -> String {
-        let Some(resolved) = resolve_announcement(msg, self.config, YOU) else {
-            return AnnouncementVM {
-                kind: AnnouncementBody::Unknown,
-            }
-            .render()
-            .unwrap_or_default();
-        };
-
-        AnnouncementVM {
-            kind: AnnouncementBody::Action {
-                timestamp: resolved.timestamp,
-                who: resolved.who,
-                announcement: resolved.announcement,
-                participant_name: resolved.participant_name,
-            },
-        }
-        .render()
-        .unwrap_or_default()
+        let kind = resolve_announcement(msg, self.config, YOU)
+            .map_or(AnnouncementBody::Unknown, AnnouncementBody::from);
+        AnnouncementVM { kind }.render().unwrap_or_default()
     }
 
     fn format_shareplay(&self) -> &'static str {
@@ -257,39 +243,23 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         edited_message: &'a EditedMessage,
         message_part_idx: usize,
     ) -> Option<String> {
-        let normalized = normalize_edited(msg, edited_message, message_part_idx, self.config)?;
-
-        let kind = match normalized {
-            NormalizedEdit::Edited(events) => {
-                let rows = events
-                    .into_iter()
-                    .map(|event| {
-                        let timestamp_prefix = match event.diff_since_previous {
-                            EditDiff::First => {
-                                let mut s = format_timestamp(event.date, self.config.offset);
-                                s.push(' ');
-                                s
-                            }
-                            // Diff calculation failed; suppress the prefix to match legacy behavior.
-                            EditDiff::Failed => String::new(),
-                            EditDiff::Computed(diff) => format!("Edited {diff} later: "),
-                        };
-                        EditedRow {
-                            timestamp_prefix,
-                            text: event.text,
-                        }
-                    })
-                    .collect();
-                EditedKind::Edited { rows }
-            }
-            NormalizedEdit::Unsent { diff } => {
-                let who = resolve_unsent_actor(msg, self.config, YOU);
-                match diff {
-                    Some(diff) => EditedKind::UnsentWithDiff { who, diff },
-                    None => EditedKind::Unsent { who },
+        let kind = normalize_edited(msg, edited_message, message_part_idx, self.config, YOU)?
+            .map_rows(|event| {
+                let timestamp_prefix = match event.diff_since_previous {
+                    EditDiff::First => {
+                        let mut s = format_timestamp(event.date, self.config.offset);
+                        s.push(' ');
+                        s
+                    }
+                    // Diff calculation failed; suppress the prefix to match legacy behavior.
+                    EditDiff::Failed => String::new(),
+                    EditDiff::Computed(diff) => format!("Edited {diff} later: "),
+                };
+                EditedRow {
+                    timestamp_prefix,
+                    text: event.text,
                 }
-            }
-        };
+            });
 
         Some(EditedVM { kind }.render().unwrap_or_default())
     }
@@ -1895,11 +1865,14 @@ mod tests {
         // format_edited returns rows separated by `\n` with no indent baked
         // in. `push_indented` applies the reply prefix uniformly across all
         // lines downstream.
-        use crate::exporters::txt::view_model::{EditedKind, EditedRow, EditedVM};
+        use crate::exporters::{
+            shared::edited::Edit,
+            txt::view_model::{EditedRow, EditedVM},
+        };
         use askama::Template;
 
         let vm = EditedVM {
-            kind: EditedKind::Edited {
+            kind: Edit::Edited {
                 rows: vec![
                     EditedRow {
                         timestamp_prefix: "5:29:42 PM ".to_string(),

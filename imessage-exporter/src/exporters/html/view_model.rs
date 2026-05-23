@@ -1,15 +1,16 @@
 use askama::Template;
 
 use imessage_database::{
-    message_types::{
-        expressives::Expressive,
-        sticker::StickerDecoration,
-        variants::{Announcement, Tapback},
-    },
+    message_types::{expressives::Expressive, sticker::StickerDecoration, variants::Announcement},
     tables::messages::models::{GroupAction, Service},
 };
 
-use crate::exporters::{html::safe::Html, shared::balloon::OptionalText};
+use crate::exporters::{
+    html::safe::Html,
+    shared::{
+        announcement::AnnouncementBody, balloon::OptionalText, edited::Edit, tapback::TapbackKind,
+    },
+};
 
 #[derive(Template)]
 #[template(path = "balloons/digital_touch.html")]
@@ -192,32 +193,13 @@ pub(super) struct StickerSuffixVM {
 #[derive(Template)]
 #[template(path = "tapback.html")]
 pub(super) struct TapbackVM<'a> {
-    pub kind: TapbackKind<'a>,
-}
-
-pub(super) enum TapbackKind<'a> {
-    /// Standard reaction
-    Reaction { tapback: Tapback<'a>, who: &'a str },
-    /// Sticker tapback whose attachment was found and rendered.
-    Sticker {
-        /// Pre-rendered sticker HTML.
-        html: Html,
-        who: &'a str,
-    },
-    /// Sticker tapback whose attachment is missing.
-    StickerMissing { who: &'a str },
+    pub kind: TapbackKind<'a, Html>,
 }
 
 #[derive(Template)]
 #[template(path = "edited.html")]
 pub(super) struct EditedVM<'a> {
-    pub kind: EditedKind<'a>,
-}
-
-pub(super) enum EditedKind<'a> {
-    Edited { rows: Vec<EditedRow> },
-    UnsentWithDiff { who: &'a str, diff: String },
-    Unsent { who: &'a str },
+    pub kind: Edit<'a, EditedRow>,
 }
 
 pub(super) struct EditedRow {
@@ -233,19 +215,6 @@ pub(super) struct EditedRow {
 #[template(path = "announcement_inner.html")]
 pub(super) struct AnnouncementInnerVM<'a> {
     pub kind: AnnouncementBody<'a>,
-}
-
-pub(super) enum AnnouncementBody<'a> {
-    Action {
-        timestamp: String,
-        who: &'a str,
-        announcement: Announcement<'a>,
-        /// Resolved display name for the participant in `ParticipantAdded`
-        /// / `ParticipantRemoved`. Defaults to `"someone"` for non-participant
-        /// variants (templates only read this on the participant arms).
-        participant_name: &'a str,
-    },
-    Unknown,
 }
 
 #[derive(Template)]

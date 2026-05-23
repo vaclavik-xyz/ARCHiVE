@@ -9,6 +9,36 @@ use imessage_database::{
 
 use crate::app::runtime::Config;
 
+/// Format-agnostic shape for the per-format edit-history templates. `Edited`
+/// carries a format-specific row type (`R`) so each exporter can compute the
+/// exact fields its template needs.
+pub enum Edit<'a, R> {
+    Edited {
+        rows: Vec<R>,
+    },
+    /// `elapsed` carries the human-readable duration between send and unsend
+    /// (e.g. `"49 seconds"`) when both timestamps are available;
+    /// `None` falls back to a duration-less phrasing.
+    Unsent {
+        who: &'a str,
+        elapsed: Option<String>,
+    },
+}
+
+impl<'a, R> Edit<'a, R> {
+    /// Convert each row via `f`, preserving the variant shape. Used to map
+    /// the format-neutral [`NormalizedEditEvent`]s produced by
+    /// [`normalize_edited`] into a per-exporter row type.
+    pub fn map_rows<R2>(self, f: impl FnMut(R) -> R2) -> Edit<'a, R2> {
+        match self {
+            Edit::Edited { rows } => Edit::Edited {
+                rows: rows.into_iter().map(f).collect(),
+            },
+            Edit::Unsent { who, elapsed } => Edit::Unsent { who, elapsed },
+        }
+    }
+}
+
 /// Resolve the display name for the actor of an [`EditStatus::Unsent`] event.
 pub fn resolve_unsent_actor<'a>(
     msg: &'a Message,
@@ -50,7 +80,7 @@ pub struct NormalizedEditEvent<'a> {
     /// uses this to swap `<tbody>` for `<tfoot>`.
     pub is_last: bool,
     /// `event.text.as_deref()`, guaranteed `Some` since no-text events are
-    /// filtered out of [`NormalizedEdit::Edited`].
+    /// filtered out by [`normalize_edited`] before the rows are collected.
     pub text: &'a str,
     /// `event.components` — passed through for renderers that need to format
     /// the original text attributes.
@@ -65,29 +95,24 @@ pub struct NormalizedEditEvent<'a> {
     pub date: i64,
 }
 
-/// Outcome of normalizing one [`EditedMessagePart`]. `None` from
-/// [`normalize_edited`] means the part's status is [`EditStatus::Original`]
-/// (i.e., nothing to render).
-pub enum NormalizedEdit<'a> {
-    /// [`EditStatus::Edited`] — at least one entry in `edit_history`.
-    Edited(Vec<NormalizedEditEvent<'a>>),
-    /// [`EditStatus::Unsent`]. `diff` is `Some(s)` when both `msg.date` and
-    /// `msg.date_edited` are parseable AND `readable_diff` returns `Some`.
-    /// Resolve the actor's display name with [`resolve_unsent_actor`].
-    Unsent { diff: Option<String> },
-}
-
+/// Normalize one [`EditedMessagePart`] into the template-facing
+/// [`EditedKind`], parameterized by [`NormalizedEditEvent`] so callers can
+/// `.map_rows(...)` into their format-specific row type. Returns `None` for
+/// [`EditStatus::Original`] (nothing to render). `self_name` is the fallback
+/// label for the unsent actor when the message is from `ME` and no custom
+/// name is set (`"You"` in both current callers).
 pub fn normalize_edited<'a>(
-    msg: &Message,
+    msg: &'a Message,
     edited: &'a EditedMessage,
     part_idx: usize,
-    config: &Config,
-) -> Option<NormalizedEdit<'a>> {
+    config: &'a Config,
+    self_name: &'a str,
+) -> Option<Edit<'a, NormalizedEditEvent<'a>>> {
     let part = edited.part(part_idx)?;
     match part.status {
         EditStatus::Original => None,
         EditStatus::Edited => {
-            let mut events = Vec::with_capacity(part.edit_history.len());
+            let mut rows = Vec::with_capacity(part.edit_history.len());
             let mut previous_timestamp: Option<i64> = None;
             for event in &part.edit_history {
                 let diff_since_previous = match previous_timestamp {
@@ -109,7 +134,7 @@ pub fn normalize_edited<'a>(
                     // still anchors the next event's diff.
                     continue;
                 };
-                events.push(NormalizedEditEvent {
+                rows.push(NormalizedEditEvent {
                     is_last: false,
                     text,
                     components: &event.components,
@@ -117,18 +142,19 @@ pub fn normalize_edited<'a>(
                     date: event.date,
                 });
             }
-            if let Some(last) = events.last_mut() {
+            if let Some(last) = rows.last_mut() {
                 last.is_last = true;
             }
-            Some(NormalizedEdit::Edited(events))
+            Some(Edit::Edited { rows })
         }
         EditStatus::Unsent => {
-            let diff = msg
+            let elapsed = msg
                 .date(config.offset)
                 .ok()
                 .zip(msg.date_edited(config.offset).ok())
                 .and_then(|(s, e)| readable_diff(&s, &e));
-            Some(NormalizedEdit::Unsent { diff })
+            let who = resolve_unsent_actor(msg, config, self_name);
+            Some(Edit::Unsent { who, elapsed })
         }
     }
 }
@@ -139,7 +165,7 @@ mod tests {
         EditStatus, EditedEvent, EditedMessage, EditedMessagePart,
     };
 
-    use super::{EditDiff, NormalizedEdit, normalize_edited, resolve_unsent_actor};
+    use super::{Edit, EditDiff, normalize_edited, resolve_unsent_actor};
     use crate::{
         Config, Options,
         app::{contacts::Name, export_type::ExportType},
@@ -173,7 +199,7 @@ mod tests {
                 edit_history: vec![],
             }],
         };
-        assert!(normalize_edited(&msg, &edited, 0, &config).is_none());
+        assert!(normalize_edited(&msg, &edited, 0, &config, "You").is_none());
     }
 
     #[test]
@@ -181,7 +207,7 @@ mod tests {
         let config = make_config();
         let msg = Config::fake_message();
         let edited = EditedMessage { parts: vec![] };
-        assert!(normalize_edited(&msg, &edited, 0, &config).is_none());
+        assert!(normalize_edited(&msg, &edited, 0, &config, "You").is_none());
     }
 
     #[test]
@@ -196,23 +222,26 @@ mod tests {
                 edit_history: vec![],
             }],
         };
-        match normalize_edited(&msg, &edited, 0, &config) {
-            Some(NormalizedEdit::Unsent { diff: Some(diff) }) => {
-                assert_eq!(diff, "1 hour, 49 seconds");
+        match normalize_edited(&msg, &edited, 0, &config, "You") {
+            Some(Edit::Unsent {
+                elapsed: Some(elapsed),
+                ..
+            }) => {
+                assert_eq!(elapsed, "1 hour, 49 seconds");
             }
-            Some(NormalizedEdit::Unsent { diff: None }) => {
-                panic!("expected a computed diff, got None")
+            Some(Edit::Unsent { elapsed: None, .. }) => {
+                panic!("expected a computed elapsed duration, got None")
             }
             _ => panic!("expected Unsent"),
         }
     }
 
     #[test]
-    fn normalize_unsent_diff_is_none_when_date_edited_missing() {
+    fn normalize_unsent_elapsed_is_none_when_date_edited_missing() {
         let config = make_config();
         let mut msg = Config::fake_message();
         msg.date = DATE_A;
-        // date_edited defaults to 0; readable_diff can't compute a diff
+        // date_edited defaults to 0; readable_diff can't compute a duration
         // against the iMessage epoch.
         let edited = EditedMessage {
             parts: vec![EditedMessagePart {
@@ -221,8 +250,8 @@ mod tests {
             }],
         };
         assert!(matches!(
-            normalize_edited(&msg, &edited, 0, &config),
-            Some(NormalizedEdit::Unsent { diff: None })
+            normalize_edited(&msg, &edited, 0, &config, "You"),
+            Some(Edit::Unsent { elapsed: None, .. })
         ));
     }
 
@@ -236,12 +265,12 @@ mod tests {
                 edit_history: vec![event(DATE_A, Some("hi"))],
             }],
         };
-        match normalize_edited(&msg, &edited, 0, &config) {
-            Some(NormalizedEdit::Edited(events)) => {
-                assert_eq!(events.len(), 1);
-                assert!(events[0].is_last, "single event must be is_last");
-                assert!(matches!(events[0].diff_since_previous, EditDiff::First));
-                assert_eq!(events[0].text, "hi");
+        match normalize_edited(&msg, &edited, 0, &config, "You") {
+            Some(Edit::Edited { rows }) => {
+                assert_eq!(rows.len(), 1);
+                assert!(rows[0].is_last, "single event must be is_last");
+                assert!(matches!(rows[0].diff_since_previous, EditDiff::First));
+                assert_eq!(rows[0].text, "hi");
             }
             _ => panic!("expected Edited"),
         }
@@ -257,13 +286,13 @@ mod tests {
                 edit_history: vec![event(DATE_A, Some("first")), event(DATE_B, Some("second"))],
             }],
         };
-        match normalize_edited(&msg, &edited, 0, &config) {
-            Some(NormalizedEdit::Edited(events)) => {
-                assert_eq!(events.len(), 2);
-                assert!(!events[0].is_last);
-                assert!(events[1].is_last);
-                assert!(matches!(events[0].diff_since_previous, EditDiff::First));
-                match &events[1].diff_since_previous {
+        match normalize_edited(&msg, &edited, 0, &config, "You") {
+            Some(Edit::Edited { rows }) => {
+                assert_eq!(rows.len(), 2);
+                assert!(!rows[0].is_last);
+                assert!(rows[1].is_last);
+                assert!(matches!(rows[0].diff_since_previous, EditDiff::First));
+                match &rows[1].diff_since_previous {
                     EditDiff::Computed(diff) => assert_eq!(diff, "1 hour, 49 seconds"),
                     _ => panic!("expected Computed diff for second event"),
                 }
@@ -286,16 +315,16 @@ mod tests {
                 edit_history: vec![event(DATE_A, None), event(DATE_B, Some("after the gap"))],
             }],
         };
-        match normalize_edited(&msg, &edited, 0, &config) {
-            Some(NormalizedEdit::Edited(events)) => {
-                assert_eq!(events.len(), 1);
-                assert_eq!(events[0].text, "after the gap");
+        match normalize_edited(&msg, &edited, 0, &config, "You") {
+            Some(Edit::Edited { rows }) => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].text, "after the gap");
                 // Diff must be against DATE_A (the skipped event), not First.
-                match &events[0].diff_since_previous {
+                match &rows[0].diff_since_previous {
                     EditDiff::Computed(diff) => assert_eq!(diff, "1 hour, 49 seconds"),
                     _ => panic!("expected Computed diff against the skipped event"),
                 }
-                assert!(events[0].is_last);
+                assert!(rows[0].is_last);
             }
             _ => panic!("expected Edited"),
         }
@@ -314,8 +343,8 @@ mod tests {
                 edit_history: vec![event(DATE_A, None), event(DATE_B, None)],
             }],
         };
-        match normalize_edited(&msg, &edited, 0, &config) {
-            Some(NormalizedEdit::Edited(events)) => assert!(events.is_empty()),
+        match normalize_edited(&msg, &edited, 0, &config, "You") {
+            Some(Edit::Edited { rows }) => assert!(rows.is_empty()),
             _ => panic!("expected Edited with empty events"),
         }
     }

@@ -1,5 +1,5 @@
 {%- match kind -%}
-{%- when EditedKind::Edited { rows } -%}
+{%- when Edit::Edited { rows } -%}
 <table>
     {%- for row in rows -%}
     <{% if row.is_last %}tfoot{% else %}tbody{% endif %}>
@@ -10,8 +10,8 @@
     </{% if row.is_last %}tfoot{% else %}tbody{% endif %}>
     {%- endfor -%}
 </table>
-{%- when EditedKind::UnsentWithDiff { who, diff } -%}
-<span class="unsent">{{ who }} unsent this message part {{ diff }} after sending!</span>
-{%- when EditedKind::Unsent { who } -%}
-<span class="unsent">{{ who }} unsent this message part!</span>
+{%- when Edit::Unsent { who, elapsed } -%}
+<span class="unsent">{{ who }} unsent this message part
+    {%- if let Some(elapsed) = elapsed %} {{ elapsed }} after sending{% endif -%}
+    !</span>
 {%- endmatch -%}

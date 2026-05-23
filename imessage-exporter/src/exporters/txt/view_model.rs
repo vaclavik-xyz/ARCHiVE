@@ -1,14 +1,17 @@
 use askama::Template;
 
 use imessage_database::{
-    message_types::{
-        expressives::Expressive,
-        variants::{Announcement, Tapback},
-    },
+    message_types::{expressives::Expressive, variants::Announcement},
     tables::messages::models::GroupAction,
 };
 
-use crate::exporters::{exporter::RenderContext, shared::balloon::OptionalText};
+use crate::exporters::{
+    exporter::RenderContext,
+    shared::{
+        announcement::AnnouncementBody, balloon::OptionalText, edited::Edit,
+        tapback::TapbackKind,
+    },
+};
 
 #[derive(Template)]
 #[template(path = "balloons/apple_pay.txt")]
@@ -160,32 +163,13 @@ pub(super) struct StickerVM<'a> {
 #[derive(Template)]
 #[template(path = "tapback.txt")]
 pub(super) struct TapbackVM<'a> {
-    pub kind: TapbackKind<'a>,
-}
-
-pub(super) enum TapbackKind<'a> {
-    /// Standard tapbacks
-    Reaction { tapback: Tapback<'a>, who: &'a str },
-    /// Sticker tapback whose attachment was found and rendered.
-    Sticker {
-        /// Pre-rendered sticker text.
-        text: String,
-        who: &'a str,
-    },
-    /// Sticker tapback whose attachment is missing.
-    StickerMissing { who: &'a str },
+    pub kind: TapbackKind<'a, String>,
 }
 
 #[derive(Template)]
 #[template(path = "edited.txt")]
 pub(super) struct EditedVM<'a> {
-    pub kind: EditedKind<'a>,
-}
-
-pub(super) enum EditedKind<'a> {
-    Edited { rows: Vec<EditedRow<'a>> },
-    UnsentWithDiff { who: &'a str, diff: String },
-    Unsent { who: &'a str },
+    pub kind: Edit<'a, EditedRow<'a>>,
 }
 
 pub(super) struct EditedRow<'a> {
@@ -199,19 +183,6 @@ pub(super) struct EditedRow<'a> {
 #[template(path = "announcement.txt")]
 pub(super) struct AnnouncementVM<'a> {
     pub kind: AnnouncementBody<'a>,
-}
-
-pub(super) enum AnnouncementBody<'a> {
-    Action {
-        timestamp: String,
-        who: &'a str,
-        announcement: Announcement<'a>,
-        /// Resolved display name for the participant in `ParticipantAdded`
-        /// / `ParticipantRemoved`. Defaults to `"someone"` for non-participant
-        /// variants (templates only read this on the participant arms).
-        participant_name: &'a str,
-    },
-    Unknown,
 }
 
 #[derive(Template)]

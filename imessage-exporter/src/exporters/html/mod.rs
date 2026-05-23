@@ -16,10 +16,11 @@ use crate::{
     exporters::{
         exporter::{ATTACHMENT_NO_FILENAME, MessageFormatter, RenderContext, TextEffectFormatter},
         shared::{
-            announcement::resolve_announcement,
+            announcement::{AnnouncementBody, resolve_announcement},
             balloon::{dispatch_app_balloon, rewrite_fitness_receiver},
             driver::{ExportState, MessageWriter, apply_body},
-            edited::{EditDiff, NormalizedEdit, normalize_edited, resolve_unsent_actor},
+            edited::{EditDiff, normalize_edited},
+            tapback::TapbackKind,
             time::message_time,
         },
     },
@@ -51,9 +52,8 @@ mod view_model;
 use askama::Template;
 use safe::Html;
 use view_model::{
-    AnnouncementBody, AnnouncementInnerVM, AttachmentVM, AttachmentVariant, EditedKind, EditedRow,
-    EditedVM, MessagePartVM, MessageVM, PartBody, ReplyAnchorKind, StickerSuffixVM, TapbackKind,
-    TapbackVM,
+    AnnouncementInnerVM, AttachmentVM, AttachmentVariant, EditedRow, EditedVM, MessagePartVM,
+    MessageVM, PartBody, ReplyAnchorKind, StickerSuffixVM, TapbackVM,
 };
 
 // MARK: HTML
@@ -253,7 +253,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 let mut paths = Attachment::from_message(self.config.data_source.db(), msg)?;
                 match paths.get_mut(0) {
                     Some(sticker) => TapbackKind::Sticker {
-                        html: Html::trust(self.format_sticker(sticker, msg)),
+                        payload: Html::trust(self.format_sticker(sticker, msg)),
                         who,
                     },
                     None => TapbackKind::StickerMissing { who },
@@ -272,15 +272,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             None => (AnnouncementBody::Unknown, true),
             Some(resolved) => {
                 let wrap = !matches!(resolved.announcement, Announcement::FullyUnsent);
-                (
-                    AnnouncementBody::Action {
-                        timestamp: resolved.timestamp,
-                        who: resolved.who,
-                        announcement: resolved.announcement,
-                        participant_name: resolved.participant_name,
-                    },
-                    wrap,
-                )
+                (resolved.into(), wrap)
             }
         };
 
@@ -315,42 +307,25 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         edited_message: &'a EditedMessage,
         message_part_idx: usize,
     ) -> Option<String> {
-        let normalized = normalize_edited(msg, edited_message, message_part_idx, self.config)?;
-
-        let kind = match normalized {
-            NormalizedEdit::Edited(events) => {
-                let rows = events
-                    .into_iter()
-                    .map(|event| {
-                        let rendered_text = if let Some(BubbleComponent::Text(attributes)) =
-                            event.components.first()
-                        {
-                            self.format_attributes(event.text, attributes)
-                        } else {
-                            sanitize_html(event.text).into_owned()
-                        };
-                        let timestamp = match event.diff_since_previous {
-                            EditDiff::First => String::new(),
-                            EditDiff::Failed => "Edited later".to_string(),
-                            EditDiff::Computed(diff) => format!("Edited {diff} later"),
-                        };
-                        EditedRow {
-                            is_last: event.is_last,
-                            timestamp,
-                            text_html: Html::trust(rendered_text),
-                        }
-                    })
-                    .collect();
-                EditedKind::Edited { rows }
-            }
-            NormalizedEdit::Unsent { diff } => {
-                let who = resolve_unsent_actor(msg, self.config, YOU);
-                match diff {
-                    Some(diff) => EditedKind::UnsentWithDiff { who, diff },
-                    None => EditedKind::Unsent { who },
+        let kind = normalize_edited(msg, edited_message, message_part_idx, self.config, YOU)?
+            .map_rows(|event| {
+                let rendered_text =
+                    if let Some(BubbleComponent::Text(attributes)) = event.components.first() {
+                        self.format_attributes(event.text, attributes)
+                    } else {
+                        sanitize_html(event.text).into_owned()
+                    };
+                let timestamp = match event.diff_since_previous {
+                    EditDiff::First => String::new(),
+                    EditDiff::Failed => "Edited later".to_string(),
+                    EditDiff::Computed(diff) => format!("Edited {diff} later"),
+                };
+                EditedRow {
+                    is_last: event.is_last,
+                    timestamp,
+                    text_html: Html::trust(rendered_text),
                 }
-            }
-        };
+            });
 
         Some(EditedVM { kind }.render().unwrap_or_default())
     }
@@ -1699,7 +1674,7 @@ mod tests {
         message.rowid = 452567;
 
         let actual = exporter.format_tapback(&message).unwrap();
-        let expected = "<img src=\"/Users/chris/Library/Messages/StickerCache/8e682c381ab52ec2-289D9E83-33EE-4153-AF13-43DB31792C6F/289D9E83-33EE-4153-AF13-43DB31792C6F.heic\"  loading=\"lazy\" >\n<div class=\"sticker_name\">App: Free People</div> <div class=\"sticker_tapback\">&nbsp;by Sample Contact</div>";
+        let expected = "<img src=\"/Users/chris/Library/Messages/StickerCache/8e682c381ab52ec2-289D9E83-33EE-4153-AF13-43DB31792C6F/289D9E83-33EE-4153-AF13-43DB31792C6F.heic\"  loading=\"lazy\" >\n<div class=\"sticker_name\">App: Free People</div><div class=\"sticker_tapback\">&nbsp;by Sample Contact</div>";
 
         assert_eq!(actual, expected);
     }

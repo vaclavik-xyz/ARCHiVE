@@ -30,6 +30,35 @@ pub struct ResolvedAnnouncement<'a> {
     pub participant_name: &'a str,
 }
 
+/// Format-agnostic shape for the per-format announcement templates. `Action`
+/// mirrors [`ResolvedAnnouncement`]'s fields so templates can destructure
+/// directly; `Unknown` is the fallback emitted when [`resolve_announcement`]
+/// returns `None`.
+pub enum AnnouncementBody<'a> {
+    Action {
+        timestamp: String,
+        who: &'a str,
+        announcement: Announcement<'a>,
+        /// Resolved display name for the participant in `ParticipantAdded`
+        /// / `ParticipantRemoved`. Defaults to [`UNKNOWN_PARTICIPANT`] for
+        /// non-participant variants (templates only read this on the
+        /// participant arms).
+        participant_name: &'a str,
+    },
+    Unknown,
+}
+
+impl<'a> From<ResolvedAnnouncement<'a>> for AnnouncementBody<'a> {
+    fn from(r: ResolvedAnnouncement<'a>) -> Self {
+        Self::Action {
+            timestamp: r.timestamp,
+            who: r.who,
+            announcement: r.announcement,
+            participant_name: r.participant_name,
+        }
+    }
+}
+
 /// Resolve a message's announcement into a [`ResolvedAnnouncement`].
 /// Returns `None` when the message has no recognizable announcement.
 /// `self_name` is the fallback when `who == ME` and `custom_name` is unset
