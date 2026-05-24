@@ -96,7 +96,7 @@ pub struct NormalizedEditEvent<'a> {
 }
 
 /// Normalize one [`EditedMessagePart`] into the template-facing
-/// [`EditedKind`], parameterized by [`NormalizedEditEvent`] so callers can
+/// [`Edit`], parameterized by [`NormalizedEditEvent`] so callers can
 /// `.map_rows(...)` into their format-specific row type. Returns `None` for
 /// [`EditStatus::Original`] (nothing to render). `self_name` is the fallback
 /// label for the unsent actor when the message is from `ME` and no custom
