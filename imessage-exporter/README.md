@@ -243,7 +243,7 @@ For example, to prevent messages from breaking across pages when printing:
 }
 ```
 
-The default styles can be viewed [here](/imessage-exporter/src/exporters/resources/style.css).
+The default styles can be viewed [here](src/exporters/html/resources/style.css).
 
 ### PDF Exports
 
