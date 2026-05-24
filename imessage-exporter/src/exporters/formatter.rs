@@ -24,6 +24,8 @@ use imessage_database::{
     },
 };
 
+use crate::app::runtime::Config;
+
 pub(crate) const ATTACHMENT_NO_FILENAME: &str = "Attachment missing name metadata!";
 
 /// Where a message sits in the rendered conversation hierarchy. Drives
@@ -122,6 +124,51 @@ pub(crate) trait BalloonFormatter {
         attachments: &mut Vec<Attachment>,
         msg: &Message,
     ) -> String;
+}
+
+// MARK: Part Body
+/// Constructs the per-format part-body variant emitted by
+/// [`shared::part::dispatch_part_body`](crate::exporters::shared::part::dispatch_part_body).
+/// The dispatch owns the format-agnostic control flow (text vs attachment vs
+/// app vs retracted, edit-check, attachment-index plumbing) and delegates leaf
+/// wrapping to these constructors.
+///
+/// Method inputs that are `String` are already format-safe (either produced by
+/// [`MessageFormatter::format_attributes`] / [`MessageFormatter::format_edited`]
+/// / [`MessageFormatter::format_attachment`] etc., or pre-escaped via
+/// [`Self::body_escape`]). Inputs that are `&str` are raw (e.g. attachment
+/// error filenames) and each impl decides how to escape.
+pub(crate) trait PartBodyBuilder {
+    type Body;
+    /// Empty body (no text, edited content missing, etc.)
+    fn body_empty(&self) -> Self::Body;
+    /// Text content with no special formatting (e.g. a non-edited text part).
+    fn body_text_bubble(&self, content: String) -> Self::Body;
+    /// Translated text content
+    fn body_text_translated(&self, translated: String, original: String) -> Self::Body;
+    /// Edited text content
+    fn body_text_edited(&self, content: String) -> Self::Body;
+    /// Attachment content, generally by reference to an external file
+    fn body_attachment(&self, content: String) -> Self::Body;
+    /// Attachment that failed to export due to an error
+    fn body_attachment_error(&self, error: &str) -> Self::Body;
+    /// Attachment with missing filename metadata
+    fn body_attachment_missing(&self) -> Self::Body;
+    /// Sticker content, generally by reference to an external file
+    fn body_sticker(&self, content: String) -> Self::Body;
+    /// App message content
+    fn body_app(&self, content: String) -> Self::Body;
+    /// App message that failed to export due to an error
+    fn body_app_error(&self, message: &Message, why: MessageError) -> Self::Body;
+    /// Retracted message content
+    fn body_retracted(&self, content: String) -> Self::Body;
+    /// Escape raw user text for this format. HTML applies HTML entity escaping;
+    /// TXT passes through unchanged. Used by the dispatch on the fallback and
+    /// translation paths before handing strings to the variant constructors.
+    fn body_escape(&self, text: &str) -> String;
+    /// Surface the runtime [`Config`] so the dispatch can consult the translation
+    /// set and open a DB connection without taking config as a free parameter.
+    fn config(&self) -> &Config;
 }
 
 // MARK: Text Effects

@@ -280,7 +280,7 @@ pub(super) struct RepliesVM {
 /// Each [`Html`] field holds pre-rendered HTML — emitted with `|safe`. Wrapping
 /// per variant happens in `message_part.html`, so leaf renderers can move
 /// their HTML in without an extra `format!()` allocation.
-pub(super) enum PartBody {
+pub(crate) enum PartBody {
     /// Empty body (no text, edited content missing, etc.) — emits nothing.
     Empty,
     TextBubble {

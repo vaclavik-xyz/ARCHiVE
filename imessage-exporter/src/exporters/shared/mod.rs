@@ -3,6 +3,7 @@ pub(crate) mod balloon;
 pub(crate) mod driver;
 pub(crate) mod edited;
 pub(crate) mod message;
+pub(crate) mod part;
 pub(crate) mod tapback;
 pub(crate) mod text;
 pub(crate) mod time;

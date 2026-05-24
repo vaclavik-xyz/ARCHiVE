@@ -6,14 +6,14 @@ use std::fmt;
 /// passed through escaping (`sanitize_html`, an Askama render with
 /// [`ChatEscaper`](crate::app::escaping::ChatEscaper), or hand-built markup
 /// whose only interpolations are non-string).
-pub(super) struct Html<S = String>(S);
+pub(crate) struct Html<S = String>(S);
 
 impl<S> Html<S> {
     /// Wrap a value the caller asserts is HTML-safe. Use this only when the
     /// input is pre-escaped (e.g. wraps [`sanitize_html`](crate::app::sanitizers::sanitize_html)
     /// output, an Askama render, pure markup with non-string interpolations,
     /// or a `'static` literal).
-    pub(super) const fn trust(s: S) -> Self {
+    pub(crate) const fn trust(s: S) -> Self {
         Self(s)
     }
 }

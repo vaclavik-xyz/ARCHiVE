@@ -6,13 +6,14 @@ use crate::{
         runtime::Config,
     },
     exporters::{
-        formatter::{ATTACHMENT_NO_FILENAME, MessageFormatter, RenderContext},
+        formatter::{ATTACHMENT_NO_FILENAME, MessageFormatter, PartBodyBuilder, RenderContext},
         shared::{
             announcement::{AnnouncementBody, resolve_announcement},
-            balloon::{dispatch_app_balloon, rewrite_fitness_receiver},
+            balloon::dispatch_app_balloon,
             driver::{ExportState, MessageWriter, apply_body},
             edited::{EditDiff, normalize_edited},
             message::MessageContext,
+            part::dispatch_part_body,
             tapback::TapbackKind,
             time::{format_timestamp, message_time},
         },
@@ -30,7 +31,7 @@ use imessage_database::{
         attachment::{Attachment, MediaType},
         messages::{
             Message,
-            models::{AttachmentMeta, BubbleComponent, TextAttributes},
+            models::{AttachmentMeta, TextAttributes},
         },
         table::YOU,
     },
@@ -294,7 +295,8 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
 
         let mut parts = Vec::with_capacity(message.components.len());
         for (idx, message_part) in message.components.iter().enumerate() {
-            let body = self.build_part_body(
+            let body = dispatch_part_body(
+                self,
                 message,
                 idx,
                 message_part,
@@ -351,6 +353,72 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
     }
 }
 
+// MARK: Part Body
+impl PartBodyBuilder for TXT<'_> {
+    type Body = PartBody;
+
+    fn body_empty(&self) -> Self::Body {
+        PartBody::Empty
+    }
+
+    fn body_text_bubble(&self, content: String) -> Self::Body {
+        PartBody::Line { text: content }
+    }
+
+    fn body_text_translated(&self, translated: String, original: String) -> Self::Body {
+        PartBody::Translated {
+            translated,
+            original,
+        }
+    }
+
+    fn body_text_edited(&self, content: String) -> Self::Body {
+        PartBody::Line { text: content }
+    }
+
+    fn body_attachment(&self, content: String) -> Self::Body {
+        PartBody::Line { text: content }
+    }
+
+    fn body_attachment_error(&self, error: &str) -> Self::Body {
+        PartBody::Line {
+            text: error.to_string(),
+        }
+    }
+
+    fn body_attachment_missing(&self) -> Self::Body {
+        PartBody::Line {
+            text: "Attachment missing!".to_string(),
+        }
+    }
+
+    fn body_sticker(&self, content: String) -> Self::Body {
+        PartBody::Line { text: content }
+    }
+
+    fn body_app(&self, content: String) -> Self::Body {
+        PartBody::Line { text: content }
+    }
+
+    fn body_app_error(&self, _message: &Message, why: MessageError) -> Self::Body {
+        PartBody::Line {
+            text: format!("Unable to format app message: {why}"),
+        }
+    }
+
+    fn body_retracted(&self, content: String) -> Self::Body {
+        PartBody::Line { text: content }
+    }
+
+    fn body_escape(&self, text: &str) -> String {
+        text.to_string()
+    }
+
+    fn config(&self) -> &Config {
+        self.config
+    }
+}
+
 // MARK: Impl
 impl TXT<'_> {
     fn get_time(&self, message: &Message) -> String {
@@ -361,86 +429,6 @@ impl TXT<'_> {
             date.push(' ');
             date.push_str(&read_receipt);
             date
-        }
-    }
-
-    fn build_part_body(
-        &self,
-        message: &Message,
-        idx: usize,
-        message_part: &BubbleComponent,
-        attachments: &mut Vec<Attachment>,
-        attachment_index: &mut usize,
-    ) -> PartBody {
-        match message_part {
-            BubbleComponent::Text(text_attrs) => {
-                let Some(text) = &message.text else {
-                    return PartBody::Empty;
-                };
-                if message.is_part_edited(idx) {
-                    return match &message.edited_parts {
-                        Some(edited_parts) => {
-                            match self.format_edited(message, edited_parts, idx) {
-                                Some(edited) => PartBody::Line { text: edited },
-                                None => PartBody::Empty,
-                            }
-                        }
-                        None => PartBody::Empty,
-                    };
-                }
-
-                let mut formatted_text = self.format_attributes(text, text_attrs);
-                if formatted_text.is_empty() {
-                    formatted_text.push_str(text);
-                }
-
-                if self.config.translated_messages.contains(&message.guid)
-                    && let Ok(Some(translation)) =
-                        message.get_translation(self.config.data_source.db())
-                {
-                    PartBody::Translated {
-                        translated: translation.translated_text,
-                        original: formatted_text,
-                    }
-                } else {
-                    PartBody::Line {
-                        text: rewrite_fitness_receiver(formatted_text),
-                    }
-                }
-            }
-            BubbleComponent::Attachment(metadata) => {
-                let Some(attachment) = attachments.get_mut(*attachment_index) else {
-                    return PartBody::Line {
-                        text: "Attachment missing!".to_string(),
-                    };
-                };
-                if attachment.is_sticker {
-                    return PartBody::Line {
-                        text: self.format_sticker(attachment, message),
-                    };
-                }
-                let body = match self.format_attachment(attachment, message, metadata) {
-                    Ok(result) => PartBody::Line { text: result },
-                    Err(result) => PartBody::Line {
-                        text: result.to_string(),
-                    },
-                };
-                *attachment_index += 1;
-                body
-            }
-            BubbleComponent::App => match self.format_app(message, attachments) {
-                Ok(ok_bubble) => PartBody::Line { text: ok_bubble },
-                Err(why) => PartBody::Line {
-                    text: format!("Unable to format app message: {why}"),
-                },
-            },
-            BubbleComponent::Retracted => match &message.edited_parts {
-                Some(edited_parts) => match self.format_edited(message, edited_parts, idx) {
-                    Some(edited) => PartBody::Line { text: edited },
-                    None => PartBody::Empty,
-                },
-                None => PartBody::Empty,
-            },
         }
     }
 

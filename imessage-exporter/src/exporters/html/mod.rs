@@ -14,13 +14,17 @@ use crate::{
         runtime::Config, sanitizers::sanitize_html,
     },
     exporters::{
-        formatter::{ATTACHMENT_NO_FILENAME, MessageFormatter, RenderContext, TextEffectFormatter},
+        formatter::{
+            ATTACHMENT_NO_FILENAME, MessageFormatter, PartBodyBuilder, RenderContext,
+            TextEffectFormatter,
+        },
         shared::{
             announcement::{AnnouncementBody, resolve_announcement},
-            balloon::{dispatch_app_balloon, rewrite_fitness_receiver},
+            balloon::dispatch_app_balloon,
             driver::{ExportState, MessageWriter, apply_body},
             edited::{EditDiff, normalize_edited},
             message::MessageContext,
+            part::dispatch_part_body,
             tapback::TapbackKind,
             time::message_time,
         },
@@ -398,7 +402,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
 
         let mut parts = Vec::with_capacity(message.components.len());
         for (idx, message_part) in message.components.iter().enumerate() {
-            let body = self.build_part_body(
+            let body = dispatch_part_body(
+                self,
                 message,
                 idx,
                 message_part,
@@ -460,6 +465,88 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
     }
 }
 
+// MARK: Part Body
+impl PartBodyBuilder for HTML<'_> {
+    type Body = PartBody;
+
+    fn body_empty(&self) -> Self::Body {
+        PartBody::Empty
+    }
+
+    fn body_text_bubble(&self, content: String) -> Self::Body {
+        PartBody::TextBubble {
+            html: Html::trust(content),
+        }
+    }
+
+    fn body_text_translated(&self, translated: String, original: String) -> Self::Body {
+        PartBody::TextTranslated {
+            translated: Html::trust(translated),
+            original: Html::trust(original),
+        }
+    }
+
+    fn body_text_edited(&self, content: String) -> Self::Body {
+        PartBody::TextEdited {
+            html: Html::trust(content),
+        }
+    }
+
+    fn body_attachment(&self, content: String) -> Self::Body {
+        PartBody::Attachment {
+            html: Html::trust(content),
+        }
+    }
+
+    fn body_attachment_error(&self, error: &str) -> Self::Body {
+        PartBody::AttachmentError {
+            error: Html::trust(sanitize_html(error).into_owned()),
+        }
+    }
+
+    fn body_attachment_missing(&self) -> Self::Body {
+        PartBody::AttachmentMissing
+    }
+
+    fn body_sticker(&self, content: String) -> Self::Body {
+        PartBody::Sticker {
+            html: Html::trust(content),
+        }
+    }
+
+    fn body_app(&self, content: String) -> Self::Body {
+        PartBody::App {
+            html: Html::trust(content),
+        }
+    }
+
+    fn body_app_error(&self, message: &Message, why: MessageError) -> Self::Body {
+        PartBody::AppError {
+            html: Html::trust(
+                sanitize_html(&format!(
+                    "Unable to format {:?} message: {why}",
+                    message.variant()
+                ))
+                .into_owned(),
+            ),
+        }
+    }
+
+    fn body_retracted(&self, content: String) -> Self::Body {
+        PartBody::Retracted {
+            html: Html::trust(content),
+        }
+    }
+
+    fn body_escape(&self, text: &str) -> String {
+        sanitize_html(text).into_owned()
+    }
+
+    fn config(&self) -> &Config {
+        self.config
+    }
+}
+
 // MARK: Impl
 impl HTML<'_> {
     fn get_time(&self, message: &Message) -> (String, String) {
@@ -505,100 +592,6 @@ impl HTML<'_> {
         }
 
         result
-    }
-
-    fn build_part_body(
-        &self,
-        message: &Message,
-        idx: usize,
-        message_part: &BubbleComponent,
-        attachments: &mut Vec<Attachment>,
-        attachment_index: &mut usize,
-    ) -> PartBody {
-        match message_part {
-            BubbleComponent::Text(text_attrs) => {
-                let Some(text) = &message.text else {
-                    return PartBody::Empty;
-                };
-                if message.is_part_edited(idx) {
-                    return match &message.edited_parts {
-                        Some(edited_parts) => {
-                            match self.format_edited(message, edited_parts, idx) {
-                                Some(html) => PartBody::TextEdited {
-                                    html: Html::trust(html),
-                                },
-                                None => PartBody::Empty,
-                            }
-                        }
-                        None => PartBody::Empty,
-                    };
-                }
-
-                let mut formatted_text = self.format_attributes(text, text_attrs);
-                if formatted_text.is_empty() {
-                    formatted_text.push_str(&sanitize_html(text));
-                }
-
-                if self.config.translated_messages.contains(&message.guid)
-                    && let Ok(Some(translation)) =
-                        message.get_translation(self.config.data_source.db())
-                {
-                    PartBody::TextTranslated {
-                        translated: Html::trust(
-                            sanitize_html(&translation.translated_text).into_owned(),
-                        ),
-                        original: Html::trust(formatted_text),
-                    }
-                } else {
-                    PartBody::TextBubble {
-                        html: Html::trust(rewrite_fitness_receiver(formatted_text)),
-                    }
-                }
-            }
-            BubbleComponent::Attachment(metadata) => {
-                let Some(attachment) = attachments.get_mut(*attachment_index) else {
-                    return PartBody::AttachmentMissing;
-                };
-                if attachment.is_sticker {
-                    return PartBody::Sticker {
-                        html: Html::trust(self.format_sticker(attachment, message)),
-                    };
-                }
-                let body = match self.format_attachment(attachment, message, metadata) {
-                    Ok(html) => PartBody::Attachment {
-                        html: Html::trust(html),
-                    },
-                    Err(error) => PartBody::AttachmentError {
-                        error: Html::trust(sanitize_html(error).into_owned()),
-                    },
-                };
-                *attachment_index += 1;
-                body
-            }
-            BubbleComponent::App => match self.format_app(message, attachments) {
-                Ok(html) => PartBody::App {
-                    html: Html::trust(html),
-                },
-                Err(why) => PartBody::AppError {
-                    html: Html::trust(
-                        sanitize_html(&format!(
-                            "Unable to format {:?} message: {why}",
-                            message.variant()
-                        ))
-                        .into_owned(),
-                    ),
-                },
-            },
-            BubbleComponent::Retracted => match &message.edited_parts {
-                Some(edited_parts) => match self.format_edited(message, edited_parts, idx) {
-                    Some(html) => PartBody::Retracted {
-                        html: Html::trust(html),
-                    },
-                    None => PartBody::Empty,
-                },
-                None => PartBody::Empty,
-            },
-        }
     }
 
     fn build_tapbacks(

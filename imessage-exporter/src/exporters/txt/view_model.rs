@@ -232,7 +232,7 @@ pub(super) struct RepliesVM {
 /// Each variant becomes a single `add_line` style emission in the part body
 /// (i.e., one indent prefix + content + trailing newline). `Translated` is
 /// the only multi-line variant; the rest collapse to a single line.
-pub(super) enum PartBody {
+pub(crate) enum PartBody {
     Empty,
     Line {
         text: String,
