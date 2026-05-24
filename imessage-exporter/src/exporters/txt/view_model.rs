@@ -8,7 +8,8 @@ use imessage_database::{
 use crate::exporters::{
     formatter::RenderContext,
     shared::{
-        announcement::AnnouncementBody, edited::Edit, tapback::TapbackKind, text::OptionalText,
+        announcement::AnnouncementBody, edited::Edit, reply::ReplyEntry, tapback::TapbackKind,
+        text::OptionalText,
     },
 };
 
@@ -221,12 +222,12 @@ pub(super) struct TapbacksVM {
 #[derive(Template)]
 #[template(path = "replies.txt")]
 pub(super) struct RepliesVM {
-    /// Each entry is a fully-rendered nested reply (multi-line, with its
-    /// own [`REPLY_INDENT`](super::REPLY_INDENT) already applied by the
-    /// recursive [`format_message_into`](super::TXT::format_message_into) call).
-    /// Each entry already ends in `\n`; the template adds a second `\n` after
-    /// it so siblings are separated by a blank line.
-    pub replies: Vec<String>,
+    /// Each entry's `body` is a multi-line reply render with its own
+    /// [`REPLY_INDENT`](super::REPLY_INDENT) already applied by the recursive
+    /// [`format_message_into`](super::TXT::format_message_into) call and ends
+    /// in `\n`; the template adds a second `\n` after it so siblings are
+    /// separated by a blank line. `guid` is unused by this template.
+    pub replies: Vec<ReplyEntry<String>>,
 }
 
 /// Each variant becomes a single `add_line` style emission in the part body

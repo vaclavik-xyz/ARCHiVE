@@ -8,7 +8,8 @@ use imessage_database::{
 use crate::exporters::{
     html::safe::Html,
     shared::{
-        announcement::AnnouncementBody, edited::Edit, tapback::TapbackKind, text::OptionalText,
+        announcement::AnnouncementBody, edited::Edit, reply::ReplyEntry, tapback::TapbackKind,
+        text::OptionalText,
     },
 };
 
@@ -270,11 +271,10 @@ pub(super) struct TapbacksVM {
 #[derive(Template)]
 #[template(path = "replies.html")]
 pub(super) struct RepliesVM {
-    /// Each entry is a fully-rendered reply, already wrapped in
-    /// `<div class="reply" id="…">…</div>\n`. The per-entry wrapper stays
-    /// in Rust because the `id` is per-reply and the body comes from a
-    /// recursive `format_message_into` call.
-    pub replies: Vec<Html>,
+    /// Each entry carries the recursive `format_message_into` render for
+    /// one reply, paired with its `guid` so the template can emit the
+    /// `<div class="reply" id="…">…</div>` wrapper.
+    pub replies: Vec<ReplyEntry<Html>>,
 }
 
 /// Each [`Html`] field holds pre-rendered HTML — emitted with `|safe`. Wrapping

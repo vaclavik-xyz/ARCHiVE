@@ -21,10 +21,11 @@ use crate::{
         shared::{
             announcement::{AnnouncementBody, resolve_announcement},
             balloon::dispatch_app_balloon,
-            driver::{ExportState, MessageWriter, apply_body},
+            driver::{ExportState, MessageWriter},
             edited::{EditDiff, normalize_edited},
             message::MessageContext,
             part::dispatch_part_body,
+            reply::{build_replies, build_tapbacks},
             tapback::TapbackKind,
             time::message_time,
         },
@@ -414,8 +415,15 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             parts.push(MessagePartVM {
                 body,
                 expressive: ctx.expressive,
-                tapbacks: self.build_tapbacks(message, idx)?,
-                replies: self.build_replies(ctx.replies_map.get_mut(&idx))?,
+                tapbacks: build_tapbacks(self, message, idx, Html::trust)?
+                    .map(|tapbacks| TapbacksVM { tapbacks }),
+                replies: build_replies(
+                    self,
+                    ctx.replies_map.get_mut(&idx),
+                    Self::BUFFER_CAPACITY,
+                    Html::trust,
+                )?
+                .map(|replies| RepliesVM { replies }),
             });
         }
 
@@ -592,62 +600,6 @@ impl HTML<'_> {
         }
 
         result
-    }
-
-    fn build_tapbacks(
-        &self,
-        message: &Message,
-        idx: usize,
-    ) -> Result<Option<TapbacksVM>, TableError> {
-        let Some(tapbacks) = self
-            .config
-            .tapbacks
-            .get(&message.guid)
-            .and_then(|m| m.get(&idx))
-        else {
-            return Ok(None);
-        };
-
-        let mut rendered = Vec::new();
-        for tapback in tapbacks {
-            let f = self.format_tapback(tapback)?;
-            if !f.is_empty() {
-                rendered.push(Html::trust(f));
-            }
-        }
-
-        if rendered.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(TapbacksVM { tapbacks: rendered }))
-        }
-    }
-
-    fn build_replies(
-        &self,
-        replies: Option<&mut Vec<Message>>,
-    ) -> Result<Option<RepliesVM>, TableError> {
-        let Some(replies) = replies else {
-            return Ok(None);
-        };
-        let mut rendered = Vec::new();
-        for reply in replies.iter_mut() {
-            apply_body(reply, self.config.data_source.db());
-            if !reply.is_tapback() {
-                let mut buf = String::new();
-                buf.push_str("<div class=\"reply\" id=\"");
-                buf.push_str(&sanitize_html(&reply.guid));
-                buf.push_str("\">");
-                self.format_message_into(reply, RenderContext::Reply, &mut buf)?;
-                buf.push_str("</div>\n");
-                rendered.push(Html::trust(buf));
-            }
-        }
-        if rendered.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(RepliesVM { replies: rendered }))
-        }
     }
 }
 
