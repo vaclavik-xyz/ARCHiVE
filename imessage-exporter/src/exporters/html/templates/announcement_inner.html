@@ -11,7 +11,7 @@
         added {{ participant_name }} to the conversation.
         {%- when GroupAction::ParticipantRemoved(_) -%}
         removed {{ participant_name }} from the conversation.
-        {%- when GroupAction::NameChange(name) -%}named the conversation <b>{{ name }}</b>.
+        {%- when GroupAction::NameChange(name) -%}named the conversation <b>{{ name }}</b>
         {%- when GroupAction::ParticipantLeft -%}left the conversation.
         {%- when GroupAction::GroupIconChanged -%}changed the group photo.
         {%- when GroupAction::GroupIconRemoved -%}removed the group photo.

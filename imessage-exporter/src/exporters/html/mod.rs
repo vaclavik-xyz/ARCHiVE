@@ -985,7 +985,7 @@ mod tests {
         message.item_type = 2;
 
         let actual = exporter.format_announcement(&message);
-        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You named the conversation <b>Hello world</b>.</p>\n</div>\n";
+        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You named the conversation <b>Hello world</b></p>\n</div>\n";
 
         assert_eq!(actual, expected);
     }
@@ -1008,7 +1008,7 @@ mod tests {
         message.item_type = 2;
 
         let actual = exporter.format_announcement(&message);
-        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> Name named the conversation <b>Hello world</b>.</p>\n</div>\n";
+        let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> Name named the conversation <b>Hello world</b></p>\n</div>\n";
 
         assert_eq!(actual, expected);
     }

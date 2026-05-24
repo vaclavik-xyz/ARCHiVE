@@ -829,7 +829,7 @@ mod tests {
         message.item_type = 2;
 
         let actual = exporter.format_announcement(&message);
-        let expected = "May 17, 2022  5:29:42 PM You named the conversation Hello world.\n\n";
+        let expected = "May 17, 2022  5:29:42 PM You named the conversation Hello world\n\n";
 
         assert_eq!(actual, expected);
     }
@@ -852,7 +852,7 @@ mod tests {
         message.item_type = 2;
 
         let actual = exporter.format_announcement(&message);
-        let expected = "May 17, 2022  5:29:42 PM Name named the conversation Hello world.\n\n";
+        let expected = "May 17, 2022  5:29:42 PM Name named the conversation Hello world\n\n";
 
         assert_eq!(actual, expected);
     }
