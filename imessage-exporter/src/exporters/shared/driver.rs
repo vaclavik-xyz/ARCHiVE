@@ -124,7 +124,7 @@ where
                     let file = File::options().append(true).create(true).open(&path)?;
                     let mut buf = BufWriter::new(file);
                     if !file_exists {
-                        let _ = W::write_file_header(&mut buf);
+                        W::write_file_header(&mut buf)?;
                     }
                     Ok(entry.insert(buf))
                 }
