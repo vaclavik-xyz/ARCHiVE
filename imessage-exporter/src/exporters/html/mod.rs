@@ -9,10 +9,7 @@ use std::{
 };
 
 use crate::{
-    app::{
-        compatibility::attachment_manager::AttachmentManagerMode, error::RuntimeError,
-        runtime::Config, sanitizers::sanitize_html,
-    },
+    app::{error::RuntimeError, runtime::Config, sanitizers::sanitize_html},
     exporters::{
         formatter::{
             ATTACHMENT_NO_FILENAME, MessageFormatter, PartBodyBuilder, RenderContext,
@@ -20,6 +17,7 @@ use crate::{
         },
         shared::{
             announcement::{AnnouncementBody, resolve_announcement},
+            attachment::{AttachmentError, prepare_attachment},
             balloon::dispatch_app_balloon,
             driver::{ExportState, MessageWriter},
             edited::{EditDiff, normalize_edited},
@@ -131,31 +129,12 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         message: &Message,
         metadata: &AttachmentMeta,
     ) -> Result<String, &'a str> {
-        // When encoding videos, alert the user that the time estimate may be inaccurate
-        let will_encode = matches!(attachment.mime_type(), MediaType::Video(_))
-            && matches!(
-                self.config.options.attachment_manager.mode,
-                AttachmentManagerMode::Full
-            );
-
-        if will_encode {
-            self.state
-                .pb
-                .set_busy_style("Encoding video, estimates paused...".to_string());
-        }
-
-        // Copy the file, if requested
-        let handle_result = self.config.options.attachment_manager.handle_attachment(
-            message,
-            attachment,
-            self.config,
-        );
-
-        if will_encode {
-            self.state.pb.set_default_style();
-        }
-
-        handle_result.ok_or(attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?)?;
+        prepare_attachment(self.config, &self.state, attachment, message).map_err(|e| match e {
+            AttachmentError::NoFilename => ATTACHMENT_NO_FILENAME,
+            AttachmentError::HandleFailed => {
+                attachment.filename().unwrap_or(ATTACHMENT_NO_FILENAME)
+            }
+        })?;
 
         let embed_path = self.config.message_attachment_path(attachment);
 
