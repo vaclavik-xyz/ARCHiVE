@@ -20,6 +20,7 @@ use crate::{
             balloon::{dispatch_app_balloon, rewrite_fitness_receiver},
             driver::{ExportState, MessageWriter, apply_body},
             edited::{EditDiff, normalize_edited},
+            message::MessageContext,
             tapback::TapbackKind,
             time::message_time,
         },
@@ -30,7 +31,6 @@ use imessage_database::{
     error::{message::MessageError, table::TableError},
     message_types::{
         edited::EditedMessage,
-        expressives::Expressive,
         text_effects::TextEffect,
         variants::{Announcement, Tapback, TapbackAction, Variant},
     },
@@ -393,13 +393,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         out: &mut String,
     ) -> Result<(), TableError> {
         let is_reply = matches!(context, RenderContext::Reply);
-        let mut attachments = Attachment::from_message(self.config.data_source.db(), message)?;
-        let mut replies_map = message.get_replies(self.config.data_source.db())?;
+        let mut ctx = MessageContext::resolve(message, self.config.data_source.db())?;
         let mut attachment_index: usize = 0;
-        let expressive = match message.get_expressive() {
-            Expressive::None => None,
-            other => Some(other),
-        };
 
         let mut parts = Vec::with_capacity(message.components.len());
         for (idx, message_part) in message.components.iter().enumerate() {
@@ -407,15 +402,15 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 message,
                 idx,
                 message_part,
-                &mut attachments,
+                &mut ctx.attachments,
                 &mut attachment_index,
             );
 
             parts.push(MessagePartVM {
                 body,
-                expressive,
+                expressive: ctx.expressive,
                 tapbacks: self.build_tapbacks(message, idx)?,
-                replies: self.build_replies(replies_map.get_mut(&idx))?,
+                replies: self.build_replies(ctx.replies_map.get_mut(&idx))?,
             });
         }
 
