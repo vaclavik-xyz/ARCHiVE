@@ -1,6 +1,6 @@
 {%- match variant -%}
 {%- when AttachmentVariant::Image { embed_path } -%}
-<img src="{{ embed_path }}" {% if lazy %} loading="lazy" {% endif %}>
+<img src="{{ embed_path }}" {%- if lazy %} loading="lazy" {%- endif %}>
 {%- when AttachmentVariant::Video { embed_path, media_type } -%}
 <video controls>
     <source src="{{ embed_path }}" type="{{ media_type }}">

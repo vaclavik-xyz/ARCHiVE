@@ -1679,7 +1679,7 @@ mod tests {
         message.rowid = 452567;
 
         let actual = exporter.format_tapback(&message).unwrap();
-        let expected = "<img src=\"/Users/chris/Library/Messages/StickerCache/8e682c381ab52ec2-289D9E83-33EE-4153-AF13-43DB31792C6F/289D9E83-33EE-4153-AF13-43DB31792C6F.heic\"  loading=\"lazy\" >\n<div class=\"sticker_name\">App: Free People</div><div class=\"sticker_tapback\">&nbsp;by Sample Contact</div>";
+        let expected = "<img src=\"/Users/chris/Library/Messages/StickerCache/8e682c381ab52ec2-289D9E83-33EE-4153-AF13-43DB31792C6F/289D9E83-33EE-4153-AF13-43DB31792C6F.heic\" loading=\"lazy\">\n<div class=\"sticker_name\">App: Free People</div><div class=\"sticker_tapback\">&nbsp;by Sample Contact</div>";
 
         assert_eq!(actual, expected);
     }
@@ -1819,7 +1819,7 @@ mod tests {
             .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
             .unwrap();
 
-        assert_eq!(actual, "<img src=\"a/b/c/d.jpg\"  loading=\"lazy\" >");
+        assert_eq!(actual, "<img src=\"a/b/c/d.jpg\" loading=\"lazy\">");
     }
 
     #[test]
@@ -1878,7 +1878,7 @@ mod tests {
             .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
             .unwrap();
 
-        assert!(actual.ends_with("33/33c81da8ae3194fc5a0ea993ef6ffe0b048baedb\" >"));
+        assert!(actual.ends_with("33/33c81da8ae3194fc5a0ea993ef6ffe0b048baedb\">"));
     }
 
     #[test]
@@ -2082,7 +2082,7 @@ mod tests {
 
         assert_eq!(
             actual,
-            "<img src=\"imessage-database/test_data/stickers/outline.heic\"  loading=\"lazy\" >\n<div class=\"sticker_effect\">Sent with Outline effect</div>"
+            "<img src=\"imessage-database/test_data/stickers/outline.heic\" loading=\"lazy\">\n<div class=\"sticker_effect\">Sent with Outline effect</div>"
         );
 
         // Remove the file created by the constructor for this test
@@ -2121,7 +2121,7 @@ mod tests {
 
         assert_eq!(
             actual,
-            "<img src=\"imessage-database/test_data/stickers/outline.heic\"  loading=\"lazy\" >\n<div class=\"genmoji_prompt\">Genmoji prompt: pink poodle</div>"
+            "<img src=\"imessage-database/test_data/stickers/outline.heic\" loading=\"lazy\">\n<div class=\"genmoji_prompt\">Genmoji prompt: pink poodle</div>"
         );
 
         // Remove the file created by the constructor for this test
@@ -2159,7 +2159,7 @@ mod tests {
 
         assert_eq!(
             actual,
-            "<img src=\"imessage-database/test_data/stickers/outline.heic\"  loading=\"lazy\" >\n<div class=\"sticker_name\">App: Free People</div>"
+            "<img src=\"imessage-database/test_data/stickers/outline.heic\" loading=\"lazy\">\n<div class=\"sticker_name\">App: Free People</div>"
         );
 
         // Remove the file created by the constructor for this test
