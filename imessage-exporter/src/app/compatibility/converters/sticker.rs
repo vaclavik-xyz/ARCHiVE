@@ -3,6 +3,7 @@
 */
 
 use std::{
+    env::temp_dir,
     fs::{create_dir_all, read_dir, remove_dir_all},
     path::{Path, PathBuf},
 };
@@ -115,7 +116,7 @@ fn convert_heics(from: &Path, to: &Path, video_converter: &VideoConverter) -> Op
     let fps = 10;
 
     // Directory to store intermediate renders
-    let tmp_path = PathBuf::from("/tmp/imessage");
+    let tmp_path = temp_dir().join("imessage");
     // Ensure the temp directory tree exists
     if !tmp_path.exists()
         && let Err(why) = create_dir_all(&tmp_path)
