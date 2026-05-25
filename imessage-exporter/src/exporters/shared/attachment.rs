@@ -5,19 +5,20 @@ use imessage_database::tables::{
 
 use crate::{
     app::{compatibility::attachment_manager::AttachmentManagerMode, runtime::Config},
-    exporters::{formatter::ATTACHMENT_NO_FILENAME, shared::driver::ExportState},
+    exporters::{formatter::AttachmentRender, shared::driver::ExportState},
 };
 
 /// Run the per-attachment side effects every exporter needs before it can
 /// emit a reference to a file on disk: toggle the progress bar's "encoding
 /// video" indicator if the attachment will be transcoded, then ask the
 /// [`AttachmentManager`](crate::app::compatibility::attachment_manager::AttachmentManager)
-/// to copy or convert the file. Returns the filename (or
-/// [`ATTACHMENT_NO_FILENAME`] when missing) on failure so the caller can
-/// render a missing-attachment notice without re-deriving the source.
+/// to copy or convert the file.
 ///
-/// The filename check fires regardless of `handle_attachment`'s result:
-/// when `AttachmentManagerMode::Disabled` is in effect, `handle_attachment`
+/// Returns `Ok(())` when the attachment has a filename and
+/// `handle_attachment` succeeded; otherwise returns the
+/// [`AttachmentRender`] fallback the caller should propagate. The filename
+/// check fires regardless of `handle_attachment`'s result: when
+/// `AttachmentManagerMode::Disabled` is in effect, `handle_attachment`
 /// returns `Some(())` without touching `filename`, but the caller still
 /// can't render anything useful downstream without one.
 pub(crate) fn prepare_attachment(
@@ -25,7 +26,7 @@ pub(crate) fn prepare_attachment(
     state: &ExportState,
     attachment: &mut Attachment,
     message: &Message,
-) -> Result<(), String> {
+) -> Result<(), AttachmentRender> {
     let will_encode = matches!(attachment.mime_type(), MediaType::Video(_))
         && matches!(
             config.options.attachment_manager.mode,
@@ -48,8 +49,10 @@ pub(crate) fn prepare_attachment(
     }
 
     let Some(filename) = attachment.filename() else {
-        return Err(ATTACHMENT_NO_FILENAME.to_string());
+        return Err(AttachmentRender::MissingFilename);
     };
-    handle_result.ok_or_else(|| filename.to_string())?;
+    if handle_result.is_none() {
+        return Err(AttachmentRender::NamedFile(filename.to_string()));
+    }
     Ok(())
 }

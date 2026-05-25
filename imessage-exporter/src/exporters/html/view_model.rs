@@ -188,7 +188,7 @@ pub(super) struct PollOptionVM<'a> {
 pub(super) struct AttachmentVM<'a> {
     pub lazy: bool,
     /// Path the template emits in `src=` / `href=` attributes. Shared by every
-    /// variant — the only piece each variant needs in addition is the bits
+    /// variant: the only piece each variant needs in addition is the bits
     /// specific to its presentation (media type, filename, etc.).
     pub embed_path: String,
     pub variant: AttachmentVariant<'a>,

@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
 use imessage_database::{
-    error::{message::MessageError, table::TableError},
     message_types::{
         app::AppMessage,
         app_store::AppStoreMessage,
@@ -24,9 +23,7 @@ use imessage_database::{
     },
 };
 
-use crate::app::runtime::Config;
-
-pub(crate) const ATTACHMENT_NO_FILENAME: &str = "Attachment missing name metadata!";
+use crate::app::{error::RuntimeError, runtime::Config};
 
 /// Where a message sits in the rendered conversation hierarchy. Each exporter
 /// applies its own decoration for [`Reply`](Self::Reply) (e.g. line prefixing,
@@ -43,18 +40,31 @@ pub(crate) enum RenderContext {
     Reply,
 }
 
+/// Outcome of [`MessageFormatter::format_attachment`]; each variant routes
+/// to a different [`PartBodyBuilder`] hook.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum AttachmentRender {
+    /// Attachment was located and processed into an embed-ready string.
+    Embedded(String),
+    /// Attachment is present in the message but has no filename metadata.
+    /// Caller renders via [`PartBodyBuilder::body_attachment_missing`].
+    MissingFilename,
+    /// Attachment manager couldn't process the file, but its filename is
+    /// known. Caller renders via [`PartBodyBuilder::body_attachment_error`].
+    NamedFile(String),
+}
+
 // MARK: Message
 /// Defines behavior for formatting message instances to the desired output format
 pub(crate) trait MessageFormatter<'a> {
-    /// Format an attachment, possibly by reading the disk. On failure,
-    /// returns the attachment filename (or [`ATTACHMENT_NO_FILENAME`] when
-    /// missing) so the caller can render a missing-attachment notice.
+    /// Format an attachment, possibly by reading the disk. The returned
+    /// [`AttachmentRender`] tells the caller which body hook to invoke.
     fn format_attachment(
         &self,
         attachment: &'a mut Attachment,
         msg: &'a Message,
         metadata: &AttachmentMeta,
-    ) -> Result<String, String>;
+    ) -> AttachmentRender;
     /// Format a sticker, possibly by reading the disk
     fn format_sticker(&self, attachment: &'a mut Attachment, msg: &'a Message) -> String;
     /// Format an app message by parsing some of its fields
@@ -62,9 +72,9 @@ pub(crate) trait MessageFormatter<'a> {
         &self,
         msg: &'a Message,
         attachments: &mut Vec<Attachment>,
-    ) -> Result<String, MessageError>;
+    ) -> Result<String, RuntimeError>;
     /// Format a tapback (displayed under a message)
-    fn format_tapback(&self, msg: &Message) -> Result<String, TableError>;
+    fn format_tapback(&self, msg: &Message) -> Result<String, RuntimeError>;
     /// Render an announcement message directly into `out`. Permits reuse of
     /// the same buffer that [`format_message_into`](Self::format_message_into)
     /// uses, so the per-message hot path doesn't allocate per call.
@@ -90,7 +100,7 @@ pub(crate) trait MessageFormatter<'a> {
         message: &Message,
         context: RenderContext,
         out: &mut String,
-    ) -> Result<(), TableError>;
+    ) -> Result<(), RuntimeError>;
 }
 
 // MARK: Balloon
@@ -164,8 +174,10 @@ pub(crate) trait PartBodyBuilder {
     fn body_sticker(&self, content: String) -> Self::Body;
     /// App message content
     fn body_app(&self, content: String) -> Self::Body;
-    /// App message that failed to export due to an error
-    fn body_app_error(&self, message: &Message, why: MessageError) -> Self::Body;
+    /// App message that failed to export due to an error. `why` is the
+    /// already-rendered error message; implementations are responsible for
+    /// any format-specific escaping.
+    fn body_app_error(&self, message: &Message, why: String) -> Self::Body;
     /// Retracted message content
     fn body_retracted(&self, content: String) -> Self::Body;
     /// Escape raw user text for this format. Implementations decide what

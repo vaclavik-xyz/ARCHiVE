@@ -7,12 +7,9 @@ use std::{
     io::{BufWriter, Write},
 };
 
-use imessage_database::{
-    error::table::TableError,
-    tables::{
-        messages::Message,
-        table::{ORPHANED, Table},
-    },
+use imessage_database::tables::{
+    messages::Message,
+    table::{ORPHANED, Table},
 };
 use rusqlite::Connection;
 
@@ -164,9 +161,7 @@ where
         writer.config().data_source.db(),
         &writer.config().options.query_context,
     )?;
-    let messages = statement
-        .query_map([], |row| Ok(Message::from_row(row)))
-        .map_err(|err| RuntimeError::DatabaseError(TableError::QueryError(err)))?;
+    let messages = statement.query_map([], |row| Ok(Message::from_row(row)))?;
 
     // Reused across iterations so each message doesn't allocate a fresh
     // output buffer. Capacity grows naturally to fit the largest message
@@ -189,16 +184,14 @@ where
             msg_buf.clear();
             writer.format_announcement(&msg, &mut msg_buf);
             let file = get_or_create_file_for(writer, &msg)?;
-            file.write_all(msg_buf.as_bytes())
-                .map_err(RuntimeError::DiskError)?;
+            file.write_all(msg_buf.as_bytes())?;
         }
         // Message tapbacks and poll votes are rendered in context, so no need to render them separately
         else if !msg.is_tapback() && !msg.is_poll_vote() && !msg.is_poll_update() {
             msg_buf.clear();
             writer.format_message_into(&msg, RenderContext::TopLevel, &mut msg_buf)?;
             let file = get_or_create_file_for(writer, &msg)?;
-            file.write_all(msg_buf.as_bytes())
-                .map_err(RuntimeError::DiskError)?;
+            file.write_all(msg_buf.as_bytes())?;
         }
         current_message += 1;
         if current_message % 99 == 0 {

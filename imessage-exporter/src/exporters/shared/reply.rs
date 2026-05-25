@@ -1,8 +1,11 @@
-use imessage_database::{error::table::TableError, tables::messages::Message};
+use imessage_database::tables::messages::Message;
 
-use crate::exporters::{
-    formatter::{MessageFormatter, PartBodyBuilder, RenderContext},
-    shared::driver::apply_body,
+use crate::{
+    app::error::RuntimeError,
+    exporters::{
+        formatter::{MessageFormatter, PartBodyBuilder, RenderContext},
+        shared::driver::apply_body,
+    },
 };
 
 /// One reply, as fed to the format's `replies` template. `body` is already a
@@ -25,7 +28,7 @@ pub(crate) fn build_tapbacks<'a, F, T>(
     message: &'a Message,
     idx: usize,
     wrap: impl Fn(String) -> T,
-) -> Result<Option<Vec<T>>, TableError>
+) -> Result<Option<Vec<T>>, RuntimeError>
 where
     F: MessageFormatter<'a> + PartBodyBuilder,
 {
@@ -62,7 +65,7 @@ pub(crate) fn build_replies<'a, F, S>(
     replies: Option<&'a mut Vec<Message>>,
     buffer_capacity: usize,
     wrap_body: impl Fn(String) -> S,
-) -> Result<Option<Vec<ReplyEntry<S>>>, TableError>
+) -> Result<Option<Vec<ReplyEntry<S>>>, RuntimeError>
 where
     F: MessageFormatter<'a> + PartBodyBuilder,
 {

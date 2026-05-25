@@ -3,7 +3,7 @@ use std::{fs::File, io::BufWriter};
 use crate::{
     app::{error::RuntimeError, runtime::Config},
     exporters::{
-        formatter::{MessageFormatter, PartBodyBuilder, RenderContext},
+        formatter::{AttachmentRender, MessageFormatter, PartBodyBuilder, RenderContext},
         shared::{
             announcement::{AnnouncementBody, resolve_announcement},
             attachment::prepare_attachment,
@@ -21,7 +21,6 @@ use crate::{
 };
 
 use imessage_database::{
-    error::{message::MessageError, table::TableError},
     message_types::{edited::EditedMessage, sticker::StickerDecoration},
     tables::{
         attachment::Attachment,
@@ -98,10 +97,12 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         attachment: &'a mut Attachment,
         message: &Message,
         metadata: &AttachmentMeta,
-    ) -> Result<String, String> {
-        prepare_attachment(self.config, &self.state, attachment, message)?;
+    ) -> AttachmentRender {
+        if let Err(render) = prepare_attachment(self.config, &self.state, attachment, message) {
+            return render;
+        }
 
-        Ok(render_template(&AttachmentVM {
+        AttachmentRender::Embedded(render_template(&AttachmentVM {
             embed_path: self.config.message_attachment_path(attachment),
             transcription: metadata.transcription.as_deref(),
         }))
@@ -115,8 +116,9 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         );
         let (path, has_source) =
             match self.format_attachment(sticker, message, &AttachmentMeta::default()) {
-                Ok(p) => (p, true),
-                Err(e) => (e, false),
+                AttachmentRender::Embedded(p) => (p, true),
+                AttachmentRender::MissingFilename => (String::new(), false),
+                AttachmentRender::NamedFile(name) => (name, false),
             };
 
         let decoration = if has_source {
@@ -152,11 +154,16 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         &self,
         message: &'a Message,
         attachments: &mut Vec<Attachment>,
-    ) -> Result<String, MessageError> {
-        dispatch_app_balloon(self, message, attachments, self.config)
+    ) -> Result<String, RuntimeError> {
+        Ok(dispatch_app_balloon(
+            self,
+            message,
+            attachments,
+            self.config,
+        )?)
     }
 
-    fn format_tapback(&self, msg: &Message) -> Result<String, TableError> {
+    fn format_tapback(&self, msg: &Message) -> Result<String, RuntimeError> {
         let Some(kind) = resolve_tapback(msg, self.config, |sticker| {
             self.format_sticker(sticker, msg)
         })?
@@ -234,7 +241,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         message: &Message,
         context: RenderContext,
         out: &mut String,
-    ) -> Result<(), TableError> {
+    ) -> Result<(), RuntimeError> {
         let mut ctx = MessageContext::resolve(message, self.config.data_source.db())?;
         let mut attachment_index: usize = 0;
 
@@ -344,7 +351,7 @@ impl PartBodyBuilder for TXT<'_> {
         PartBody::Line { text: content }
     }
 
-    fn body_app_error(&self, _message: &Message, why: MessageError) -> Self::Body {
+    fn body_app_error(&self, _message: &Message, why: String) -> Self::Body {
         PartBody::Line {
             text: format!("Unable to format app message: {why}"),
         }
@@ -402,7 +409,7 @@ mod tests {
             compatibility::attachment_manager::AttachmentManagerMode, contacts::Name,
             export_type::ExportType,
         },
-        exporters::formatter::{MessageFormatter, RenderContext},
+        exporters::formatter::{AttachmentRender, MessageFormatter, RenderContext},
     };
     use imessage_database::{
         message_types::text_effects::TextEffect,
@@ -1344,11 +1351,13 @@ mod tests {
 
         let mut attachment = Config::fake_attachment();
 
-        let actual = exporter
-            .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
-            .unwrap();
+        let actual =
+            exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, "a/b/c/d.jpg");
+        assert_eq!(
+            actual,
+            AttachmentRender::Embedded("a/b/c/d.jpg".to_string())
+        );
     }
 
     #[test]
@@ -1367,7 +1376,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
+        assert_eq!(actual, AttachmentRender::MissingFilename);
     }
 
     #[test]
@@ -1388,7 +1397,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
+        assert_eq!(actual, AttachmentRender::MissingFilename);
     }
 
     #[test]
@@ -1403,9 +1412,11 @@ mod tests {
 
         let mut attachment = Config::fake_attachment();
 
-        let actual = exporter
-            .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
-            .unwrap();
+        let AttachmentRender::Embedded(actual) =
+            exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default())
+        else {
+            panic!("expected AttachmentRender::Embedded");
+        };
 
         assert!(actual.ends_with("33/33c81da8ae3194fc5a0ea993ef6ffe0b048baedb"));
     }
@@ -1428,7 +1439,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
+        assert_eq!(actual, AttachmentRender::MissingFilename);
     }
 
     #[test]
@@ -1451,7 +1462,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
+        assert_eq!(actual, AttachmentRender::MissingFilename);
     }
 
     #[test]
@@ -1598,11 +1609,12 @@ mod tests {
             ..Default::default()
         };
 
-        let actual = exporter
-            .format_attachment(&mut attachment, &message, &meta)
-            .unwrap();
+        let actual = exporter.format_attachment(&mut attachment, &message, &meta);
 
-        assert_eq!(actual, "Audio Message.caf\nTranscription: Test");
+        assert_eq!(
+            actual,
+            AttachmentRender::Embedded("Audio Message.caf\nTranscription: Test".to_string())
+        );
     }
 
     #[test]

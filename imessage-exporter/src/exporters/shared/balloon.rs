@@ -114,8 +114,9 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
 
 // MARK: Check In
 
-/// Build the footer line that accompanies a Check In balloon — the
-/// `"<verb> at <local time>"` phrase derived from the balloon's first
+/// Build the footer line that accompanies a Check In balloon.
+///
+/// The `"<verb> at <local time>"` phrase derived from the balloon's first
 /// [`CheckInKind`] entry. Returns `None` when the balloon has no decodable
 /// check-in metadata, so callers can omit the footer entirely.
 pub fn resolve_check_in_footer(balloon: &AppMessage) -> Option<String> {
