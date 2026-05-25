@@ -16,7 +16,7 @@ use std::{
 
 use crate::{
     error::{attachment::AttachmentError, table::TableError},
-    message_types::sticker::{StickerEffect, StickerSource, get_sticker_effect},
+    message_types::sticker::{StickerDecoration, StickerEffect, StickerSource, get_sticker_effect},
     tables::{
         diagnostic::AttachmentDiagnostic,
         messages::Message,
@@ -348,7 +348,7 @@ impl Attachment {
     ///
     /// For a jailbroken iOS `sms.db`, attachment paths start with [`DEFAULT_SMS_ROOT`] (`~/Library/SMS`)
     /// instead of [`DEFAULT_MESSAGES_ROOT`]. These databases behave like macOS databases and should
-    /// use [`Platform::macOS`] — not [`Platform::iOS`], which is reserved for encrypted Finder/Apple Devices/iTunes backups.
+    /// use [`Platform::macOS`], not [`Platform::iOS`], which is reserved for encrypted Finder/Apple Devices/iTunes backups.
     #[must_use]
     pub fn resolved_attachment_path(
         &self,
@@ -542,6 +542,41 @@ impl Attachment {
             return Some(plist.get("name")?.as_string()?.to_owned());
         }
         None
+    }
+
+    /// Resolve a sticker's [`StickerSource`] into a [`StickerDecoration`].
+    /// Combines [`get_sticker_source`](Self::get_sticker_source),
+    /// [`get_sticker_source_application_name`](Self::get_sticker_source_application_name),
+    /// and [`get_sticker_effect`](Self::get_sticker_effect) so
+    /// consumers don't have to re-derive the dispatch.
+    ///
+    /// Returns `None` when the sticker has no source row or when the source
+    /// can't yield a decoration (e.g., [`StickerSource::UserGenerated`] with
+    /// an unreadable effect blob).
+    pub fn get_sticker_decoration(
+        &self,
+        db: &Connection,
+        platform: &Platform,
+        db_path: &Path,
+        attachment_root: Option<&str>,
+    ) -> Option<StickerDecoration> {
+        let source = self.get_sticker_source(db)?;
+        match source {
+            StickerSource::Genmoji => self
+                .emoji_description
+                .as_deref()
+                .map(|prompt| StickerDecoration::GenmojiPrompt(prompt.to_string())),
+            StickerSource::Memoji => Some(StickerDecoration::Memoji),
+            StickerSource::UserGenerated => self
+                .get_sticker_effect(platform, db_path, attachment_root)
+                .ok()
+                .flatten()
+                .map(StickerDecoration::Effect),
+            StickerSource::App(bundle_id) => Some(StickerDecoration::AppName(
+                self.get_sticker_source_application_name(db)
+                    .unwrap_or(bundle_id),
+            )),
+        }
     }
 }
 
