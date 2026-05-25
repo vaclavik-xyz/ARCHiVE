@@ -5,7 +5,7 @@ use imessage_database::{
 
 use crate::app::runtime::Config;
 
-/// Format `message`'s timestamp via [`format`], falling back to the
+/// Format `message`'s timestamp via [`format()`], falling back to the
 /// timestamp error's `Display` output. Centralizes the `Ok/Err → String`
 /// pattern used by every formatter.
 pub fn format_message_date(message: &Message, offset: i64) -> String {

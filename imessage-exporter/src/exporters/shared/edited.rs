@@ -95,7 +95,7 @@ pub struct NormalizedEditEvent<'a> {
     pub date: i64,
 }
 
-/// Normalize one [`EditedMessagePart`] into the template-facing
+/// Normalize one [`EditedMessagePart`](imessage_database::message_types::edited::EditedMessagePart) into the template-facing
 /// [`Edit`], parameterized by [`NormalizedEditEvent`] so callers can
 /// `.map_rows(...)` into their format-specific row type. Returns `None` for
 /// [`EditStatus::Original`] (nothing to render). `self_name` is the fallback

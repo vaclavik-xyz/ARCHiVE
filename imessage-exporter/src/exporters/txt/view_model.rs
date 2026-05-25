@@ -224,7 +224,7 @@ pub(super) struct TapbacksVM {
 pub(super) struct RepliesVM {
     /// Each entry's `body` is a multi-line reply render with its own
     /// [`REPLY_INDENT`](super::REPLY_INDENT) already applied by the recursive
-    /// [`format_message_into`](super::TXT::format_message_into) call and ends
+    /// [`format_message_into`](crate::exporters::formatter::MessageFormatter::format_message_into) call and ends
     /// in `\n`; the template adds a second `\n` after it so siblings are
     /// separated by a blank line. `guid` is unused by this template.
     pub replies: Vec<ReplyEntry<String>>,
