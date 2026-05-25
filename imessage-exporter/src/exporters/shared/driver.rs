@@ -55,8 +55,7 @@ impl ExportState {
 /// Decode the message's body via [`Message::parse_body`] and apply it.
 /// `parse_body` failures are non-fatal: they leave the message's
 /// `components` empty, which downstream formatters already treat as
-/// "nothing to render". Centralizing the swallow so all three callers
-/// behave identically (and so adding logging later is a single edit).
+/// "nothing to render".
 pub fn apply_body(msg: &mut Message, db: &Connection) {
     if let Ok(body) = msg.parse_body(db) {
         msg.apply_body(body);

@@ -28,19 +28,18 @@ use crate::app::runtime::Config;
 
 pub(crate) const ATTACHMENT_NO_FILENAME: &str = "Attachment missing name metadata!";
 
-/// Where a message sits in the rendered conversation hierarchy. Drives
-/// format-specific decoration: TXT prepends a 4-space prefix to every line
-/// of a `Reply`; HTML swaps the reply-anchor variant and suppresses the
-/// top-level anchor / trailing context marker.
+/// Where a message sits in the rendered conversation hierarchy. Each exporter
+/// applies its own decoration for [`Reply`](Self::Reply) (e.g. line prefixing,
+/// anchor variants, suppression of top-level decorations).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RenderContext {
-    /// Standalone message in the export
+    /// Standalone message in the export.
     ///
-    /// Emitted by [`run_export`]
+    /// Emitted by [`crate::exporters::shared::driver::run_export`].
     TopLevel,
-    /// Reply nested inside its parent message's body
+    /// Reply nested inside its parent message's body.
     ///
-    /// Emitted from each formatter's `build_replies` recursion.
+    /// Emitted from [`crate::exporters::shared::reply::build_replies`].
     Reply,
 }
 
@@ -165,9 +164,9 @@ pub(crate) trait PartBodyBuilder {
     fn body_app_error(&self, message: &Message, why: MessageError) -> Self::Body;
     /// Retracted message content
     fn body_retracted(&self, content: String) -> Self::Body;
-    /// Escape raw user text for this format. HTML applies HTML entity escaping;
-    /// TXT passes through unchanged. Used by the dispatch on the fallback and
-    /// translation paths before handing strings to the variant constructors.
+    /// Escape raw user text for this format. Implementations decide what
+    /// escaping (if any) is required. Used by the dispatch on the fallback
+    /// and translation paths before handing strings to the variant constructors.
     fn body_escape(&self, text: &str) -> String;
     /// Surface the runtime [`Config`] so the dispatch can consult the translation
     /// set and open a DB connection without taking config as a free parameter.

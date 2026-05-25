@@ -861,7 +861,7 @@ impl Message {
         }
     }
 
-    /// Returns the [`SharedLocationKind`] when the message is a legacy
+    /// Returns the [`SharedLocation`] when the message is a legacy
     /// shared-location event.
     #[must_use]
     pub fn shared_location_kind(&self) -> Option<SharedLocation> {

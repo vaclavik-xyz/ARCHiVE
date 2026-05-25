@@ -7,9 +7,7 @@ use imessage_database::{
 use crate::app::runtime::Config;
 
 /// Format-agnostic shape for tapback rendering. The `payload` carried by
-/// [`Sticker`] is generic so each exporter can use its own pre-rendered type
-/// (HTML uses [`Html`](crate::exporters::html::safe::Html), TXT uses
-/// [`String`]).
+/// [`Sticker`] is generic so each exporter can use its own pre-rendered type.
 ///
 /// [`Sticker`]: TapbackKind::Sticker
 pub enum TapbackKind<'a, S> {

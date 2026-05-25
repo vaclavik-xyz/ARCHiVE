@@ -70,8 +70,8 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
 
     // Otherwise, we expect an NSKeyedArchiver payload
     let Some(payload) = message.payload_data(config.data_source.db()) else {
-        // URL message may omit the relevant payload. Defensively we reuse the normal
-        // URL renderer with an empty balloon.
+        // URL messages may omit the NSKeyedArchiver payload; in that case
+        // re-render via the normal URL path with an empty balloon.
         if message.is_url() && message.text.is_some() {
             return Ok(formatter.format_url(message, &URLMessage::default()));
         }

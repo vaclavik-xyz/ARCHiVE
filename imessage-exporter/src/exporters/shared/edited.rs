@@ -71,13 +71,13 @@ pub enum EditDiff {
 /// `date`, `is_last`).
 ///
 /// Events whose underlying `EditedEvent.text` is `None` are filtered out by
-/// [`normalize_edited`]. They carry nothing renderable, and emitting a bare
-/// timestamp row produced broken output in TXT. Their timestamps still
+/// [`normalize_edited`]: they carry nothing renderable. Their timestamps still
 /// advance the diff bookkeeping for subsequent events, so chronology is
 /// preserved across the gap.
 pub struct NormalizedEditEvent<'a> {
-    /// `true` for the final emitted event in the (filtered) history. HTML
-    /// uses this to swap `<tbody>` for `<tfoot>`.
+    /// `true` for the final emitted event in the (filtered) history.
+    /// Implementations may use this to switch trailing markup (e.g. table
+    /// footer vs body row).
     pub is_last: bool,
     /// `event.text.as_deref()`, guaranteed `Some` since no-text events are
     /// filtered out by [`normalize_edited`] before the rows are collected.
@@ -89,9 +89,9 @@ pub struct NormalizedEditEvent<'a> {
     /// See [`EditDiff`].
     pub diff_since_previous: EditDiff,
     /// Raw iMessage timestamp for this event. Renderers that need the
-    /// absolute time (TXT, on the `First` arm) format it via
-    /// [`format_timestamp`](super::time::format_timestamp); HTML reads
-    /// only `diff_since_previous`, so the formatting is deferred.
+    /// absolute time format it via
+    /// [`format_timestamp`](super::time::format_timestamp); renderers that
+    /// only consume `diff_since_previous` can ignore this field.
     pub date: i64,
 }
 
@@ -303,10 +303,9 @@ mod tests {
 
     #[test]
     fn normalize_edited_skips_no_text_events_but_diffs_through_them() {
-        // No-text events are dropped at the normalization layer (their
-        // renderings broke both formats). Their dates still anchor the diff
-        // for the *next* text-bearing event so chronology across the gap is
-        // preserved.
+        // No-text events are dropped at the normalization layer (they carry
+        // nothing renderable). Their dates still anchor the diff for the
+        // *next* text-bearing event so chronology across the gap is preserved.
         let config = make_config();
         let msg = Config::fake_message();
         let edited = EditedMessage {

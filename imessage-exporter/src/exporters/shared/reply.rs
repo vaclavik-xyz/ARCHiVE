@@ -6,9 +6,10 @@ use crate::exporters::{
 };
 
 /// One reply, as fed to the format's `replies` template. `body` is already a
-/// fully-rendered, format-safe payload (HTML wraps in [`Html`](crate::exporters::html::safe::Html);
-/// TXT keeps it as `String`). `guid` is exposed for templates that need it
-/// (HTML uses it for the per-reply anchor `id`; TXT ignores it).
+/// fully-rendered, format-safe payload; its concrete type `S` is chosen by
+/// the calling format. `guid` is exposed for templates that need it (e.g. as
+/// a per-reply anchor id); implementations that don't need it may ignore the
+/// field.
 pub(crate) struct ReplyEntry<S> {
     pub guid: String,
     pub body: S,

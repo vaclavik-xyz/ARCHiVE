@@ -8,7 +8,7 @@ use imessage_database::{
     tables::{attachment::Attachment, messages::Message},
 };
 
-/// Per-message data resolved up front so both exporters can iterate over a
+/// Per-message data resolved up front so exporters can iterate over a
 /// message's parts without re-issuing the same DB queries or repeating the
 /// `Expressive::None` filter. `attachments` and `replies_map` are owned
 /// because the per-part loop mutates them: attachments are passed `&mut` to

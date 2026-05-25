@@ -1138,7 +1138,6 @@ mod tests {
     fn format_message_into_appends_to_existing_buffer() {
         // Mirrors the production hot path in `run_export`, which reuses a
         // single `String` across messages via `clear()` + `format_message_into`.
-        // Tests must protect that invariant: the helper appends, not overwrites.
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -1174,8 +1173,8 @@ mod tests {
             "format_message_into must not overwrite existing buffer content"
         );
         assert_eq!(&buf[prefix.len()..], standalone);
-        // Capacity should not have shrunk; if anything it grows to fit the new
-        // content. This guards the "buffer reuse" invariant the hot path relies on.
+        // Capacity should not have shrunk; if anything it grows to fit the
+        // new content.
         assert!(buf.capacity() >= cap_before);
     }
 
@@ -2344,12 +2343,9 @@ mod balloon_format_tests {
 
     #[test]
     fn apple_pay_balloon_emits_nothing_when_both_fields_missing() {
-        // Pre-OptionalText, the template unconditionally emitted both
-        // `<div class="app_header">` and `<div class="app_footer">` wrappers
-        // even when `app_name` and `ldtext` were `None`. `.app_footer` has a
-        // grey background + borders in style.css, so the empty wrapper rendered
-        // as a visible bordered strip. Each wrapper must now be gated on its
-        // content; the both-missing case must produce no output.
+        // Apple Pay balloons with no `app_name` and no `ldtext` must render
+        // nothing. `.app_footer` has a grey background + borders in style.css,
+        // so an empty wrapper would render as a visible bordered strip.
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2451,9 +2447,9 @@ mod balloon_format_tests {
 
     #[test]
     fn find_my_balloon_emits_nothing_when_both_fields_missing() {
-        // Mirrors the apple_pay regression: an empty Find My payload must not
-        // render bare `.app_header` / `.app_footer` wrappers, which would show
-        // as a styled grey strip with no content.
+        // An empty Find My payload must not render bare `.app_header` /
+        // `.app_footer` wrappers, which would show as a styled grey strip
+        // with no content.
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();

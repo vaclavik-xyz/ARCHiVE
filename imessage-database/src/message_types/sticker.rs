@@ -53,7 +53,7 @@ impl StickerSource {
 }
 
 /// Format-agnostic description of a sticker's source, ready for rendering by
-/// an exporter. Produced by [`Attachment::get_sticker_decoration`](crate::tables::attachment::Attachment::get_sticker_decoration).
+/// callers. Produced by [`Attachment::get_sticker_decoration`](crate::tables::attachment::Attachment::get_sticker_decoration).
 ///
 /// `None` from `get_sticker_decoration` means the sticker either has no
 /// source row or the source can't supply a decoration (e.g.,

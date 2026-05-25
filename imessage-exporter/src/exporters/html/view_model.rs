@@ -176,10 +176,9 @@ pub(super) struct PollVM<'a> {
 pub(super) struct PollOptionVM<'a> {
     pub text: &'a str,
     pub vote_count: usize,
-    /// Pre-rendered `<div class="vote-bar" style="…">` element. Rendered in
-    /// Rust because keeping `{{ }}` inside a `style=` attribute trips the
-    /// CSS linter no matter what value-shape we use; emitting the entire
-    /// element as a `|safe` string keeps the template's source clean.
+    /// Pre-rendered `<div class="vote-bar" style="…">` element. The full
+    /// element is rendered in Rust because `{{ }}` inside a `style=`
+    /// attribute is rejected by the CSS linter.
     pub bar_html: Html,
     pub voters: Vec<&'a str>,
 }
@@ -281,8 +280,8 @@ pub(super) struct MessageVM<'a> {
     pub shareplay: Option<Html<&'a str>>,
     /// Shared-location marker
     pub shared_location: Option<Html<&'a str>>,
-    /// Rendered directly into the outer buffer via [`MessagePartVM`]'s `Display`
-    /// impl, avoiding a per-part `String` allocation.
+    /// Rendered directly into the outer buffer via [`MessagePartVM`]'s
+    /// `Display` impl.
     pub parts: Vec<MessagePartVM<'a>>,
     pub trailing_reply_context: bool,
 }
@@ -321,9 +320,8 @@ pub(super) struct RepliesVM {
     pub replies: Vec<ReplyEntry<Html>>,
 }
 
-/// Each [`Html`] field holds pre-rendered HTML emitted with `|safe`. Wrapping
-/// per variant happens in `message_part.html`, so leaf renderers can move
-/// their HTML in without an extra `format!()` allocation.
+/// Each [`Html`] field holds pre-rendered HTML emitted with `|safe`. The
+/// per-variant wrapping happens in `message_part.html`.
 pub(crate) enum PartBody {
     /// Empty body (no text, edited content missing, etc.)
     Empty,

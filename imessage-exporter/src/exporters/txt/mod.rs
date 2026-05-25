@@ -206,7 +206,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                         s.push(' ');
                         s
                     }
-                    // Diff calculation failed; suppress the prefix to match legacy behavior.
+                    // Diff calculation failed; suppress the prefix.
                     EditDiff::Failed => String::new(),
                     EditDiff::Computed(diff) => format!("Edited {diff} later: "),
                 };
@@ -745,7 +745,6 @@ mod tests {
     fn format_message_into_appends_to_existing_buffer() {
         // Mirrors the production hot path in `run_export`, which reuses a
         // single `String` across messages via `clear()` + `format_message_into`.
-        // Tests must protect that invariant: the helper appends, not overwrites.
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -1688,8 +1687,8 @@ mod tests {
 
     #[test]
     fn tapbacks_render_with_inner_inset_only() {
-        // The 4-space inset on each tapback line is intentional (visual cue
-        // for what's being reacted to). The outer reply indent is applied by
+        // The 4-space inset on each tapback line is a visual cue for what's
+        // being reacted to. The outer reply indent is applied by
         // `push_indented`, not by the template.
         use crate::exporters::txt::view_model::TapbacksVM;
         use askama::Template;
@@ -2887,10 +2886,9 @@ mod edited_tests {
 
     #[test]
     fn can_format_txt_unsent_from_them_resolves_contact_name() {
-        // Regression: when someone else unsends a message part, TXT must
-        // render the resolved contact name rather than the literal "They".
-        // This matches HTML's behavior and is consistent with TXT's own
-        // tapback, announcement, and message-header rendering.
+        // When someone else unsends a message part, the resolved contact
+        // name must be rendered, matching the behavior of TXT's tapback,
+        // announcement, and message-header rendering.
         let options = Options::fake_options(Txt);
         let mut config = Config::fake_app(options);
         config
