@@ -31,11 +31,12 @@ use crate::{
     },
 };
 
-/// Render an Askama template and strip a single trailing newline, if present.
-/// TXT balloon templates emit a `\n` after their final block (so they can be
-/// chained) but the call site embeds them mid-stream, so the newline has to
-/// come off.
-fn render_trimmed<T: Template>(template: &T) -> String {
+/// Render a balloon template. Multi-line templates emit a `\n` after each
+/// conditionally-included field, which leaves a trailing newline once the
+/// last present field has been written; this helper trims it so every
+/// balloon is returned in the same "no trailing newline" shape. Single-line
+/// templates produce no trailing newline and pass through unchanged.
+fn render_balloon<T: Template>(template: &T) -> String {
     let mut out = template.render().unwrap_or_default();
     if out.ends_with('\n') {
         out.pop();
@@ -46,7 +47,7 @@ fn render_trimmed<T: Template>(template: &T) -> String {
 // MARK: Balloon
 impl BalloonFormatter for TXT<'_> {
     fn format_url(&self, msg: &Message, balloon: &URLMessage) -> String {
-        render_trimmed(&UrlVM {
+        render_balloon(&UrlVM {
             primary: balloon.get_url().or(msg.text.as_deref()).into(),
             title: balloon.title.into(),
             summary: balloon.summary.into(),
@@ -54,7 +55,7 @@ impl BalloonFormatter for TXT<'_> {
     }
 
     fn format_music(&self, balloon: &MusicMessage) -> String {
-        render_trimmed(&MusicVM {
+        render_balloon(&MusicVM {
             lyrics: balloon.lyrics.as_deref(),
             track_name: balloon.track_name.into(),
             album: balloon.album.into(),
@@ -66,7 +67,7 @@ impl BalloonFormatter for TXT<'_> {
     fn format_collaboration(&self, balloon: &CollaborationMessage) -> String {
         let name = balloon.app_name.or(balloon.bundle_id);
         let has_label = name.is_some_and(|n| !n.is_empty());
-        render_trimmed(&CollaborationVM {
+        render_balloon(&CollaborationVM {
             name: name.into(),
             has_label,
             title: balloon.title.into(),
@@ -75,7 +76,7 @@ impl BalloonFormatter for TXT<'_> {
     }
 
     fn format_app_store(&self, balloon: &AppStoreMessage) -> String {
-        render_trimmed(&AppStoreVM {
+        render_balloon(&AppStoreVM {
             app_name: balloon.app_name.into(),
             description: balloon.description.into(),
             platform: balloon.platform.into(),
@@ -85,7 +86,7 @@ impl BalloonFormatter for TXT<'_> {
     }
 
     fn format_placemark(&self, balloon: &PlacemarkMessage) -> String {
-        render_trimmed(&PlacemarkVM {
+        render_balloon(&PlacemarkVM {
             place_name: balloon.place_name.into(),
             url: balloon.get_url().into(),
             name: balloon.placemark.name.into(),
@@ -115,47 +116,37 @@ impl BalloonFormatter for TXT<'_> {
     }
 
     fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouch) -> String {
-        DigitalTouchVM {
+        render_balloon(&DigitalTouchVM {
             debug: format!("{balloon:?}"),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_apple_pay(&self, balloon: &AppMessage) -> String {
-        ApplePayVM {
+        render_balloon(&ApplePayVM {
             caption: balloon.caption.into(),
             ldtext: balloon.ldtext.into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_fitness(&self, balloon: &AppMessage) -> String {
-        FitnessVM {
+        render_balloon(&FitnessVM {
             app_name: balloon.app_name.into(),
             ldtext: balloon.ldtext.into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_slideshow(&self, balloon: &AppMessage) -> String {
-        SlideshowVM {
+        render_balloon(&SlideshowVM {
             ldtext: balloon.ldtext.into(),
             url: balloon.url.into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_find_my(&self, balloon: &AppMessage) -> String {
-        FindMyVM {
+        render_balloon(&FindMyVM {
             app_name: balloon.app_name.into(),
             ldtext: balloon.ldtext.into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_check_in(&self, balloon: &AppMessage) -> String {
@@ -168,12 +159,10 @@ impl BalloonFormatter for TXT<'_> {
             }
         });
 
-        CheckInVM {
+        render_balloon(&CheckInVM {
             caption: balloon.caption.unwrap_or("Check In"),
             footer,
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_poll(&self, poll: &Poll) -> String {
@@ -188,7 +177,7 @@ impl BalloonFormatter for TXT<'_> {
             })
             .collect();
 
-        render_trimmed(&PollVM { options })
+        render_balloon(&PollVM { options })
     }
 
     fn format_generic_app(
@@ -198,7 +187,7 @@ impl BalloonFormatter for TXT<'_> {
         _: &mut Vec<Attachment>,
         _: &Message,
     ) -> String {
-        render_trimmed(&GenericAppVM {
+        render_balloon(&GenericAppVM {
             name: balloon.app_name.unwrap_or(bundle_id),
             title: balloon.title.into(),
             subtitle: balloon.subtitle.into(),
