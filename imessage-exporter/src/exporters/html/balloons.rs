@@ -1,6 +1,6 @@
 use imessage_database::{
     message_types::{
-        app::{AppMessage, CheckInKind},
+        app::AppMessage,
         app_store::AppStoreMessage,
         collaboration::CollaborationMessage,
         digital_touch::DigitalTouch,
@@ -14,7 +14,6 @@ use imessage_database::{
         attachment::Attachment,
         messages::{Message, models::AttachmentMeta},
     },
-    util::dates::format,
 };
 
 use crate::exporters::{
@@ -27,7 +26,7 @@ use crate::exporters::{
             FindMyVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, UrlVM,
         },
     },
-    shared::render::render_template,
+    shared::{balloon::resolve_check_in_footer, render::render_template},
 };
 
 // MARK: Balloons
@@ -125,19 +124,10 @@ impl BalloonFormatter for HTML<'_> {
     }
 
     fn format_check_in(&self, balloon: &AppMessage) -> String {
-        let footer = balloon.check_in_kind(0).map(|(kind, at)| {
-            let at = format(&at);
-            match kind {
-                CheckInKind::Expected => format!("Expected at {at}"),
-                CheckInKind::WasExpected => format!("Was expected at {at}"),
-                CheckInKind::CheckedIn => format!("Checked in at {at}"),
-            }
-        });
-
         render_template(&CheckInVM {
             name: balloon.app_name.unwrap_or("Check In"),
             ldtext: balloon.ldtext.into(),
-            footer,
+            footer: resolve_check_in_footer(balloon),
         })
     }
 

@@ -1,7 +1,7 @@
 use imessage_database::{
     error::{message::MessageError, plist::PlistParseError},
     message_types::{
-        app::AppMessage,
+        app::{AppMessage, CheckInKind},
         digital_touch,
         handwriting::HandwrittenMessage,
         url::URLMessage,
@@ -12,7 +12,7 @@ use imessage_database::{
         messages::Message,
         table::{FITNESS_RECEIVER, YOU},
     },
-    util::plist::parse_ns_keyed_archiver,
+    util::{dates::format, plist::parse_ns_keyed_archiver},
 };
 
 use crate::{app::runtime::Config, exporters::formatter::BalloonFormatter};
@@ -110,6 +110,23 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
     };
 
     Ok(rendered)
+}
+
+// MARK: Check In
+
+/// Build the footer line that accompanies a Check In balloon — the
+/// `"<verb> at <local time>"` phrase derived from the balloon's first
+/// [`CheckInKind`] entry. Returns `None` when the balloon has no decodable
+/// check-in metadata, so callers can omit the footer entirely.
+pub fn resolve_check_in_footer(balloon: &AppMessage) -> Option<String> {
+    balloon.check_in_kind(0).map(|(kind, at)| {
+        let at = format(&at);
+        match kind {
+            CheckInKind::Expected => format!("Expected at {at}"),
+            CheckInKind::WasExpected => format!("Was expected at {at}"),
+            CheckInKind::CheckedIn => format!("Checked in at {at}"),
+        }
+    })
 }
 
 // MARK: Fitness

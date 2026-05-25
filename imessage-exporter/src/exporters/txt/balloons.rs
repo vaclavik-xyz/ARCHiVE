@@ -2,7 +2,7 @@ use askama::Template;
 
 use imessage_database::{
     message_types::{
-        app::{AppMessage, CheckInKind},
+        app::AppMessage,
         app_store::AppStoreMessage,
         collaboration::CollaborationMessage,
         digital_touch::DigitalTouch,
@@ -13,14 +13,13 @@ use imessage_database::{
         url::URLMessage,
     },
     tables::{attachment::Attachment, messages::Message},
-    util::dates::format,
 };
 
 use crate::{
     app::compatibility::attachment_manager::AttachmentManagerMode,
     exporters::{
         formatter::BalloonFormatter,
-        shared::render::render_template,
+        shared::{balloon::resolve_check_in_footer, render::render_template},
         txt::{
             TXT,
             view_model::{
@@ -151,18 +150,9 @@ impl BalloonFormatter for TXT<'_> {
     }
 
     fn format_check_in(&self, balloon: &AppMessage) -> String {
-        let footer = balloon.check_in_kind(0).map(|(kind, at)| {
-            let at = format(&at);
-            match kind {
-                CheckInKind::Expected => format!("Expected at {at}"),
-                CheckInKind::WasExpected => format!("Was expected at {at}"),
-                CheckInKind::CheckedIn => format!("Checked in at {at}"),
-            }
-        });
-
         render_balloon(&CheckInVM {
             caption: balloon.caption.unwrap_or("Check In"),
-            footer,
+            footer: resolve_check_in_footer(balloon),
         })
     }
 
