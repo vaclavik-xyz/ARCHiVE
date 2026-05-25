@@ -51,6 +51,16 @@ pub(super) struct AppCardVM<'a> {
     pub trailing_subcaption: OptionalText<'a>,
 }
 
+impl AppCardVM<'_> {
+    /// Whether any of the footer-section fields are present
+    fn has_footer(&self) -> bool {
+        self.caption.get().is_some()
+            || self.subcaption.get().is_some()
+            || self.trailing_caption.get().is_some()
+            || self.trailing_subcaption.get().is_some()
+    }
+}
+
 #[derive(Template)]
 #[template(path = "balloons/url.html")]
 pub(super) struct UrlVM<'a> {
@@ -62,6 +72,12 @@ pub(super) struct UrlVM<'a> {
     pub lazy: bool,
     pub title: OptionalText<'a>,
     pub summary: OptionalText<'a>,
+}
+
+impl UrlVM<'_> {
+    fn has_footer(&self) -> bool {
+        self.title.get().is_some() || self.summary.get().is_some()
+    }
 }
 
 #[derive(Template)]
@@ -86,6 +102,12 @@ pub(super) struct CollaborationVM<'a> {
     pub footer_url: OptionalText<'a>,
 }
 
+impl CollaborationVM<'_> {
+    fn has_footer(&self) -> bool {
+        self.title.get().is_some() || self.footer_url.get().is_some()
+    }
+}
+
 #[derive(Template)]
 #[template(path = "balloons/app_store.html")]
 pub(super) struct AppStoreVM<'a> {
@@ -94,6 +116,14 @@ pub(super) struct AppStoreVM<'a> {
     pub description: OptionalText<'a>,
     pub platform: OptionalText<'a>,
     pub genre: OptionalText<'a>,
+}
+
+impl AppStoreVM<'_> {
+    fn has_footer(&self) -> bool {
+        self.description.get().is_some()
+            || self.platform.get().is_some()
+            || self.genre.get().is_some()
+    }
 }
 
 #[derive(Template)]
@@ -111,6 +141,20 @@ pub(super) struct PlacemarkVM<'a> {
     pub street: OptionalText<'a>,
     pub sub_administrative_area: OptionalText<'a>,
     pub sub_locality: OptionalText<'a>,
+}
+
+impl PlacemarkVM<'_> {
+    fn has_footer(&self) -> bool {
+        self.address.get().is_some()
+            || self.state.get().is_some()
+            || self.city.get().is_some()
+            || self.iso_country_code.get().is_some()
+            || self.postal_code.get().is_some()
+            || self.country.get().is_some()
+            || self.street.get().is_some()
+            || self.sub_administrative_area.get().is_some()
+            || self.sub_locality.get().is_some()
+    }
 }
 
 #[derive(Template)]

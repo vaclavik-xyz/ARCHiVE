@@ -2,7 +2,7 @@
     {%- if let Some(app_name) = app_name.get() -%}<div class="name">{{ app_name }}</div>{%- endif -%}
 </div>
 {%- if let Some(url) = url.get() -%}<a href="{{ url }}">{%- endif -%}
-    {%- if description.get().is_some() || genre.get().is_some() || platform.get().is_some() -%}
+    {%- if self.has_footer() -%}
     <div class="app_footer">
         {%- if let Some(description) = description.get() -%}<div class="caption">{{ description }}</div>{%- endif -%}
         {%- if let Some(platform) = platform.get() -%}<div class="subcaption">{{ platform }}</div>{%- endif -%}

@@ -4,10 +4,7 @@
         {%- else if let Some(url) = url.get() -%}<div class="name">{{ url }}</div>{%- endif -%}
         {%- if let Some(name) = name.get() -%}<div class="image_title">{{ name }}</div>{%- endif -%}
     </div>
-    {%- if address.get().is_some() || state.get().is_some() || city.get().is_some()
-    || iso_country_code.get().is_some() || postal_code.get().is_some()
-    || country.get().is_some() || street.get().is_some()
-    || sub_administrative_area.get().is_some() || sub_locality.get().is_some() -%}
+    {%- if self.has_footer() -%}
     <div class="app_footer">
         {%- if let Some(address) = address.get() -%}<div class="caption">{{ address }}</div>{%- endif -%}
         {%- if let Some(postal_code) = postal_code.get() -%}<div class="trailing_caption">{{ postal_code }}</div>{%-
