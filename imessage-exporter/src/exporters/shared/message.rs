@@ -27,7 +27,7 @@ impl<'a> MessageContext<'a> {
             attachments: Attachment::from_message(db, message)?,
             replies_map: message.get_replies(db)?,
             expressive: match message.get_expressive() {
-                Expressive::None => None,
+                Expressive::None | Expressive::Unknown("") => None,
                 other => Some(other),
             },
         })

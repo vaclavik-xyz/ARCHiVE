@@ -514,6 +514,43 @@ mod tests {
     }
 
     #[test]
+    fn expressive_empty_unknown_renders_like_none() {
+        // expressive_send_style_id = Some("") rows must render identically to
+        // expressive_send_style_id = None: no stray blank line from the empty
+        // Unknown variant passing through the template's `Some` guard.
+        let options = Options::fake_options(ExportType::Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let build = |expressive: Option<String>| {
+            let mut m = Config::fake_message();
+            m.date = 674526582885055488;
+            m.text = Some("Hello world".to_string());
+            m.is_from_me = true;
+            m.chat_id = Some(0);
+            m.expressive_send_style_id = expressive;
+            m.generate_text_legacy(config.data_source.db()).unwrap();
+            m
+        };
+
+        let mut baseline = String::new();
+        exporter
+            .format_message_into(&build(None), RenderContext::TopLevel, &mut baseline)
+            .unwrap();
+
+        let mut actual = String::new();
+        exporter
+            .format_message_into(
+                &build(Some(String::new())),
+                RenderContext::TopLevel,
+                &mut actual,
+            )
+            .unwrap();
+
+        assert_eq!(actual, baseline);
+    }
+
+    #[test]
     fn can_format_txt_from_me_normal_deleted() {
         // Create exporter
         let options = Options::fake_options(ExportType::Txt);
