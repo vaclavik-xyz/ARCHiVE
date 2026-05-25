@@ -63,7 +63,7 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
         Specify an optional custom path for the iMessage database location
         For macOS, specify a path to a `chat.db` file
         For iOS, specify a path to the root of a device backup directory
-        If the iOS backup is encrypted, --cleartext-password must be passed
+        If the iOS backup is encrypted, --cleartext-password can be passed or you will be prompted for the password
         If omitted, the default directory is ~/Library/Messages/chat.db
         
 -r, --attachment-root <path/to/messages/root>
@@ -116,6 +116,8 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
 -x, --cleartext-password <password>
         Optional password for encrypted iOS backups
         This is only used when the source is an encrypted iOS backup directory
+        If omitted on an encrypted backup, you will be prompted for the password (recommended)
+        A password provided with this option is visible on screen, in the process table, and in your shell history
         
 -n, --contacts-path <path>
         Optional custom path for a macOS or iOS contacts database file
@@ -124,10 +126,10 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
         Generally, one of `AddressBook-v22.abcddb` or `AddressBook.sqlitedb`
         
     --no-progress
-            Disable the on-screen progress bar regardless of context
-            By default, the progress bar is shown only when stderr is a terminal,
-            so headless invocations (CI, output redirected to a logfile) stay clean automatically.
-            Use this flag to suppress the bar even in an interactive terminal.
+        Disable the on-screen progress bar regardless of context
+        By default, the progress bar is shown only when stderr is a terminal,
+        so headless invocations (CI, output redirected to a logfile) stay clean automatically.
+        Use this flag to suppress the bar even in an interactive terminal.
         
 -h, --help
         Print help
