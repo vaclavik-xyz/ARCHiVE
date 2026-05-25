@@ -84,7 +84,7 @@ pub trait Table: Sized {
     ///
     /// Use this for full-table scans where the callback style fits. For
     /// custom statements (filters, joins, bound parameters), prepare the
-    /// statement yourself and iterate via [`Table::rows`] — see the
+    /// statement yourself and iterate via [`Table::rows`]. See the
     /// [`message`](crate::tables::messages::message) module docs for an
     /// example.
     ///
