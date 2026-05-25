@@ -79,7 +79,7 @@ pub(crate) trait MessageFormatter<'a> {
         message_part_idx: usize,
     ) -> Option<String>;
     /// Format all [`TextAttributes`]s applied to a given set of text
-    fn format_attributes(&'a self, text: &'a str, attributes: &'a [TextAttributes]) -> String;
+    fn format_attributes(&self, text: &str, attributes: &[TextAttributes]) -> String;
     /// Render `message` directly into `out`. Permits reuse of a single buffer to
     /// avoid allocating per-message. `context` distinguishes the top-level
     /// driver pass from a nested-reply recursion (see [`RenderContext`]).

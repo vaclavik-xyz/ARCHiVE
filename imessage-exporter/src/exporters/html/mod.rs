@@ -283,7 +283,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         Some(EditedVM { kind }.render().unwrap_or_default())
     }
 
-    fn format_attributes(&'a self, text: &'a str, attributes: &'a [TextAttributes]) -> String {
+    fn format_attributes(&self, text: &str, attributes: &[TextAttributes]) -> String {
         if attributes.is_empty() {
             return sanitize_html(text).into_owned();
         }

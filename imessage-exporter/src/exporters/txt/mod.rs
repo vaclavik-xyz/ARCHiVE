@@ -214,7 +214,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         Some(EditedVM { kind }.render().unwrap_or_default())
     }
 
-    fn format_attributes(&'a self, text: &'a str, attributes: &'a [TextAttributes]) -> String {
+    fn format_attributes(&self, text: &str, attributes: &[TextAttributes]) -> String {
         let mut formatted_text = String::with_capacity(text.len());
         let mut prev_start = 0;
         let mut prev_end = 0;
