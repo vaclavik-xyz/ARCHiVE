@@ -168,23 +168,48 @@ fn convert_heics_with_tmp(
                 ],
             )?;
 
-            // This step applies the transparency mask to the images
-            let files = read_dir(tmp).ok()?;
-            let num_frames = &files.into_iter().count() / 2;
-            (0..num_frames).try_for_each(|item| {
+            // This step applies the transparency mask to the images.
+            // Discover the actual frame files emitted by ffmpeg rather than
+            // counting-and-indexing, so the loop matches whatever start
+            // number ffmpeg used.
+            let mut frames: Vec<PathBuf> = read_dir(tmp_path)
+                .ok()?
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with("frame_") && name.ends_with(".png"))
+                })
+                .collect();
+            frames.sort();
+
+            let mut first_merged: Option<PathBuf> = None;
+            for frame in &frames {
+                let stem = frame.file_stem()?.to_str()?;
+                let index = stem.strip_prefix("frame_")?;
+                let alpha = tmp_path.join(format!("alpha_{index}.png"));
+                if !alpha.exists() {
+                    continue;
+                }
+                let merged = tmp_path.join(format!("merged_{index}.png"));
                 run_command(
                     video_converter.name(),
                     vec![
                         "-i",
-                        &format!("{tmp}/frame_{item:04}.png"),
+                        frame.to_str()?,
                         "-i",
-                        &format!("{tmp}/alpha_{item:04}.png"),
+                        alpha.to_str()?,
                         "-filter_complex",
                         "[1:v]format=gray,geq=lum='p(X,Y)':a='p(X,Y)'[mask];[0:v][mask]alphamerge",
-                        &format!("{tmp}/merged_{item:04}.png"),
+                        merged.to_str()?,
                     ],
-                )
-            })?;
+                )?;
+                if first_merged.is_none() {
+                    first_merged = Some(merged);
+                }
+            }
+            let first_merged = first_merged?;
 
             // Once we have the transparent frames,
             // we use the first frame to generate a transparency palette
@@ -192,7 +217,7 @@ fn convert_heics_with_tmp(
                 video_converter.name(),
                 vec![
                     "-i",
-                    &format!("{tmp}/merged_0001.png"),
+                    first_merged.to_str()?,
                     "-vf",
                     "palettegen=reserve_transparent=1",
                     &format!("{tmp}/palette.png"),
