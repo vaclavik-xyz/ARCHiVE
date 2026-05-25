@@ -5,25 +5,59 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crabapple::{Authentication, Backup};
+use crabapple::{Authentication, Backup, backup::models::manifest::manifest_plist::ManifestData};
 use imessage_database::{tables::table::DEFAULT_PATH_IOS, util::platform::Platform};
 
-use crate::app::{contacts, error::RuntimeError, options::Options};
+use crate::app::{
+    contacts,
+    error::RuntimeError,
+    options::{OPTION_CLEARTEXT_PASSWORD, Options},
+};
 
 const MAX_IN_MEMORY_DECRYPT: u64 = 25 * 1024 * 1024;
 
-/// Decrypt the iOS backup, if necessary
+/// Open the iOS backup, prompting for a password if it is encrypted and one was not provided.
+///
+/// Returns `Ok(None)` for non-iOS platforms or for unencrypted iOS backups.
 pub fn decrypt_backup(options: &Options) -> Result<Option<Backup>, RuntimeError> {
-    let (Platform::iOS, Some(pw)) = (&options.platform, &options.cleartext_password) else {
+    if !matches!(options.platform, Platform::iOS) {
         return Ok(None);
+    }
+
+    // Reading Manifest.plist is cheap and tells us whether the backup is encrypted
+    // without needing to derive any keys.
+    let manifest_data = ManifestData::from_plist(options.db_path.join("Manifest.plist"))?;
+
+    if !manifest_data.is_encrypted {
+        if options.cleartext_password.is_some() {
+            return Err(RuntimeError::InvalidOptions(format!(
+                "--{OPTION_CLEARTEXT_PASSWORD} was provided, but the iOS backup at {} is not encrypted.",
+                options.db_path.display()
+            )));
+        }
+        return Ok(None);
+    }
+
+    let password = match options.cleartext_password.as_deref() {
+        Some(pw) => pw.to_string(),
+        None => prompt_for_password()?,
     };
 
     eprintln!("Decrypting iOS backup...");
     eprintln!("  [1/5] Deriving backup keys...");
-    let auth = Authentication::Password(pw.clone());
-    let backup = Backup::open(options.db_path.clone(), &auth)?;
+    let backup = Backup::open(options.db_path.clone(), &Authentication::Password(password))?;
 
     Ok(Some(backup))
+}
+
+/// Prompt the user for the backup password, reading from the controlling terminal.
+fn prompt_for_password() -> Result<String, RuntimeError> {
+    eprintln!("Encrypted iOS backup detected. Enter password (input hidden):");
+    rpassword::prompt_password("> ").map_err(|e| {
+        RuntimeError::InvalidOptions(format!(
+            "Unable to read password interactively ({e}); pass --{OPTION_CLEARTEXT_PASSWORD} for non-interactive use."
+        ))
+    })
 }
 
 /// Get the decrypted messages database from the iOS backup

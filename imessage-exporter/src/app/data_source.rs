@@ -10,7 +10,7 @@ use crate::app::{
     },
     contacts::{ContactsIndex, DEFAULT_PATH_IOS},
     error::RuntimeError,
-    options::{OPTION_CLEARTEXT_PASSWORD, Options},
+    options::Options,
 };
 
 pub struct DataSource {
@@ -46,10 +46,8 @@ impl DataSource {
                     backup: None,
                 })
             }
-            Platform::iOS => {
-                let backup = decrypt_backup(options)?;
-                if let Some(backup) = backup {
-                    // Decrypt the messages and contacts databases
+            Platform::iOS => match decrypt_backup(options)? {
+                Some(backup) => {
                     let messages_path = get_decrypted_message_database(&backup)?;
                     let contacts_path = get_decrypted_contacts_database(&backup)?;
 
@@ -59,7 +57,6 @@ impl DataSource {
                         backup.lockdown().product_version,
                     );
 
-                    // Build contacts index
                     let contacts_index =
                         Self::get_contacts_index(Some(&contacts_path)).unwrap_or_default();
 
@@ -76,30 +73,20 @@ impl DataSource {
                         contacts_index,
                         backup: Some(backup),
                     })
-                } else {
-                    // No backup decryption; assume unencrypted database
+                }
+                None => {
                     let messages_path = options.get_db_path();
-                    let conn = get_connection(&messages_path)?;
-
-                    // Check if the backup is encrypted and a password was not provided
-                    if backup.is_none() && conn.query_row("SELECT 1", [], |_| Ok(())).is_err() {
-                        return Err(RuntimeError::InvalidOptions(format!(
-                            "The provided iOS backup is encrypted, but no password was provided. Please provide a password using the --{OPTION_CLEARTEXT_PASSWORD} option."
-                        )));
-                    }
-
-                    // Build contacts index
                     let contacts_index =
                         Self::get_contacts_index(Some(&options.db_path.join(DEFAULT_PATH_IOS)))
                             .unwrap_or_default();
 
                     Ok(Self {
-                        messages_connection: Some(conn),
+                        messages_connection: Some(get_connection(&messages_path)?),
                         contacts_index,
                         backup: None,
                     })
                 }
-            }
+            },
         }
     }
 
