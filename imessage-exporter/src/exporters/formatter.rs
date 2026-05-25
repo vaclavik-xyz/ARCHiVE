@@ -19,7 +19,7 @@ use imessage_database::{
         attachment::Attachment,
         messages::{
             Message,
-            models::{AttachmentMeta, TextAttributes},
+            models::{AttachmentMeta, SharedLocation, TextAttributes},
         },
     },
 };
@@ -64,9 +64,9 @@ pub(crate) trait MessageFormatter<'a> {
     /// Format an announcement message
     fn format_announcement(&self, msg: &Message) -> String;
     /// Format a `SharePlay` message
-    fn format_shareplay(&self) -> &str;
+    fn format_shareplay(&self) -> &'static str;
     /// Format a legacy Shared Location message
-    fn format_shared_location(&self, msg: &'a Message) -> &str;
+    fn format_shared_location(&self, kind: SharedLocation) -> &'static str;
     /// Format an edited message
     fn format_edited(
         &self,

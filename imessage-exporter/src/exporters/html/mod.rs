@@ -37,7 +37,7 @@ use imessage_database::{
         attachment::{Attachment, MediaType},
         messages::{
             Message,
-            models::{AttachmentMeta, BubbleComponent, TextAttributes},
+            models::{AttachmentMeta, BubbleComponent, SharedLocation, TextAttributes},
         },
         table::YOU,
     },
@@ -252,14 +252,11 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         "<hr>SharePlay Message Ended"
     }
 
-    fn format_shared_location(&self, msg: &'a Message) -> &'static str {
-        // Handle Shared Location
-        if msg.started_sharing_location() {
-            return "<hr>Started sharing location!";
-        } else if msg.stopped_sharing_location() {
-            return "<hr>Stopped sharing location!";
+    fn format_shared_location(&self, kind: SharedLocation) -> &'static str {
+        match kind {
+            SharedLocation::Started => "<hr>Started sharing location!",
+            SharedLocation::Stopped => "<hr>Stopped sharing location!",
         }
-        "<hr>Shared location!"
     }
 
     fn format_edited(
@@ -409,18 +406,12 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             ),
             is_deleted: message.is_deleted(),
             subject: message.subject.as_deref(),
-            shareplay: if message.is_shareplay() {
-                Some(Html::trust(self.format_shareplay()))
-            } else {
-                None
-            },
-            shared_location: if message.started_sharing_location()
-                || message.stopped_sharing_location()
-            {
-                Some(Html::trust(self.format_shared_location(message)))
-            } else {
-                None
-            },
+            shareplay: message
+                .is_shareplay()
+                .then(|| Html::trust(self.format_shareplay())),
+            shared_location: message
+                .shared_location_kind()
+                .map(|kind| Html::trust(self.format_shared_location(kind))),
             parts,
             trailing_reply_context: message.is_reply() && !is_reply,
         };

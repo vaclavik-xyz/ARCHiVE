@@ -148,7 +148,7 @@ use crate::{
         diagnostic::MessageDiagnostic,
         messages::{
             body::{parse_body_legacy, parse_body_typedstream},
-            models::{BubbleComponent, GroupAction, Service, TextAttributes},
+            models::{BubbleComponent, GroupAction, Service, SharedLocation, TextAttributes},
             query_parts::{ios_13_older_query, ios_14_15_query, ios_16_newer_query},
         },
         table::{
@@ -861,16 +861,19 @@ impl Message {
         }
     }
 
-    /// `true` if the message indicates a sender started sharing their location, else `false`
+    /// Returns the [`SharedLocationKind`] when the message is a legacy
+    /// shared-location event.
     #[must_use]
-    pub fn started_sharing_location(&self) -> bool {
-        self.item_type == 4 && self.group_action_type == 0 && !self.share_status
-    }
-
-    /// `true` if the message indicates a sender stopped sharing their location, else `false`
-    #[must_use]
-    pub fn stopped_sharing_location(&self) -> bool {
-        self.item_type == 4 && self.group_action_type == 0 && self.share_status
+    pub fn shared_location_kind(&self) -> Option<SharedLocation> {
+        if self.item_type == 4 && self.group_action_type == 0 {
+            Some(if self.share_status {
+                SharedLocation::Stopped
+            } else {
+                SharedLocation::Started
+            })
+        } else {
+            None
+        }
     }
 
     /// `true` if the message was deleted and is recoverable, else `false`

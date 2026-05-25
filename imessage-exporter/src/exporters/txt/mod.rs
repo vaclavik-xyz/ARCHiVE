@@ -26,7 +26,7 @@ use imessage_database::{
         attachment::Attachment,
         messages::{
             Message,
-            models::{AttachmentMeta, TextAttributes},
+            models::{AttachmentMeta, SharedLocation, TextAttributes},
         },
         table::YOU,
     },
@@ -185,14 +185,11 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         "SharePlay Message\nEnded"
     }
 
-    fn format_shared_location(&self, msg: &'a Message) -> &'static str {
-        // Handle Shared Location
-        if msg.started_sharing_location() {
-            return "Started sharing location!";
-        } else if msg.stopped_sharing_location() {
-            return "Stopped sharing location!";
+    fn format_shared_location(&self, kind: SharedLocation) -> &'static str {
+        match kind {
+            SharedLocation::Started => "Started sharing location!",
+            SharedLocation::Stopped => "Stopped sharing location!",
         }
-        "Shared location!"
     }
 
     fn format_edited(
@@ -284,18 +281,10 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
             ),
             is_deleted: message.is_deleted(),
             subject: message.subject.as_deref(),
-            shareplay: if message.is_shareplay() {
-                Some(self.format_shareplay())
-            } else {
-                None
-            },
-            shared_location: if message.started_sharing_location()
-                || message.stopped_sharing_location()
-            {
-                Some(self.format_shared_location(message))
-            } else {
-                None
-            },
+            shareplay: message.is_shareplay().then(|| self.format_shareplay()),
+            shared_location: message
+                .shared_location_kind()
+                .map(|kind| self.format_shared_location(kind)),
             parts,
             is_reply: message.is_reply(),
             context,
