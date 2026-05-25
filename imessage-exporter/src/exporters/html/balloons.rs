@@ -128,8 +128,8 @@ impl BalloonFormatter for HTML<'_> {
         let footer = balloon.check_in_kind(0).map(|(kind, at)| {
             let at = format(&at);
             match kind {
-                CheckInKind::Expected => format!("Expected around {at}"),
-                CheckInKind::WasExpected => format!("Was expected around {at}"),
+                CheckInKind::Expected => format!("Expected at {at}"),
+                CheckInKind::WasExpected => format!("Was expected at {at}"),
                 CheckInKind::CheckedIn => format!("Checked in at {at}"),
             }
         });

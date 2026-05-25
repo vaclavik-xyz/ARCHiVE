@@ -2779,7 +2779,7 @@ mod balloon_format_tests {
         };
 
         let actual = exporter.format_check_in(&balloon);
-        let expected = "<div class=\"app_header\">\n    <div class=\"name\">Check In</div><div class=\"ldtext\">Check In: Timer Started</div></div><div class=\"app_footer\">\n    <div class=\"caption\">Expected around Oct 14, 2023  1:54:29 PM</div>\n</div>";
+        let expected = "<div class=\"app_header\">\n    <div class=\"name\">Check In</div><div class=\"ldtext\">Check In: Timer Started</div></div><div class=\"app_footer\">\n    <div class=\"caption\">Expected at Oct 14, 2023  1:54:29 PM</div>\n</div>";
 
         assert_eq!(actual, expected);
     }
@@ -2804,7 +2804,7 @@ mod balloon_format_tests {
         };
 
         let actual = exporter.format_check_in(&balloon);
-        let expected = "<div class=\"app_header\">\n    <div class=\"name\">Check In</div><div class=\"ldtext\">Check In: Timer Started</div></div><div class=\"app_footer\">\n    <div class=\"caption\">Was expected around Oct 14, 2023  1:54:29 PM</div>\n</div>";
+        let expected = "<div class=\"app_header\">\n    <div class=\"name\">Check In</div><div class=\"ldtext\">Check In: Timer Started</div></div><div class=\"app_footer\">\n    <div class=\"caption\">Was expected at Oct 14, 2023  1:54:29 PM</div>\n</div>";
 
         assert_eq!(actual, expected);
     }
