@@ -139,11 +139,15 @@ impl Drop for DataSource {
             if backup.manifest_db.is_temporary
                 && let Some(conn) = self.messages_connection.take()
             {
-                let path = conn.path().unwrap().to_string();
+                let path = conn.path().map(|p| p.to_string());
                 conn.close().ok();
 
-                // Remove the file, ignoring errors if any
-                if let Err(e) = remove_file(&path) {
+                // Remove the file, ignoring errors if any. Skip silently if the
+                // connection had no filesystem path (e.g. opened in-memory),
+                // which shouldn't be reachable after a successful decrypt.
+                if let Some(path) = path
+                    && let Err(e) = remove_file(&path)
+                {
                     eprintln!(
                         "warning: failed to remove temporary messages database at {path}: {e}"
                     );

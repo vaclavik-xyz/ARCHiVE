@@ -35,8 +35,8 @@ mod tests {
         let mut data = vec![];
         proto_data.read_to_end(&mut data).unwrap();
 
-        let expected = from_payload(&data);
-        assert_eq!(expected, Some(DigitalTouch::Tap));
+        let actual = from_payload(&data);
+        assert_eq!(actual, Some(DigitalTouch::Tap));
     }
 
     #[test]
@@ -49,8 +49,8 @@ mod tests {
         let mut data = vec![];
         proto_data.read_to_end(&mut data).unwrap();
 
-        let expected = from_payload(&data);
-        assert_eq!(expected, Some(DigitalTouch::Heartbeat));
+        let actual = from_payload(&data);
+        assert_eq!(actual, Some(DigitalTouch::Heartbeat));
     }
 
     #[test]
@@ -63,8 +63,8 @@ mod tests {
         let mut data = vec![];
         proto_data.read_to_end(&mut data).unwrap();
 
-        let expected = from_payload(&data);
-        assert_eq!(expected, Some(DigitalTouch::Heartbeat));
+        let actual = from_payload(&data);
+        assert_eq!(actual, Some(DigitalTouch::Heartbeat));
     }
 
     #[test]
@@ -77,8 +77,8 @@ mod tests {
         let mut data = vec![];
         proto_data.read_to_end(&mut data).unwrap();
 
-        let expected = from_payload(&data);
-        assert_eq!(expected, Some(DigitalTouch::Sketch));
+        let actual = from_payload(&data);
+        assert_eq!(actual, Some(DigitalTouch::Sketch));
     }
 
     #[test]
@@ -91,8 +91,8 @@ mod tests {
         let mut data = vec![];
         proto_data.read_to_end(&mut data).unwrap();
 
-        let expected = from_payload(&data);
-        assert_eq!(expected, Some(DigitalTouch::Kiss));
+        let actual = from_payload(&data);
+        assert_eq!(actual, Some(DigitalTouch::Kiss));
     }
 
     #[test]
@@ -105,7 +105,7 @@ mod tests {
         let mut data = vec![];
         proto_data.read_to_end(&mut data).unwrap();
 
-        let expected = from_payload(&data);
-        assert_eq!(expected, Some(DigitalTouch::Fireball));
+        let actual = from_payload(&data);
+        assert_eq!(actual, Some(DigitalTouch::Fireball));
     }
 }

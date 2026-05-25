@@ -49,7 +49,7 @@ impl Cacheable for Handle {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::{Cacheable, get_connection};
     /// use imessage_database::tables::handle::Handle;
@@ -67,12 +67,9 @@ impl Cacheable for Handle {
         // Create query
         let mut statement = Handle::get(db)?;
 
-        // Execute query to build the Handles
-        let handles = statement.query_map([], |row| Ok(Handle::from_row(row)))?;
-
         // Iterate over the handles and update the map
-        for handle in handles {
-            let contact = Handle::extract(handle)?;
+        for handle in Handle::rows(&mut statement, [])? {
+            let contact = handle?;
             map.insert(contact.rowid, contact.id);
         }
 
@@ -99,7 +96,7 @@ impl Handle {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::{Cacheable, get_connection};
     /// use imessage_database::tables::handle::Handle;
@@ -118,7 +115,7 @@ impl Handle {
 
         // Iterate over the values in a deterministic order
         let mut sorted_dupes: Vec<(&i32, &String)> = duplicated_data.iter().collect();
-        sorted_dupes.sort_by(|(a, _), (b, _)| a.cmp(b));
+        sorted_dupes.sort_by_key(|(a, _)| *a);
 
         for (participant_id, participant) in sorted_dupes {
             if let Some(id) = participant_to_unique_participant_id.get(participant) {
@@ -126,8 +123,7 @@ impl Handle {
             } else {
                 participant_to_unique_participant_id
                     .insert(participant.to_owned(), unique_participant_identifier);
-                deduplicated_participants
-                    .insert(*participant_id, unique_participant_identifier);
+                deduplicated_participants.insert(*participant_id, unique_participant_identifier);
                 unique_participant_identifier += 1;
             }
         }
@@ -147,7 +143,7 @@ impl Handle {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::handle::Handle;

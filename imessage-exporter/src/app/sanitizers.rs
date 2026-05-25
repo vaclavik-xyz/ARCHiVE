@@ -4,6 +4,10 @@
 
 use std::borrow::Cow;
 
+use askama::filters::Escaper;
+
+use crate::app::escaping::ChatEscaper;
+
 /// The character to replace disallowed chars with
 const FILENAME_REPLACEMENT_CHAR: char = '_';
 
@@ -11,21 +15,6 @@ const FILENAME_REPLACEMENT_CHAR: char = '_';
 #[inline]
 fn is_filename_disallowed(c: char) -> bool {
     matches!(c, '*' | '"' | '/' | '\\' | '<' | '>' | ':' | '|' | '?')
-}
-
-/// Returns the HTML entity replacement for a character, if it needs escaping
-#[inline]
-fn html_replacement(c: char) -> Option<&'static str> {
-    match c {
-        '>' => Some("&gt;"),
-        '<' => Some("&lt;"),
-        '"' => Some("&quot;"),
-        '\'' => Some("&apos;"),
-        '`' => Some("&grave;"),
-        '&' => Some("&amp;"),
-        '\u{a0}' => Some("&nbsp;"),
-        _ => None,
-    }
 }
 
 /// Remove unsafe chars in filenames.
@@ -45,62 +34,26 @@ pub fn sanitize_filename(filename: &str) -> String {
         .collect()
 }
 
-/// Escapes HTML special characters in the input string, allocating a new string only if necessary.
+/// Escapes HTML special characters in the input string, allocating only if
+/// at least one character needs escaping. Wraps [`ChatEscaper`] so the
+/// character set and replacements stay aligned with Askama-rendered output.
 pub fn sanitize_html(input: &'_ str) -> Cow<'_, str> {
-    for (idx, c) in input.char_indices() {
-        if html_replacement(c).is_some() {
-            let mut res = String::from(&input[..idx]);
-            input[idx..]
-                .chars()
-                .for_each(|c| match html_replacement(c) {
-                    Some(replacement) => res.push_str(replacement),
-                    None => res.push(c),
-                });
-            return Cow::Owned(res);
-        }
+    // Fast scan: every escape target is either a single ASCII byte or the
+    // two-byte NBSP (`0xC2 0xA0`). None of these match a UTF-8 continuation
+    // byte, so scanning bytes (rather than chars) is safe.
+    let bytes = input.as_bytes();
+    let needs_escape = bytes.iter().enumerate().any(|(i, &b)| {
+        matches!(b, b'<' | b'>' | b'"' | b'\'' | b'`' | b'&')
+            || (b == 0xC2 && bytes.get(i + 1) == Some(&0xA0))
+    });
+    if !needs_escape {
+        return Cow::Borrowed(input);
     }
-    Cow::Borrowed(input)
-}
-
-/// A builder for constructing HTML strings that escapes dynamic content by default.
-///
-/// Use `raw()` for trusted HTML structure and `text()` for content between tags.
-pub(crate) struct HtmlBuilder {
-    buf: String,
-}
-
-impl HtmlBuilder {
-    /// Creates a new empty builder
-    pub(crate) fn new() -> Self {
-        Self { buf: String::new() }
-    }
-
-    /// Creates a new builder with pre-allocated capacity
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
-        Self {
-            buf: String::with_capacity(capacity),
-        }
-    }
-
-    /// Appends raw, pre-built HTML (not escaped)
-    #[inline]
-    pub(crate) fn raw(&mut self, html: &str) -> &mut Self {
-        self.buf.push_str(html);
-        self
-    }
-
-    /// Appends HTML-escaped text content
-    #[inline]
-    pub(crate) fn text(&mut self, content: &str) -> &mut Self {
-        self.buf.push_str(&sanitize_html(content));
-        self
-    }
-
-    /// Consumes the builder and returns the HTML string
-    #[inline]
-    pub(crate) fn build(self) -> String {
-        self.buf
-    }
+    let mut out = String::with_capacity(input.len() + 8);
+    ChatEscaper
+        .write_escaped_str(&mut out, input)
+        .unwrap_or_default();
+    Cow::Owned(out)
 }
 
 #[cfg(test)]
@@ -203,197 +156,46 @@ mod filename_sanitization_tests {
 
 #[cfg(test)]
 mod html_sanitization_tests {
+    use std::borrow::Cow;
+
     use crate::app::sanitizers::sanitize_html;
 
+    // Character-set / replacement behavior is covered by
+    // `app::escaping::tests`. These tests cover only what `sanitize_html`
+    // itself adds: the `Cow` fast path and the integration with
+    // `ChatEscaper`.
+
     #[test]
-    fn test_escape_html_chars_basic() {
+    fn empty_input_borrows() {
+        assert!(matches!(sanitize_html(""), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn no_escape_targets_borrows() {
+        let input = "Hello world, привет, 🌍";
+        match sanitize_html(input) {
+            Cow::Borrowed(s) => assert_eq!(s.as_ptr(), input.as_ptr()),
+            Cow::Owned(_) => panic!("expected Borrowed for input with no escape targets"),
+        }
+    }
+
+    #[test]
+    fn ascii_escape_target_allocates() {
+        assert!(matches!(sanitize_html("<"), Cow::Owned(_)));
+    }
+
+    #[test]
+    fn nbsp_escape_target_allocates() {
+        assert!(matches!(sanitize_html("\u{a0}"), Cow::Owned(_)));
+    }
+
+    #[test]
+    fn matches_chat_escaper_on_mixed_content() {
+        // One end-to-end smoke test through the wrapper. The full character
+        // set is covered by `ChatEscaper`'s tests.
         assert_eq!(
-            &sanitize_html("<p>Hello, world > HTML</p>"),
-            "&lt;p&gt;Hello, world &gt; HTML&lt;/p&gt;"
-        );
-    }
-
-    #[test]
-    fn doesnt_sanitize_empty_string() {
-        assert_eq!(&sanitize_html(""), "");
-    }
-
-    #[test]
-    fn doesnt_sanitize_no_special_chars() {
-        assert_eq!(&sanitize_html("Hello world"), "Hello world");
-    }
-
-    #[test]
-    fn can_sanitize_code_block() {
-        assert_eq!(
-            &sanitize_html("`imessage-exporter -f txt`"),
-            "&grave;imessage-exporter -f txt&grave;"
-        );
-    }
-
-    #[test]
-    fn can_sanitize_all_special_chars() {
-        assert_eq!(
-            &sanitize_html("<>&\"`'"),
-            "&lt;&gt;&amp;&quot;&grave;&apos;"
-        );
-    }
-
-    #[test]
-    fn can_sanitize_mixed_content() {
-        assert_eq!(
-            &sanitize_html("<div>Hello &amp; world</div>"),
-            "&lt;div&gt;Hello &amp;amp; world&lt;/div&gt;"
-        );
-    }
-
-    #[test]
-    fn can_sanitize_mixed_content_nbsp() {
-        assert_eq!(
-            &sanitize_html("<div>Hello &amp; world</div>"),
+            &sanitize_html("<div>Hello\u{a0}&amp;\u{a0}world</div>"),
             "&lt;div&gt;Hello&nbsp;&amp;amp;&nbsp;world&lt;/div&gt;"
         );
-    }
-
-    #[test]
-    fn handles_nested_quotes() {
-        assert_eq!(
-            &sanitize_html("\"'nested quotes'\""),
-            "&quot;&apos;nested quotes&apos;&quot;"
-        );
-    }
-
-    #[test]
-    fn handles_unicode_content() {
-        assert_eq!(&sanitize_html("Hello 🌍 <world>"), "Hello 🌍 &lt;world&gt;");
-    }
-
-    #[test]
-    fn handles_html_entities() {
-        assert_eq!(
-            &sanitize_html("&lt; already escaped &gt;"),
-            "&amp;lt; already escaped &amp;gt;"
-        );
-    }
-
-    #[test]
-    fn handles_script_tags() {
-        assert_eq!(
-            &sanitize_html("<script>alert('xss')</script>"),
-            "&lt;script&gt;alert(&apos;xss&apos;)&lt;/script&gt;"
-        );
-    }
-
-    #[test]
-    fn handles_attribute_quotes() {
-        assert_eq!(&sanitize_html("attr=\"value\""), "attr=&quot;value&quot;");
-    }
-
-    #[test]
-    fn handles_backticks_in_code() {
-        assert_eq!(
-            &sanitize_html("``nested backticks``"),
-            "&grave;&grave;nested backticks&grave;&grave;"
-        );
-    }
-
-    #[test]
-    fn handles_double_quotes() {
-        assert_eq!(&sanitize_html("\"quote\""), "&quot;quote&quot;");
-    }
-
-    #[test]
-    fn handles_single_quotes() {
-        assert_eq!(&sanitize_html("'quote'"), "&apos;quote&apos;");
-    }
-
-    #[test]
-    fn handles_emoji() {
-        assert_eq!(&sanitize_html("Hello 🌍"), "Hello 🌍");
-    }
-
-    #[test]
-    fn handles_cyrillic() {
-        assert_eq!(&sanitize_html("привет"), "привет");
-    }
-
-    #[test]
-    fn handles_amp_entity() {
-        assert_eq!(&sanitize_html("&amp;"), "&amp;amp;");
-    }
-
-    #[test]
-    fn handles_lt_entity() {
-        assert_eq!(&sanitize_html("&lt;"), "&amp;lt;");
-    }
-
-    #[test]
-    fn handles_script_tag() {
-        assert_eq!(
-            &sanitize_html("<script>alert()</script>"),
-            "&lt;script&gt;alert()&lt;/script&gt;"
-        );
-    }
-
-    #[test]
-    fn handles_double_backticks() {
-        assert_eq!(
-            &sanitize_html("``code``"),
-            "&grave;&grave;code&grave;&grave;"
-        );
-    }
-
-    #[test]
-    fn handles_attribute() {
-        assert_eq!(&sanitize_html("class=\"test\""), "class=&quot;test&quot;");
-    }
-}
-
-#[cfg(test)]
-mod html_builder_tests {
-    use crate::app::sanitizers::HtmlBuilder;
-
-    #[test]
-    fn raw_passes_through() {
-        let mut h = HtmlBuilder::new();
-        h.raw("<div class=\"test\">");
-        assert_eq!(h.build(), "<div class=\"test\">");
-    }
-
-    #[test]
-    fn text_escapes_html() {
-        let mut h = HtmlBuilder::new();
-        h.raw("<span>")
-            .text("<script>alert('xss')</script>")
-            .raw("</span>");
-        assert_eq!(
-            h.build(),
-            "<span>&lt;script&gt;alert(&apos;xss&apos;)&lt;/script&gt;</span>"
-        );
-    }
-
-    #[test]
-    fn attr_escapes_quotes() {
-        let mut h = HtmlBuilder::new();
-        h.raw("<a href=\"")
-            .text("javascript:alert(\"xss\")")
-            .raw("\">");
-        assert_eq!(h.build(), "<a href=\"javascript:alert(&quot;xss&quot;)\">");
-    }
-
-    #[test]
-    fn text_no_alloc_for_safe_content() {
-        let mut h = HtmlBuilder::new();
-        h.raw("<div>").text("Hello world").raw("</div>");
-        assert_eq!(h.build(), "<div>Hello world</div>");
-    }
-
-    #[test]
-    fn chaining_works() {
-        let mut h = HtmlBuilder::new();
-        h.raw("<div class=\"name\">")
-            .text("Bob & Alice")
-            .raw("</div>");
-        assert_eq!(h.build(), "<div class=\"name\">Bob &amp; Alice</div>");
     }
 }

@@ -1,4 +1,4 @@
-pub mod exporter;
+pub mod formatter;
 pub mod html;
-mod shared;
+pub mod shared;
 pub mod txt;

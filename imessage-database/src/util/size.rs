@@ -38,25 +38,25 @@ mod tests {
 
     #[test]
     fn can_get_file_size_kb() {
-        let expected = format_file_size(2300);
-        assert_eq!(expected, String::from("2.25 KB"));
+        let actual = format_file_size(2300);
+        assert_eq!(actual, String::from("2.25 KB"));
     }
 
     #[test]
     fn can_get_file_size_mb() {
-        let expected = format_file_size(5612000);
-        assert_eq!(expected, String::from("5.35 MB"));
+        let actual = format_file_size(5612000);
+        assert_eq!(actual, String::from("5.35 MB"));
     }
 
     #[test]
     fn can_get_file_size_gb() {
-        let expected = format_file_size(9234712394);
-        assert_eq!(expected, String::from("8.60 GB"));
+        let actual = format_file_size(9234712394);
+        assert_eq!(actual, String::from("8.60 GB"));
     }
 
     #[test]
     fn can_get_file_size_cap() {
-        let expected = format_file_size(u64::MAX);
-        assert_eq!(expected, String::from("16777216.00 TB"));
+        let actual = format_file_size(u64::MAX);
+        assert_eq!(actual, String::from("16777216.00 TB"));
     }
 }
