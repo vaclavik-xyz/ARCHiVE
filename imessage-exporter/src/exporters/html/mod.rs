@@ -130,26 +130,18 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         let embed_path = self.config.message_attachment_path(attachment);
 
         let variant = match attachment.mime_type() {
-            MediaType::Image(_) => AttachmentVariant::Image { embed_path },
+            MediaType::Image(_) => AttachmentVariant::Image,
             // Video duplicates the source tag intentionally; see
             // https://github.com/ReagentX/imessage-exporter/issues/73
-            MediaType::Video(media_type) => AttachmentVariant::Video {
-                embed_path,
-                media_type,
-            },
+            MediaType::Video(media_type) => AttachmentVariant::Video { media_type },
             MediaType::Audio(media_type) => match metadata.transcription.as_deref() {
                 Some(transcription) => AttachmentVariant::AudioTranscription {
-                    embed_path,
                     media_type,
                     transcription,
                 },
-                None => AttachmentVariant::Audio {
-                    embed_path,
-                    media_type,
-                },
+                None => AttachmentVariant::Audio { media_type },
             },
             MediaType::Text(_) | MediaType::Application(_) => AttachmentVariant::Download {
-                embed_path,
                 filename: attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?,
                 file_size: attachment.file_size(),
             },
@@ -160,25 +152,21 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                     .is_some_and(|path| path.is_dir())
                 {
                     AttachmentVariant::UnknownFolder {
-                        embed_path,
                         filename: attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?,
                         file_size: attachment.file_size(),
                     }
                 } else {
                     AttachmentVariant::UnknownOther {
-                        embed_path,
                         file_size: attachment.file_size(),
                     }
                 }
             }
-            MediaType::Other(media_type) => AttachmentVariant::Other {
-                embed_path,
-                media_type,
-            },
+            MediaType::Other(media_type) => AttachmentVariant::Other { media_type },
         };
 
         Ok(AttachmentVM {
             lazy: !self.config.options.no_lazy,
+            embed_path,
             variant,
         }
         .render()

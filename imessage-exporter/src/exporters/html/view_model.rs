@@ -187,43 +187,38 @@ pub(super) struct PollOptionVM<'a> {
 #[template(path = "attachments/attachment.html")]
 pub(super) struct AttachmentVM<'a> {
     pub lazy: bool,
+    /// Path the template emits in `src=` / `href=` attributes. Shared by every
+    /// variant — the only piece each variant needs in addition is the bits
+    /// specific to its presentation (media type, filename, etc.).
+    pub embed_path: String,
     pub variant: AttachmentVariant<'a>,
 }
 
 pub(super) enum AttachmentVariant<'a> {
-    Image {
-        embed_path: String,
-    },
+    Image,
     Video {
-        embed_path: String,
         media_type: &'a str,
     },
     Audio {
-        embed_path: String,
         media_type: &'a str,
     },
     AudioTranscription {
-        embed_path: String,
         media_type: &'a str,
         transcription: &'a str,
     },
     /// `text/*` and `application/*` types share this layout.
     Download {
-        embed_path: String,
         filename: &'a str,
         file_size: String,
     },
     UnknownFolder {
-        embed_path: String,
         filename: &'a str,
         file_size: String,
     },
     UnknownOther {
-        embed_path: String,
         file_size: String,
     },
     Other {
-        embed_path: String,
         media_type: &'a str,
     },
 }
