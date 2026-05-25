@@ -4,7 +4,7 @@ use imessage_database::tables::{
 };
 
 use crate::exporters::{
-    formatter::{MessageFormatter, PartBodyBuilder},
+    formatter::{AttachmentRender, MessageFormatter, PartBodyBuilder},
     shared::balloon::rewrite_fitness_receiver,
 };
 
@@ -71,15 +71,16 @@ where
                 return formatter.body_sticker(content);
             }
             let body = match formatter.format_attachment(attachment, message, metadata) {
-                Ok(content) => formatter.body_attachment(content),
-                Err(error) => formatter.body_attachment_error(&error),
+                AttachmentRender::Embedded(content) => formatter.body_attachment(content),
+                AttachmentRender::MissingFilename => formatter.body_attachment_missing(),
+                AttachmentRender::NamedFile(name) => formatter.body_attachment_error(&name),
             };
             *attachment_index += 1;
             body
         }
         BubbleComponent::App => match formatter.format_app(message, attachments) {
             Ok(content) => formatter.body_app(content),
-            Err(why) => formatter.body_app_error(message, why),
+            Err(why) => formatter.body_app_error(message, why.to_string()),
         },
         BubbleComponent::Retracted => match &message.edited_parts {
             Some(edited_parts) => match formatter.format_edited(message, edited_parts, idx) {

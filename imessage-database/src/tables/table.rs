@@ -32,33 +32,61 @@
 
 use std::{collections::HashMap, fs::metadata, path::Path};
 
-use rusqlite::{CachedStatement, Connection, Error, OpenFlags, Result, Row, blob::Blob};
+use rusqlite::{
+    CachedStatement, Connection, Error, OpenFlags, Params, Result, Row, Statement, blob::Blob,
+};
 
 use crate::error::table::{TableConnectError, TableError};
 
 // MARK: Traits
 /// Defines behavior for SQL Table data
 pub trait Table: Sized {
-    /// Deserialize a single row into Self, returning a [`rusqlite::Result`]
+    /// Deserialize a single row into `Self`. Returns [`rusqlite::Result`]
+    /// for direct use inside `rusqlite::query_map` / `query_row`
+    /// callbacks. For high-level iteration, prefer [`Table::rows`] or
+    /// [`Table::row`].
     fn from_row(row: &Row) -> Result<Self>;
 
     /// Prepare SELECT * statement
     fn get(db: &'_ Connection) -> Result<CachedStatement<'_>, TableError>;
 
-    /// Map a `rusqlite::Result<Self>` into our `TableError`
-    fn extract(item: Result<Result<Self, Error>, Error>) -> Result<Self, TableError> {
-        match item {
-            Ok(Ok(row)) => Ok(row),
-            Err(why) | Ok(Err(why)) => Err(TableError::QueryError(why)),
-        }
+    /// Iterate over rows produced by `stmt`, deserializing each via
+    /// [`from_row`](Self::from_row). Errors at row-fetch or row-deserialize
+    /// time are surfaced uniformly as [`TableError`]. Accepts both
+    /// [`rusqlite::Statement`] and [`rusqlite::CachedStatement`] (the
+    /// latter via deref coercion).
+    ///
+    /// Use this when the caller owns a custom prepared statement (with
+    /// filters, joins, or bound parameters). For a full-table scan against
+    /// the default `SELECT *` with a callback API, see [`Table::stream`].
+    fn rows<'stmt, P: Params>(
+        stmt: &'stmt mut Statement<'_>,
+        params: P,
+    ) -> Result<impl Iterator<Item = Result<Self, TableError>> + 'stmt, TableError>
+    where
+        Self: 'stmt,
+    {
+        let mapped = stmt.query_map(params, |row| Ok(Self::from_row(row)))?;
+        Ok(mapped.map(flatten_row))
     }
 
-    /// Process all rows from the table using a callback.
-    /// This is the most memory-efficient approach for large tables.
+    /// Fetch exactly one row from `stmt`. Returns
+    /// [`TableError::QueryError`] if the row is missing or fails to
+    /// deserialize. Accepts both [`rusqlite::Statement`] and
+    /// [`rusqlite::CachedStatement`] (the latter via deref coercion).
+    fn row<P: Params>(stmt: &mut Statement<'_>, params: P) -> Result<Self, TableError> {
+        flatten_row(stmt.query_row(params, |row| Ok(Self::from_row(row))))
+    }
+
+    /// Process every row from the table's default `SELECT *` query using a
+    /// callback. Builds and discards the prepared statement internally, so
+    /// the caller never sees it.
     ///
-    /// Uses the default `Table` implementation to prepare the statement and query the rows.
-    ///
-    /// To execute custom queries, see the [`message`](crate::tables::messages::message) module docs for examples.
+    /// Use this for full-table scans where the callback style fits. For
+    /// custom statements (filters, joins, bound parameters), prepare the
+    /// statement yourself and iterate via [`Table::rows`]. See the
+    /// [`message`](crate::tables::messages::message) module docs for an
+    /// example.
     ///
     /// # Example
     ///
@@ -127,6 +155,17 @@ pub trait Table: Sized {
     }
 }
 
+/// Flatten the doubly-nested result produced by `rusqlite::query_map` /
+/// `query_row` callbacks into a single [`TableError`]. The outer layer
+/// represents row-fetch failures, the inner layer represents row-deserialize
+/// failures from [`Table::from_row`].
+fn flatten_row<T>(item: Result<Result<T, Error>, Error>) -> Result<T, TableError> {
+    match item {
+        Ok(Ok(row)) => Ok(row),
+        Err(why) | Ok(Err(why)) => Err(TableError::QueryError(why)),
+    }
+}
+
 fn stream_table_callback<T, F, E>(db: &Connection, mut callback: F) -> Result<(), E>
 where
     T: Table + Sized,
@@ -134,14 +173,8 @@ where
     F: FnMut(Result<T, TableError>) -> Result<(), E>,
 {
     let mut stmt = T::get(db).map_err(E::from)?;
-    let rows = stmt
-        .query_map([], |row| Ok(T::from_row(row)))
-        .map_err(TableError::from)
-        .map_err(E::from)?;
-
-    for row_result in rows {
-        let item_result = T::extract(row_result);
-        callback(item_result)?;
+    for row_result in T::rows(&mut stmt, []).map_err(E::from)? {
+        callback(row_result)?;
     }
     Ok(())
 }

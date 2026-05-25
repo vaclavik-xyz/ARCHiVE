@@ -12,8 +12,7 @@ use crate::{
     app::{error::RuntimeError, runtime::Config, sanitizers::sanitize_html},
     exporters::{
         formatter::{
-            ATTACHMENT_NO_FILENAME, MessageFormatter, PartBodyBuilder, RenderContext,
-            TextEffectFormatter,
+            AttachmentRender, MessageFormatter, PartBodyBuilder, RenderContext, TextEffectFormatter,
         },
         shared::{
             announcement::{AnnouncementBody, resolve_announcement},
@@ -32,7 +31,6 @@ use crate::{
 };
 
 use imessage_database::{
-    error::{message::MessageError, table::TableError},
     message_types::{edited::EditedMessage, text_effects::TextEffect, variants::Announcement},
     tables::{
         attachment::{Attachment, MediaType},
@@ -108,8 +106,8 @@ impl<'a> MessageWriter<'a> for HTML<'a> {
     }
 
     fn write_file_footer(file: &mut BufWriter<File>) -> Result<(), RuntimeError> {
-        file.write_all(FOOTER.as_bytes())
-            .map_err(RuntimeError::DiskError)
+        file.write_all(FOOTER.as_bytes())?;
+        Ok(())
     }
 
     fn footer_notice() -> Option<&'static str> {
@@ -124,8 +122,10 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         attachment: &'a mut Attachment,
         message: &Message,
         metadata: &AttachmentMeta,
-    ) -> Result<String, String> {
-        prepare_attachment(self.config, &self.state, attachment, message)?;
+    ) -> AttachmentRender {
+        if let Err(render) = prepare_attachment(self.config, &self.state, attachment, message) {
+            return render;
+        }
 
         let embed_path = self.config.message_attachment_path(attachment);
 
@@ -141,18 +141,26 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 },
                 None => AttachmentVariant::Audio { media_type },
             },
-            MediaType::Text(_) | MediaType::Application(_) => AttachmentVariant::Download {
-                filename: attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?,
-                file_size: attachment.file_size(),
-            },
+            MediaType::Text(_) | MediaType::Application(_) => {
+                let Some(filename) = attachment.filename() else {
+                    return AttachmentRender::MissingFilename;
+                };
+                AttachmentVariant::Download {
+                    filename,
+                    file_size: attachment.file_size(),
+                }
+            }
             MediaType::Unknown => {
                 if attachment
                     .copied_path
                     .as_ref()
                     .is_some_and(|path| path.is_dir())
                 {
+                    let Some(filename) = attachment.filename() else {
+                        return AttachmentRender::MissingFilename;
+                    };
                     AttachmentVariant::UnknownFolder {
-                        filename: attachment.filename().ok_or(ATTACHMENT_NO_FILENAME)?,
+                        filename,
                         file_size: attachment.file_size(),
                     }
                 } else {
@@ -164,7 +172,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             MediaType::Other(media_type) => AttachmentVariant::Other { media_type },
         };
 
-        Ok(render_template(&AttachmentVM {
+        AttachmentRender::Embedded(render_template(&AttachmentVM {
             lazy: !self.config.options.no_lazy,
             embed_path,
             variant,
@@ -174,8 +182,9 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
     fn format_sticker(&self, sticker: &'a mut Attachment, message: &Message) -> String {
         let mut sticker_embed =
             match self.format_attachment(sticker, message, &AttachmentMeta::default()) {
-                Ok(html) => html,
-                Err(embed) => return embed,
+                AttachmentRender::Embedded(html) => html,
+                AttachmentRender::MissingFilename => return String::new(),
+                AttachmentRender::NamedFile(name) => return sanitize_html(&name).into_owned(),
             };
 
         if let Some(kind) = sticker.get_sticker_decoration(
@@ -195,11 +204,16 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         &self,
         message: &'a Message,
         attachments: &mut Vec<Attachment>,
-    ) -> Result<String, MessageError> {
-        dispatch_app_balloon(self, message, attachments, self.config)
+    ) -> Result<String, RuntimeError> {
+        Ok(dispatch_app_balloon(
+            self,
+            message,
+            attachments,
+            self.config,
+        )?)
     }
 
-    fn format_tapback(&self, msg: &Message) -> Result<String, TableError> {
+    fn format_tapback(&self, msg: &Message) -> Result<String, RuntimeError> {
         let Some(kind) = resolve_tapback(msg, self.config, |sticker| {
             Html::trust(self.format_sticker(sticker, msg))
         })?
@@ -328,7 +342,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         message: &Message,
         context: RenderContext,
         out: &mut String,
-    ) -> Result<(), TableError> {
+    ) -> Result<(), RuntimeError> {
         let is_reply = matches!(context, RenderContext::Reply);
         let mut ctx = MessageContext::resolve(message, self.config.data_source.db())?;
         let mut attachment_index: usize = 0;
@@ -454,7 +468,7 @@ impl PartBodyBuilder for HTML<'_> {
         }
     }
 
-    fn body_app_error(&self, message: &Message, why: MessageError) -> Self::Body {
+    fn body_app_error(&self, message: &Message, why: String) -> Self::Body {
         PartBody::AppError {
             html: Html::trust(
                 sanitize_html(&format!(
@@ -488,13 +502,13 @@ impl HTML<'_> {
     }
 
     fn write_headers(file: &mut BufWriter<File>) -> Result<(), RuntimeError> {
-        file.write_all(HEADER.as_bytes())
-            .and_then(|()| file.write_all(b"<style>\n"))
-            .and_then(|()| file.write_all(STYLE.as_bytes()))
-            .and_then(|()| file.write_all(b"\n</style>"))
-            .and_then(|()| file.write_all(b"<link rel=\"stylesheet\" href=\"style.css\">"))
-            .and_then(|()| file.write_all(b"\n</head>\n<body>\n"))
-            .map_err(RuntimeError::DiskError)
+        file.write_all(HEADER.as_bytes())?;
+        file.write_all(b"<style>\n")?;
+        file.write_all(STYLE.as_bytes())?;
+        file.write_all(b"\n</style>")?;
+        file.write_all(b"<link rel=\"stylesheet\" href=\"style.css\">")?;
+        file.write_all(b"\n</head>\n<body>\n")?;
+        Ok(())
     }
 
     fn apply_active_attributes<'a>(
@@ -535,7 +549,7 @@ mod tests {
             compatibility::attachment_manager::AttachmentManagerMode, contacts::Name,
             export_type::ExportType,
         },
-        exporters::formatter::{MessageFormatter, RenderContext},
+        exporters::formatter::{AttachmentRender, MessageFormatter, RenderContext},
     };
 
     use imessage_database::{
@@ -1725,11 +1739,13 @@ mod tests {
 
         let mut attachment = Config::fake_attachment();
 
-        let actual = exporter
-            .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
-            .unwrap();
+        let actual =
+            exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, "<img src=\"a/b/c/d.jpg\" loading=\"lazy\">");
+        assert_eq!(
+            actual,
+            AttachmentRender::Embedded("<img src=\"a/b/c/d.jpg\" loading=\"lazy\">".to_string())
+        );
     }
 
     #[test]
@@ -1748,7 +1764,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
+        assert_eq!(actual, AttachmentRender::MissingFilename);
     }
 
     #[test]
@@ -1769,7 +1785,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
+        assert_eq!(actual, AttachmentRender::MissingFilename);
     }
 
     #[test]
@@ -1784,9 +1800,11 @@ mod tests {
 
         let mut attachment = Config::fake_attachment();
 
-        let actual = exporter
-            .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
-            .unwrap();
+        let AttachmentRender::Embedded(actual) =
+            exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default())
+        else {
+            panic!("expected AttachmentRender::Embedded");
+        };
 
         assert!(actual.ends_with("33/33c81da8ae3194fc5a0ea993ef6ffe0b048baedb\">"));
     }
@@ -1807,7 +1825,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
+        assert_eq!(actual, AttachmentRender::MissingFilename);
     }
 
     #[test]
@@ -1828,7 +1846,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
+        assert_eq!(actual, AttachmentRender::MissingFilename);
     }
 
     #[test]
@@ -1850,9 +1868,8 @@ mod tests {
         attachment.transfer_name = Some("test_data".to_string());
         attachment.copied_path = Some(folder_path);
 
-        let actual = exporter
-            .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
-            .unwrap();
+        let actual =
+            exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
         let abs_path = current_dir()
             .unwrap()
@@ -1864,7 +1881,7 @@ mod tests {
             abs_path.display()
         );
 
-        assert_eq!(actual, expected);
+        assert_eq!(actual, AttachmentRender::Embedded(expected));
     }
 
     #[test]
@@ -1882,13 +1899,14 @@ mod tests {
         attachment.filename = Some("notes.txt".to_string());
         attachment.transfer_name = Some("notes.txt".to_string());
 
-        let actual = exporter
-            .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
-            .unwrap();
+        let actual =
+            exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
         assert_eq!(
             actual,
-            "<a href=\"notes.txt\">Click to download notes.txt (100.00 B)</a>"
+            AttachmentRender::Embedded(
+                "<a href=\"notes.txt\">Click to download notes.txt (100.00 B)</a>".to_string()
+            )
         );
     }
 
@@ -1907,13 +1925,14 @@ mod tests {
         attachment.filename = Some("doc.pdf".to_string());
         attachment.transfer_name = Some("doc.pdf".to_string());
 
-        let actual = exporter
-            .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
-            .unwrap();
+        let actual =
+            exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
         assert_eq!(
             actual,
-            "<a href=\"doc.pdf\">Click to download doc.pdf (100.00 B)</a>"
+            AttachmentRender::Embedded(
+                "<a href=\"doc.pdf\">Click to download doc.pdf (100.00 B)</a>".to_string()
+            )
         );
     }
 
@@ -1931,13 +1950,14 @@ mod tests {
         attachment.mime_type = Some("model/gltf-binary".to_string());
         attachment.filename = Some("scene.glb".to_string());
 
-        let actual = exporter
-            .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
-            .unwrap();
+        let actual =
+            exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
         assert_eq!(
             actual,
-            "<p>Unable to embed model/gltf-binary attachments: scene.glb</p>"
+            AttachmentRender::Embedded(
+                "<p>Unable to embed model/gltf-binary attachments: scene.glb</p>".to_string()
+            )
         );
     }
 
@@ -1956,13 +1976,15 @@ mod tests {
         attachment.transfer_name = Some("test_data".to_string());
         attachment.copied_path = Some(PathBuf::from(folder_path));
 
-        let actual = exporter
-            .format_attachment(&mut attachment, &message, &AttachmentMeta::default())
-            .unwrap();
+        let actual =
+            exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
         assert_eq!(
             actual,
-            "<p>Unknown attachment type: Fake</p>\n<a href=\"Fake\">Download (100.00 B)</a>"
+            AttachmentRender::Embedded(
+                "<p>Unknown attachment type: Fake</p>\n<a href=\"Fake\">Download (100.00 B)</a>"
+                    .to_string()
+            )
         );
     }
 
@@ -2101,13 +2123,13 @@ mod tests {
             ..Default::default()
         };
 
-        let actual = exporter
-            .format_attachment(&mut attachment, &message, &meta)
-            .unwrap();
+        let actual = exporter.format_attachment(&mut attachment, &message, &meta);
 
         assert_eq!(
             actual,
-            "<div>\n    <audio controls src=\"Audio Message.caf\" type=\"x-caf; codecs=opus\"> </audio>\n</div>\n<hr>\n<span class=\"transcription\">Transcription: Test</span>"
+            AttachmentRender::Embedded(
+                "<div>\n    <audio controls src=\"Audio Message.caf\" type=\"x-caf; codecs=opus\"> </audio>\n</div>\n<hr>\n<span class=\"transcription\">Transcription: Test</span>".to_string()
+            )
         );
     }
 

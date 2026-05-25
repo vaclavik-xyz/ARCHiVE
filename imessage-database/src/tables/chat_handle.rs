@@ -56,10 +56,8 @@ impl Cacheable for ChatToHandle {
         let mut cache: HashMap<i32, BTreeSet<i32>> = HashMap::new();
 
         let mut rows = ChatToHandle::get(db)?;
-        let mappings = rows.query_map([], |row| Ok(ChatToHandle::from_row(row)))?;
-
-        for mapping in mappings {
-            let joiner = ChatToHandle::extract(mapping)?;
+        for mapping in ChatToHandle::rows(&mut rows, [])? {
+            let joiner = mapping?;
             if let Some(handles) = cache.get_mut(&joiner.chat_id) {
                 handles.insert(joiner.handle_id);
             } else {

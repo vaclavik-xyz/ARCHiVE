@@ -1,14 +1,8 @@
 use imessage_database::{
     message_types::{
-        app::AppMessage,
-        app_store::AppStoreMessage,
-        collaboration::CollaborationMessage,
-        digital_touch::DigitalTouch,
-        handwriting::HandwrittenMessage,
-        music::MusicMessage,
-        placemark::PlacemarkMessage,
-        polls::Poll,
-        url::URLMessage,
+        app::AppMessage, app_store::AppStoreMessage, collaboration::CollaborationMessage,
+        digital_touch::DigitalTouch, handwriting::HandwrittenMessage, music::MusicMessage,
+        placemark::PlacemarkMessage, polls::Poll, url::URLMessage,
     },
     tables::{
         attachment::Attachment,
@@ -17,7 +11,7 @@ use imessage_database::{
 };
 
 use crate::exporters::{
-    formatter::{BalloonFormatter, MessageFormatter},
+    formatter::{AttachmentRender, BalloonFormatter, MessageFormatter},
     html::{
         HTML,
         safe::Html,
@@ -170,10 +164,14 @@ impl BalloonFormatter for HTML<'_> {
     ) -> String {
         let attachment_html = if balloon.image.is_none() {
             attachments.get_mut(0).map(|attachment| {
-                Html::trust(
-                    self.format_attachment(attachment, msg, &AttachmentMeta::default())
-                        .unwrap_or_default(),
-                )
+                let rendered =
+                    match self.format_attachment(attachment, msg, &AttachmentMeta::default()) {
+                        AttachmentRender::Embedded(html) => html,
+                        AttachmentRender::MissingFilename | AttachmentRender::NamedFile(_) => {
+                            String::new()
+                        }
+                    };
+                Html::trust(rendered)
             })
         } else {
             None

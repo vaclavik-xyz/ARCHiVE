@@ -108,10 +108,8 @@ impl Cacheable for Chat {
 
         let mut statement = Chat::get(db)?;
 
-        let chats = statement.query_map([], |row| Ok(Chat::from_row(row)))?;
-
-        for chat in chats {
-            let result = Chat::extract(chat)?;
+        for chat in Chat::rows(&mut statement, [])? {
+            let result = chat?;
             map.insert(result.rowid, result);
         }
         Ok(map)

@@ -33,7 +33,7 @@ use crate::{
         data_source::DataSource, error::RuntimeError, export_type::ExportType, options::Options,
         sanitizers::sanitize_filename,
     },
-    exporters::{formatter::ATTACHMENT_NO_FILENAME, shared::driver::run_export},
+    exporters::shared::driver::run_export,
 };
 
 // Maximum length for filenames
@@ -120,7 +120,7 @@ impl Config {
                 .unwrap_or_else(|| {
                     attachment
                         .filename()
-                        .unwrap_or(ATTACHMENT_NO_FILENAME)
+                        .unwrap_or("Attachment missing name metadata!")
                         .to_string()
                 }),
         }
