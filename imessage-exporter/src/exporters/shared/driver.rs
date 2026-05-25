@@ -208,8 +208,12 @@ where
     let state = writer.state_mut();
     for file in state.files.values_mut() {
         W::write_file_footer(file)?;
+        // Surface flush errors (disk full, quota, unmount, NFS hiccup) here
+        // rather than letting `BufWriter::Drop` discard them silently.
+        file.flush()?;
     }
     W::write_file_footer(&mut state.orphaned)?;
+    state.orphaned.flush()?;
 
     Ok(())
 }
