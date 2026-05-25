@@ -123,6 +123,12 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
         Handles from the messages table will be mapped to names in the provided database
         Generally, one of `AddressBook-v22.abcddb` or `AddressBook.sqlitedb`
         
+    --no-progress
+            Disable the on-screen progress bar regardless of context
+            By default, the progress bar is shown only when stderr is a terminal,
+            so headless invocations (CI, output redirected to a logfile) stay clean automatically.
+            Use this flag to suppress the bar even in an interactive terminal.
+        
 -h, --help
         Print help
 -V, --version

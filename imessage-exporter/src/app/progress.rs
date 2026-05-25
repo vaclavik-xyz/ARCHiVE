@@ -50,7 +50,12 @@ fn format_human_rate(rate: f64) -> String {
 ///
 /// Uses interior mutability so that `set_busy_style` and `set_default_style`
 /// can be called from `&self` contexts (e.g. `format_attachment`).
+///
+/// When `enabled` is `false`, every public method is a no-op so that
+/// non-terminal stderr (e.g. piped to a log file) stays free of the
+/// `\r`-rewrite and ANSI escape spam the bar would otherwise emit.
 pub struct ExportProgress {
+    enabled: bool,
     length: Cell<u64>,
     position: Cell<u64>,
     start_time: Cell<Option<Instant>>,
@@ -58,9 +63,11 @@ pub struct ExportProgress {
 }
 
 impl ExportProgress {
-    /// Creates a new hidden progress bar
-    pub fn new() -> Self {
+    /// Creates a new hidden progress bar. Pass `enabled = false` to make
+    /// every subsequent method call a no-op.
+    pub fn new(enabled: bool) -> Self {
         Self {
+            enabled,
             length: Cell::new(0),
             position: Cell::new(0),
             start_time: Cell::new(None),
@@ -70,6 +77,9 @@ impl ExportProgress {
 
     /// Starts the progress bar with the specified total length
     pub fn start(&self, length: i64) {
+        if !self.enabled {
+            return;
+        }
         self.length.set(length.try_into().unwrap_or(0));
         self.position.set(0);
         self.start_time.set(Some(Instant::now()));
@@ -78,24 +88,36 @@ impl ExportProgress {
 
     /// Sets the progress bar to default style (clears any busy message)
     pub fn set_default_style(&self) {
+        if !self.enabled {
+            return;
+        }
         *self.message.borrow_mut() = None;
         self.draw();
     }
 
     /// Sets the progress bar to busy style with a message
     pub fn set_busy_style(&self, message: String) {
+        if !self.enabled {
+            return;
+        }
         *self.message.borrow_mut() = Some(message);
         self.draw();
     }
 
     /// Sets the position of the progress bar
     pub fn set_position(&self, pos: u64) {
+        if !self.enabled {
+            return;
+        }
         self.position.set(pos);
         self.draw();
     }
 
     /// Finishes the progress bar
     pub fn finish(&self) {
+        if !self.enabled {
+            return;
+        }
         self.position.set(self.length.get());
         self.draw();
         eprintln!();
@@ -166,7 +188,7 @@ impl ExportProgress {
 
 impl Default for ExportProgress {
     fn default() -> Self {
-        Self::new()
+        Self::new(false)
     }
 }
 
