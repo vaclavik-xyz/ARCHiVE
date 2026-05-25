@@ -49,7 +49,7 @@ impl Cacheable for Handle {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::{Cacheable, get_connection};
     /// use imessage_database::tables::handle::Handle;
@@ -96,7 +96,7 @@ impl Handle {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::{Cacheable, get_connection};
     /// use imessage_database::tables::handle::Handle;
@@ -143,7 +143,7 @@ impl Handle {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::handle::Handle;
