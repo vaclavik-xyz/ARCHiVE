@@ -1874,10 +1874,10 @@ mod balloon_format_tests {
             placeholder: false,
         };
 
-        let expected = exporter.format_url(&Config::fake_message(), &balloon);
-        let actual = "url\ntitle\nsummary";
+        let actual = exporter.format_url(&Config::fake_message(), &balloon);
+        let expected = "url\ntitle\nsummary";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1896,10 +1896,10 @@ mod balloon_format_tests {
             lyrics: None,
         };
 
-        let expected = exporter.format_music(&balloon);
-        let actual = "track_name\nalbum\nartist\nurl";
+        let actual = exporter.format_music(&balloon);
+        let expected = "track_name\nalbum\nartist\nurl";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1918,10 +1918,10 @@ mod balloon_format_tests {
             lyrics: Some(vec!["a", "b"]),
         };
 
-        let expected = exporter.format_music(&balloon);
-        let actual = "Lyrics:\na\nb\n\n\ntrack_name\nalbum\nartist\nurl";
+        let actual = exporter.format_music(&balloon);
+        let expected = "Lyrics:\na\nb\n\n\ntrack_name\nalbum\nartist\nurl";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1961,10 +1961,10 @@ mod balloon_format_tests {
             app_name: Some("app_name"),
         };
 
-        let expected = exporter.format_collaboration(&balloon);
-        let actual = "app_name message:\ntitle\nurl";
+        let actual = exporter.format_collaboration(&balloon);
+        let expected = "app_name message:\ntitle\nurl";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1987,10 +1987,10 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_apple_pay(&balloon);
-        let actual = "caption transaction: ldtext";
+        let actual = exporter.format_apple_pay(&balloon);
+        let expected = "caption transaction: ldtext";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2013,10 +2013,10 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_fitness(&balloon);
-        let actual = "app_name message: ldtext";
+        let actual = exporter.format_fitness(&balloon);
+        let expected = "app_name message: ldtext";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2039,10 +2039,10 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_slideshow(&balloon);
-        let actual = "Photo album: ldtext url";
+        let actual = exporter.format_slideshow(&balloon);
+        let expected = "Photo album: ldtext url";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2131,10 +2131,10 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_find_my(&balloon);
-        let actual = "app_name: ldtext";
+        let actual = exporter.format_find_my(&balloon);
+        let expected = "app_name: ldtext";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2180,10 +2180,10 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Timer Started"),
         };
 
-        let expected = exporter.format_check_in(&balloon);
-        let actual = "Check\u{a0}In: Timer Started\nChecked in at Oct 14, 2023  1:54:29 PM";
+        let actual = exporter.format_check_in(&balloon);
+        let expected = "Check\u{a0}In: Timer Started\nChecked in at Oct 14, 2023  1:54:29 PM";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2206,10 +2206,10 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Has not checked in when expected, location shared"),
         };
 
-        let expected = exporter.format_check_in(&balloon);
-        let actual = "Check\u{a0}In: Has not checked in when expected, location shared\nChecked in at Oct 14, 2023  1:54:29 PM";
+        let actual = exporter.format_check_in(&balloon);
+        let expected = "Check\u{a0}In: Has not checked in when expected, location shared\nChecked in at Oct 14, 2023  1:54:29 PM";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2232,10 +2232,10 @@ mod balloon_format_tests {
             ldtext: Some("Check In: Fake Location"),
         };
 
-        let expected = exporter.format_check_in(&balloon);
-        let actual = "Check\u{a0}In: Fake Location\nChecked in at Oct 14, 2023  1:54:29 PM";
+        let actual = exporter.format_check_in(&balloon);
+        let expected = "Check\u{a0}In: Fake Location\nChecked in at Oct 14, 2023  1:54:29 PM";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2254,10 +2254,10 @@ mod balloon_format_tests {
             genre: Some("genre"),
         };
 
-        let expected = exporter.format_app_store(&balloon);
-        let actual = "app_name\ndescription\nplatform\ngenre\nurl";
+        let actual = exporter.format_app_store(&balloon);
+        let expected = "app_name\ndescription\nplatform\ngenre\nurl";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2285,10 +2285,10 @@ mod balloon_format_tests {
             },
         };
 
-        let expected = exporter.format_placemark(&balloon);
-        let actual = "Name\nurl\nname\naddress\nstate\ncity\niso_country_code\npostal_code\ncountry\nstreet\nsub_administrative_area\nsub_locality";
+        let actual = exporter.format_placemark(&balloon);
+        let expected = "Name\nurl\nname\naddress\nstate\ncity\niso_country_code\npostal_code\ncountry\nstreet\nsub_administrative_area\nsub_locality";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2351,10 +2351,11 @@ mod balloon_format_tests {
             order: vec![id1, id2, id3],
         };
 
-        let expected = exporter.format_poll(&poll);
-        let actual = "- Rust (1)\n  - carol\n- Go (2)\n  - alice\n  - bob\n- Python (1)\n  - dave";
+        let actual = exporter.format_poll(&poll);
+        let expected =
+            "- Rust (1)\n  - carol\n- Go (2)\n  - alice\n  - bob\n- Python (1)\n  - dave";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -2377,15 +2378,15 @@ mod balloon_format_tests {
             ldtext: Some("ldtext"),
         };
 
-        let expected = exporter.format_generic_app(
+        let actual = exporter.format_generic_app(
             &balloon,
             "bundle_id",
             &mut vec![],
             &Config::fake_message(),
         );
-        let actual = "app_name message:\ntitle\nsubtitle\ncaption\nsubcaption\ntrailing_caption\ntrailing_subcaption";
+        let expected = "app_name message:\ntitle\nsubtitle\ncaption\nsubcaption\ntrailing_caption\ntrailing_subcaption";
 
-        assert_eq!(expected, actual);
+        assert_eq!(actual, expected);
     }
 
     #[test]
