@@ -46,13 +46,15 @@ pub(crate) enum RenderContext {
 // MARK: Message
 /// Defines behavior for formatting message instances to the desired output format
 pub(crate) trait MessageFormatter<'a> {
-    /// Format an attachment, possibly by reading the disk
+    /// Format an attachment, possibly by reading the disk. On failure,
+    /// returns the attachment filename (or [`ATTACHMENT_NO_FILENAME`] when
+    /// missing) so the caller can render a missing-attachment notice.
     fn format_attachment(
         &self,
         attachment: &'a mut Attachment,
         msg: &'a Message,
         metadata: &AttachmentMeta,
-    ) -> Result<String, &'a str>;
+    ) -> Result<String, String>;
     /// Format a sticker, possibly by reading the disk
     fn format_sticker(&self, attachment: &'a mut Attachment, msg: &'a Message) -> String;
     /// Format an app message by parsing some of its fields

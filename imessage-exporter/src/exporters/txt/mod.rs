@@ -3,10 +3,10 @@ use std::{fs::File, io::BufWriter};
 use crate::{
     app::{error::RuntimeError, runtime::Config},
     exporters::{
-        formatter::{ATTACHMENT_NO_FILENAME, MessageFormatter, PartBodyBuilder, RenderContext},
+        formatter::{MessageFormatter, PartBodyBuilder, RenderContext},
         shared::{
             announcement::{AnnouncementBody, resolve_announcement},
-            attachment::{AttachmentError, prepare_attachment},
+            attachment::prepare_attachment,
             balloon::dispatch_app_balloon,
             driver::{ExportState, MessageWriter},
             edited::{EditDiff, normalize_edited},
@@ -98,13 +98,8 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         attachment: &'a mut Attachment,
         message: &Message,
         metadata: &AttachmentMeta,
-    ) -> Result<String, &'a str> {
-        prepare_attachment(self.config, &self.state, attachment, message).map_err(|e| match e {
-            AttachmentError::NoFilename => ATTACHMENT_NO_FILENAME,
-            AttachmentError::HandleFailed => {
-                attachment.filename().unwrap_or(ATTACHMENT_NO_FILENAME)
-            }
-        })?;
+    ) -> Result<String, String> {
+        prepare_attachment(self.config, &self.state, attachment, message)?;
 
         Ok(AttachmentVM {
             embed_path: self.config.message_attachment_path(attachment),
@@ -123,7 +118,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         let (path, has_source) =
             match self.format_attachment(sticker, message, &AttachmentMeta::default()) {
                 Ok(p) => (p, true),
-                Err(e) => (e.to_string(), false),
+                Err(e) => (e, false),
             };
 
         let decoration = if has_source {
@@ -1326,7 +1321,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!"));
+        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
     }
 
     #[test]
@@ -1347,7 +1342,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!"));
+        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
     }
 
     #[test]
@@ -1387,7 +1382,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!"));
+        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
     }
 
     #[test]
@@ -1410,7 +1405,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!"));
+        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
     }
 
     #[test]

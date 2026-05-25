@@ -72,7 +72,7 @@ where
             }
             let body = match formatter.format_attachment(attachment, message, metadata) {
                 Ok(content) => formatter.body_attachment(content),
-                Err(error) => formatter.body_attachment_error(error),
+                Err(error) => formatter.body_attachment_error(&error),
             };
             *attachment_index += 1;
             body

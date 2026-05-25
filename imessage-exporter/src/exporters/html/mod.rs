@@ -17,7 +17,7 @@ use crate::{
         },
         shared::{
             announcement::{AnnouncementBody, resolve_announcement},
-            attachment::{AttachmentError, prepare_attachment},
+            attachment::prepare_attachment,
             balloon::dispatch_app_balloon,
             driver::{ExportState, MessageWriter},
             edited::{EditDiff, normalize_edited},
@@ -124,13 +124,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         attachment: &'a mut Attachment,
         message: &Message,
         metadata: &AttachmentMeta,
-    ) -> Result<String, &'a str> {
-        prepare_attachment(self.config, &self.state, attachment, message).map_err(|e| match e {
-            AttachmentError::NoFilename => ATTACHMENT_NO_FILENAME,
-            AttachmentError::HandleFailed => {
-                attachment.filename().unwrap_or(ATTACHMENT_NO_FILENAME)
-            }
-        })?;
+    ) -> Result<String, String> {
+        prepare_attachment(self.config, &self.state, attachment, message)?;
 
         let embed_path = self.config.message_attachment_path(attachment);
 
@@ -194,7 +189,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         let mut sticker_embed =
             match self.format_attachment(sticker, message, &AttachmentMeta::default()) {
                 Ok(html) => html,
-                Err(embed) => return embed.to_string(),
+                Err(embed) => return embed,
             };
 
         if let Some(kind) = sticker.get_sticker_decoration(
@@ -1718,7 +1713,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!"));
+        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
     }
 
     #[test]
@@ -1739,7 +1734,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!"));
+        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
     }
 
     #[test]
@@ -1777,7 +1772,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!"));
+        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
     }
 
     #[test]
@@ -1798,7 +1793,7 @@ mod tests {
         let actual =
             exporter.format_attachment(&mut attachment, &message, &AttachmentMeta::default());
 
-        assert_eq!(actual, Err("Attachment missing name metadata!"));
+        assert_eq!(actual, Err("Attachment missing name metadata!".to_string()));
     }
 
     #[test]
