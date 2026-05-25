@@ -2,18 +2,24 @@ use askama::Template;
 
 use imessage_database::{
     message_types::{
-        app::AppMessage, app_store::AppStoreMessage, collaboration::CollaborationMessage,
-        digital_touch::DigitalTouch, handwriting::HandwrittenMessage, music::MusicMessage,
-        placemark::PlacemarkMessage, polls::Poll, url::URLMessage,
+        app::{AppMessage, CheckInKind},
+        app_store::AppStoreMessage,
+        collaboration::CollaborationMessage,
+        digital_touch::DigitalTouch,
+        handwriting::HandwrittenMessage,
+        music::MusicMessage,
+        placemark::PlacemarkMessage,
+        polls::Poll,
+        url::URLMessage,
     },
     tables::{attachment::Attachment, messages::Message},
+    util::dates::format,
 };
 
 use crate::{
     app::compatibility::attachment_manager::AttachmentManagerMode,
     exporters::{
         formatter::BalloonFormatter,
-        shared::balloon::{CheckInState, resolve_check_in_footer},
         txt::{
             TXT,
             view_model::{
@@ -153,10 +159,13 @@ impl BalloonFormatter for TXT<'_> {
     }
 
     fn format_check_in(&self, balloon: &AppMessage) -> String {
-        let footer = resolve_check_in_footer(balloon).map(|f| match f {
-            CheckInState::Expected(at) => format!("Expected at {at}"),
-            CheckInState::WasExpected(at) => format!("Was expected at {at}"),
-            CheckInState::CheckedIn(at) => format!("Checked in at {at}"),
+        let footer = balloon.check_in_kind(0).map(|(kind, at)| {
+            let at = format(&at);
+            match kind {
+                CheckInKind::Expected => format!("Expected at {at}"),
+                CheckInKind::WasExpected => format!("Was expected at {at}"),
+                CheckInKind::CheckedIn => format!("Checked in at {at}"),
+            }
         });
 
         CheckInVM {

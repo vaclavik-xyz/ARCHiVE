@@ -1,13 +1,20 @@
 use imessage_database::{
     message_types::{
-        app::AppMessage, app_store::AppStoreMessage, collaboration::CollaborationMessage,
-        digital_touch::DigitalTouch, handwriting::HandwrittenMessage, music::MusicMessage,
-        placemark::PlacemarkMessage, polls::Poll, url::URLMessage,
+        app::{AppMessage, CheckInKind},
+        app_store::AppStoreMessage,
+        collaboration::CollaborationMessage,
+        digital_touch::DigitalTouch,
+        handwriting::HandwrittenMessage,
+        music::MusicMessage,
+        placemark::PlacemarkMessage,
+        polls::Poll,
+        url::URLMessage,
     },
     tables::{
         attachment::Attachment,
         messages::{Message, models::AttachmentMeta},
     },
+    util::dates::format,
 };
 
 use askama::Template;
@@ -22,7 +29,6 @@ use crate::exporters::{
             FindMyVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, UrlVM,
         },
     },
-    shared::balloon::{CheckInState, resolve_check_in_footer},
 };
 
 // MARK: Balloons
@@ -136,10 +142,13 @@ impl BalloonFormatter for HTML<'_> {
     }
 
     fn format_check_in(&self, balloon: &AppMessage) -> String {
-        let footer = resolve_check_in_footer(balloon).map(|f| match f {
-            CheckInState::Expected(at) => format!("Expected around {at}"),
-            CheckInState::WasExpected(at) => format!("Was expected around {at}"),
-            CheckInState::CheckedIn(at) => format!("Checked in at {at}"),
+        let footer = balloon.check_in_kind(0).map(|(kind, at)| {
+            let at = format(&at);
+            match kind {
+                CheckInKind::Expected => format!("Expected around {at}"),
+                CheckInKind::WasExpected => format!("Was expected around {at}"),
+                CheckInKind::CheckedIn => format!("Checked in at {at}"),
+            }
         });
 
         CheckInVM {

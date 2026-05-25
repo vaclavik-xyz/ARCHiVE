@@ -5,12 +5,16 @@
 
 use std::collections::HashMap;
 
+use chrono::{DateTime, Local};
 use plist::Value;
 
 use crate::{
     error::plist::PlistParseError,
     message_types::variants::BalloonProvider,
-    util::plist::{get_string_from_dict, get_string_from_nested_dict},
+    util::{
+        dates::{TIMESTAMP_FACTOR, get_local_time},
+        plist::{get_string_from_dict, get_string_from_nested_dict},
+    },
 };
 
 /// This struct represents Apple's [`MSMessageTemplateLayout`](https://developer.apple.com/documentation/messages/msmessagetemplatelayout).
@@ -82,17 +86,115 @@ impl AppMessage<'_> {
         }
         map
     }
+
+    /// Identifies the metadata state of a Check In balloon and resolves its
+    /// associated timestamp to local time. Returns `None` when no recognized
+    /// Check In key is present in [`parse_query_string`](Self::parse_query_string)
+    /// or the value isn't a parseable iMessage timestamp.
+    ///
+    /// `offset` is the seconds adjustment to apply to the iMessage epoch when
+    /// converting to local time — pass `0` to use the system's current
+    /// timezone, or a [`get_offset`](crate::util::dates::get_offset)-derived
+    /// value when reading a database exported from a different timezone.
+    #[must_use]
+    pub fn check_in_kind(&self, offset: i64) -> Option<(CheckInKind, DateTime<Local>)> {
+        let metadata = self.parse_query_string();
+        let (kind, date_str) = if let Some(d) = metadata.get("estimatedEndTime") {
+            (CheckInKind::Expected, *d)
+        } else if let Some(d) = metadata.get("triggerTime") {
+            (CheckInKind::WasExpected, *d)
+        } else if let Some(d) = metadata.get("sendDate") {
+            (CheckInKind::CheckedIn, *d)
+        } else {
+            return None;
+        };
+        let date_stamp = date_str.parse::<f64>().ok()? as i64 * TIMESTAMP_FACTOR;
+        let date_time = get_local_time(date_stamp, offset).ok()?;
+        Some((kind, date_time))
+    }
+}
+
+/// One of the three metadata states a Check In balloon can advertise. The
+/// variant choice mirrors the query-string key the timestamp came from
+/// (`estimatedEndTime`, `triggerTime`, `sendDate`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckInKind {
+    /// `estimatedEndTime` — Check In is scheduled and still pending.
+    Expected,
+    /// `triggerTime` — Check In window has passed without confirmation.
+    WasExpected,
+    /// `sendDate` — Check In was manually confirmed.
+    CheckedIn,
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        message_types::{app::AppMessage, variants::BalloonProvider},
+        message_types::{
+            app::{AppMessage, CheckInKind},
+            variants::BalloonProvider,
+        },
         util::plist::parse_ns_keyed_archiver,
     };
     use plist::Value;
     use std::fs::File;
     use std::{collections::HashMap, env::current_dir};
+
+    fn check_in_msg(url: &str) -> AppMessage<'_> {
+        AppMessage {
+            image: None,
+            url: Some(url),
+            title: None,
+            subtitle: None,
+            caption: None,
+            subcaption: None,
+            trailing_caption: None,
+            trailing_subcaption: None,
+            app_name: Some("Check In"),
+            ldtext: None,
+        }
+    }
+
+    #[test]
+    fn check_in_kind_prefers_estimated_end_time() {
+        let balloon = check_in_msg(
+            "?estimatedEndTime=1697316869.688709&triggerTime=1697316869.688709&sendDate=1697316869.688709",
+        );
+        assert!(matches!(
+            balloon.check_in_kind(0),
+            Some((CheckInKind::Expected, _)),
+        ));
+    }
+
+    #[test]
+    fn check_in_kind_falls_back_to_trigger_time() {
+        let balloon = check_in_msg("?triggerTime=1697316869.688709&sendDate=1697316869.688709");
+        assert!(matches!(
+            balloon.check_in_kind(0),
+            Some((CheckInKind::WasExpected, _)),
+        ));
+    }
+
+    #[test]
+    fn check_in_kind_uses_send_date_when_only_option() {
+        let balloon = check_in_msg("?messageType=1&interfaceVersion=1&sendDate=1697316869.688709");
+        assert!(matches!(
+            balloon.check_in_kind(0),
+            Some((CheckInKind::CheckedIn, _)),
+        ));
+    }
+
+    #[test]
+    fn check_in_kind_returns_none_for_unparsable_timestamp() {
+        let balloon = check_in_msg("?sendDate=not_a_number");
+        assert!(balloon.check_in_kind(0).is_none());
+    }
+
+    #[test]
+    fn check_in_kind_returns_none_without_recognized_key() {
+        let balloon = check_in_msg("?messageType=1&interfaceVersion=1");
+        assert!(balloon.check_in_kind(0).is_none());
+    }
 
     #[test]
     fn test_parse_apple_pay_sent_265() {
