@@ -42,6 +42,7 @@ pub const OPTION_USE_CALLER_ID: &str = "use-caller-id";
 pub const OPTION_CONVERSATION_FILTER: &str = "conversation-filter";
 pub const OPTION_CLEARTEXT_PASSWORD: &str = "cleartext-password";
 pub const OPTION_CUSTOM_CONTACTS_DB_PATH: &str = "contacts-path";
+pub const OPTION_NO_PROGRESS: &str = "no-progress";
 
 // Other CLI Text
 pub const SUPPORTED_FILE_TYPES: &str = "txt, html";
@@ -86,6 +87,8 @@ pub struct Options {
     pub cleartext_password: Option<String>,
     /// An optional path to a custom contacts database
     pub contacts_path: Option<PathBuf>,
+    /// If false, suppress the export progress bar regardless of TTY state
+    pub show_progress: bool,
 }
 
 // MARK: Validation
@@ -107,6 +110,7 @@ impl Options {
         let conversation_filter: Option<&String> = args.get_one(OPTION_CONVERSATION_FILTER);
         let cleartext_password: Option<&String> = args.get_one(OPTION_CLEARTEXT_PASSWORD);
         let contacts_path: Option<&String> = args.get_one(OPTION_CUSTOM_CONTACTS_DB_PATH);
+        let show_progress = !args.get_flag(OPTION_NO_PROGRESS);
 
         // Build the export type
         let export_type: Option<ExportType> = match export_file_type {
@@ -267,6 +271,7 @@ impl Options {
             conversation_filter: conversation_filter.cloned(),
             cleartext_password: cleartext_password.cloned(),
             contacts_path: contacts_path.cloned().map(PathBuf::from),
+            show_progress,
         })
     }
 
@@ -463,6 +468,13 @@ fn get_command() -> Command {
                 .display_order(15)
                 .value_name("path"),
         )
+        .arg(
+            Arg::new(OPTION_NO_PROGRESS)
+                .long(OPTION_NO_PROGRESS)
+                .help("Disable the on-screen progress bar regardless of context\nBy default, the progress bar is shown only when stderr is a terminal,\nso headless invocations (CI, output redirected to a logfile) stay clean automatically.\nUse this flag to suppress the bar even in an interactive terminal.\n")
+                .action(ArgAction::SetTrue)
+                .display_order(16),
+        )
 }
 
 #[cfg(test)]
@@ -488,6 +500,7 @@ impl Options {
             conversation_filter: None,
             cleartext_password: None,
             contacts_path: None,
+            show_progress: true,
         }
     }
 }
@@ -537,6 +550,7 @@ mod arg_tests {
             conversation_filter: None,
             cleartext_password: None,
             contacts_path: None,
+            show_progress: true,
         };
 
         assert_eq!(actual, expected);
@@ -620,6 +634,7 @@ mod arg_tests {
             conversation_filter: None,
             cleartext_password: None,
             contacts_path: None,
+            show_progress: true,
         };
 
         assert_eq!(actual, expected);
@@ -654,6 +669,7 @@ mod arg_tests {
             conversation_filter: None,
             cleartext_password: None,
             contacts_path: None,
+            show_progress: true,
         };
 
         assert_eq!(actual, expected);
@@ -734,6 +750,7 @@ mod arg_tests {
             conversation_filter: None,
             cleartext_password: None,
             contacts_path: None,
+            show_progress: true,
         };
 
         assert_eq!(actual, expected);
@@ -773,6 +790,7 @@ mod arg_tests {
             conversation_filter: None,
             cleartext_password: Some("password".to_string()),
             contacts_path: None,
+            show_progress: true,
         };
 
         assert_eq!(actual, expected);
@@ -828,6 +846,7 @@ mod arg_tests {
             conversation_filter: None,
             cleartext_password: None,
             contacts_path: None,
+            show_progress: true,
         };
 
         assert_eq!(actual, expected);
@@ -859,6 +878,7 @@ mod arg_tests {
             conversation_filter: None,
             cleartext_password: None,
             contacts_path: None,
+            show_progress: true,
         };
 
         assert_eq!(actual, expected);
@@ -891,6 +911,7 @@ mod arg_tests {
             conversation_filter: Some(String::from("steve@apple.com")),
             cleartext_password: None,
             contacts_path: None,
+            show_progress: true,
         };
 
         assert_eq!(actual, expected);
@@ -922,6 +943,7 @@ mod arg_tests {
             conversation_filter: None,
             cleartext_password: None,
             contacts_path: None,
+            show_progress: true,
         };
 
         assert_eq!(actual, expected);
@@ -953,6 +975,7 @@ mod arg_tests {
             conversation_filter: None,
             cleartext_password: None,
             contacts_path: None,
+            show_progress: true,
         };
 
         assert_eq!(actual, expected);
@@ -1026,6 +1049,7 @@ mod arg_tests {
             conversation_filter: None,
             cleartext_password: None,
             contacts_path: None,
+            show_progress: true,
         };
 
         assert_eq!(actual, expected);
@@ -1041,6 +1065,21 @@ mod arg_tests {
     fn cant_build_option_invalid_contacts_path() {
         let args = get_command().get_matches_from(["imessage-exporter", "-n", "/does/not/exist"]);
         assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn can_build_option_no_progress() {
+        let args =
+            get_command().get_matches_from(["imessage-exporter", "-f", "txt", "--no-progress"]);
+        let actual = Options::from_args(&args).unwrap();
+        assert!(!actual.show_progress);
+    }
+
+    #[test]
+    fn show_progress_defaults_to_true() {
+        let args = get_command().get_matches_from(["imessage-exporter", "-f", "txt"]);
+        let actual = Options::from_args(&args).unwrap();
+        assert!(actual.show_progress);
     }
 }
 
