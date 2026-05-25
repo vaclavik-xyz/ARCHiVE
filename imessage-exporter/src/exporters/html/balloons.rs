@@ -167,8 +167,9 @@ impl BalloonFormatter for HTML<'_> {
                 let rendered =
                     match self.format_attachment(attachment, msg, &AttachmentMeta::default()) {
                         AttachmentRender::Embedded(html) => html,
-                        AttachmentRender::MissingFilename => String::new(),
-                        AttachmentRender::NamedFile(name) => name,
+                        AttachmentRender::MissingFilename | AttachmentRender::NamedFile(_) => {
+                            String::new()
+                        }
                     };
                 Html::trust(rendered)
             })

@@ -184,7 +184,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             match self.format_attachment(sticker, message, &AttachmentMeta::default()) {
                 AttachmentRender::Embedded(html) => html,
                 AttachmentRender::MissingFilename => return String::new(),
-                AttachmentRender::NamedFile(name) => return name,
+                AttachmentRender::NamedFile(name) => return sanitize_html(&name).into_owned(),
             };
 
         if let Some(kind) = sticker.get_sticker_decoration(
