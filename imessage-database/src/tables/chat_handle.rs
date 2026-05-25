@@ -43,7 +43,7 @@ impl Cacheable for ChatToHandle {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::{Cacheable, get_connection};
     /// use imessage_database::tables::chat_handle::ChatToHandle;
@@ -80,7 +80,7 @@ impl ChatToHandle {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::chat_handle::ChatToHandle;
@@ -148,7 +148,7 @@ impl ChatToHandle {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::chat_handle::ChatToHandle;
@@ -215,7 +215,7 @@ ORDER BY chat;
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use std::collections::HashMap;
     ///
     /// use imessage_database::util::dirs::default_db_path;

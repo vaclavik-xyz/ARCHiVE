@@ -94,7 +94,7 @@ impl Cacheable for Chat {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::dirs::default_db_path;
     /// use imessage_database::tables::table::{Cacheable, get_connection};
     /// use imessage_database::tables::chat::Chat;

@@ -376,7 +376,7 @@ impl Attachment {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```no_run
     /// use imessage_database::util::{dirs::default_db_path, platform::Platform};
     /// use imessage_database::tables::table::get_connection;
     /// use imessage_database::tables::attachment::Attachment;
