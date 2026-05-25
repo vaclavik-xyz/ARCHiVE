@@ -23,6 +23,7 @@ use crate::{
             edited::{EditDiff, normalize_edited},
             message::MessageContext,
             part::dispatch_part_body,
+            render::{render_template, render_template_into},
             reply::{build_replies, build_tapbacks},
             tapback::resolve_tapback,
             time::message_time,
@@ -48,7 +49,6 @@ mod safe;
 mod text_effects;
 mod view_model;
 
-use askama::Template;
 use safe::Html;
 use view_model::{
     AnnouncementInnerVM, AttachmentVM, AttachmentVariant, EditedRow, EditedVM, MessagePartVM,
@@ -164,13 +164,11 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             MediaType::Other(media_type) => AttachmentVariant::Other { media_type },
         };
 
-        Ok(AttachmentVM {
+        Ok(render_template(&AttachmentVM {
             lazy: !self.config.options.no_lazy,
             embed_path,
             variant,
-        }
-        .render()
-        .unwrap_or_default())
+        }))
     }
 
     fn format_sticker(&self, sticker: &'a mut Attachment, message: &Message) -> String {
@@ -186,7 +184,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             &self.config.options.db_path,
             self.config.options.attachment_root.as_deref(),
         ) {
-            let suffix_html = StickerSuffixVM { kind }.render().unwrap_or_default();
+            let suffix_html = render_template(&StickerSuffixVM { kind });
             sticker_embed.push_str(&suffix_html);
         }
 
@@ -208,7 +206,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         else {
             return Ok(String::new());
         };
-        Ok(TapbackVM { kind }.render().unwrap_or_default())
+        Ok(render_template(&TapbackVM { kind }))
     }
 
     fn format_announcement(&self, msg: &Message, out: &mut String) {
@@ -223,7 +221,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         if wrap_newlines {
             out.push('\n');
         }
-        let _ = AnnouncementInnerVM { kind }.render_into(out);
+        render_template_into(&AnnouncementInnerVM { kind }, out);
         if wrap_newlines {
             out.push('\n');
         }
@@ -266,7 +264,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                 }
             });
 
-        Some(EditedVM { kind }.render().unwrap_or_default())
+        Some(render_template(&EditedVM { kind }))
     }
 
     fn format_attributes(&self, text: &str, attributes: &[TextAttributes]) -> String {
@@ -396,7 +394,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             parts,
             trailing_reply_context: message.is_reply() && !is_reply,
         };
-        let _ = vm.render_into(out);
+        render_template_into(&vm, out);
         Ok(())
     }
 }

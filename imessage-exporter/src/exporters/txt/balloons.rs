@@ -20,6 +20,7 @@ use crate::{
     app::compatibility::attachment_manager::AttachmentManagerMode,
     exporters::{
         formatter::BalloonFormatter,
+        shared::render::render_template,
         txt::{
             TXT,
             view_model::{
@@ -37,7 +38,7 @@ use crate::{
 /// balloon is returned in the same "no trailing newline" shape. Single-line
 /// templates produce no trailing newline and pass through unchanged.
 fn render_balloon<T: Template>(template: &T) -> String {
-    let mut out = template.render().unwrap_or_default();
+    let mut out = render_template(template);
     if out.ends_with('\n') {
         out.pop();
     }

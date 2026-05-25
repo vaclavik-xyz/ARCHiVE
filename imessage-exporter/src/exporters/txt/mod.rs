@@ -12,6 +12,7 @@ use crate::{
             edited::{EditDiff, normalize_edited},
             message::MessageContext,
             part::dispatch_part_body,
+            render::{render_template, render_template_into},
             reply::{build_replies, build_tapbacks},
             tapback::resolve_tapback,
             time::{format_timestamp, message_time},
@@ -35,7 +36,6 @@ use imessage_database::{
 mod balloons;
 mod view_model;
 
-use askama::Template;
 use view_model::{
     AnnouncementVM, AttachmentVM, EditedRow, EditedVM, MessagePartVM, MessageVM, PartBody,
     RepliesVM, StickerVM, TapbackVM, TapbacksVM,
@@ -101,12 +101,10 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
     ) -> Result<String, String> {
         prepare_attachment(self.config, &self.state, attachment, message)?;
 
-        Ok(AttachmentVM {
+        Ok(render_template(&AttachmentVM {
             embed_path: self.config.message_attachment_path(attachment),
             transcription: metadata.transcription.as_deref(),
-        }
-        .render()
-        .unwrap_or_default())
+        }))
     }
 
     fn format_sticker(&self, sticker: &'a mut Attachment, message: &Message) -> String {
@@ -142,14 +140,12 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
             None => (None, None),
         };
 
-        StickerVM {
+        render_template(&StickerVM {
             effect_prefix,
             who,
             path,
             suffix,
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_app(
@@ -167,13 +163,13 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         else {
             return Ok(String::new());
         };
-        Ok(TapbackVM { kind }.render().unwrap_or_default())
+        Ok(render_template(&TapbackVM { kind }))
     }
 
     fn format_announcement(&self, msg: &Message, out: &mut String) {
         let kind = resolve_announcement(msg, self.config, YOU)
             .map_or(AnnouncementBody::Unknown, AnnouncementBody::from);
-        let _ = AnnouncementVM { kind }.render_into(out);
+        render_template_into(&AnnouncementVM { kind }, out);
     }
 
     fn format_shareplay(&self) -> &'static str {
@@ -211,7 +207,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 }
             });
 
-        Some(EditedVM { kind }.render().unwrap_or_default())
+        Some(render_template(&EditedVM { kind }))
     }
 
     fn format_attributes(&self, text: &str, attributes: &[TextAttributes]) -> String {
@@ -287,13 +283,13 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
 
         match context {
             RenderContext::TopLevel => {
-                let _ = vm.render_into(out);
+                render_template_into(&vm, out);
             }
             RenderContext::Reply => {
                 // Render to a scratch buffer, then prefix every non-blank
                 // line with REPLY_INDENT on the way out
                 let mut buf = String::with_capacity(Self::BUFFER_CAPACITY);
-                let _ = vm.render_into(&mut buf);
+                render_template_into(&vm, &mut buf);
                 Self::push_indented(out, &buf, REPLY_INDENT);
             }
         }

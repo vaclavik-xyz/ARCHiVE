@@ -17,8 +17,6 @@ use imessage_database::{
     util::dates::format,
 };
 
-use askama::Template;
-
 use crate::exporters::{
     formatter::{BalloonFormatter, MessageFormatter},
     html::{
@@ -29,6 +27,7 @@ use crate::exporters::{
             FindMyVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, UrlVM,
         },
     },
+    shared::render::render_template,
 };
 
 // MARK: Balloons
@@ -36,56 +35,48 @@ impl BalloonFormatter for HTML<'_> {
     fn format_url(&self, msg: &Message, balloon: &URLMessage) -> String {
         let balloon_url = balloon.get_url();
         let msg_text = msg.text.as_deref();
-        UrlVM {
+        render_template(&UrlVM {
             wrapper_url: balloon_url.or(msg_text).into(),
             name: balloon.site_name.or(balloon_url).or(msg_text).into(),
             images: &balloon.images,
             lazy: !self.config.options.no_lazy,
             title: balloon.title.into(),
             summary: balloon.summary.into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_music(&self, balloon: &MusicMessage) -> String {
-        MusicVM {
+        render_template(&MusicVM {
             track_name: balloon.track_name.into(),
             preview: balloon.preview.into(),
             lyrics: balloon.lyrics.as_deref(),
             url: balloon.url.into(),
             artist: balloon.artist.into(),
             album: balloon.album.into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_collaboration(&self, balloon: &CollaborationMessage) -> String {
-        CollaborationVM {
+        render_template(&CollaborationVM {
             name: balloon.app_name.or(balloon.bundle_id).into(),
             wrapper_url: balloon.url.into(),
             title: balloon.title.into(),
             footer_url: balloon.get_url().into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_app_store(&self, balloon: &AppStoreMessage) -> String {
-        AppStoreVM {
+        render_template(&AppStoreVM {
             app_name: balloon.app_name.into(),
             url: balloon.url.into(),
             description: balloon.description.into(),
             platform: balloon.platform.into(),
             genre: balloon.genre.into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_placemark(&self, balloon: &PlacemarkMessage) -> String {
-        PlacemarkVM {
+        render_template(&PlacemarkVM {
             place_name: balloon.place_name.into(),
             url: balloon.get_url().into(),
             name: balloon.placemark.name.into(),
@@ -98,9 +89,7 @@ impl BalloonFormatter for HTML<'_> {
             street: balloon.placemark.street.into(),
             sub_administrative_area: balloon.placemark.sub_administrative_area.into(),
             sub_locality: balloon.placemark.sub_locality.into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_handwriting(&self, _: &Message, balloon: &HandwrittenMessage) -> String {
@@ -108,20 +97,16 @@ impl BalloonFormatter for HTML<'_> {
     }
 
     fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouch) -> String {
-        DigitalTouchVM {
+        render_template(&DigitalTouchVM {
             debug: format!("{balloon:?}"),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_apple_pay(&self, balloon: &AppMessage) -> String {
-        ApplePayVM {
+        render_template(&ApplePayVM {
             app_name: balloon.app_name.into(),
             ldtext: balloon.ldtext.into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_fitness(&self, balloon: &AppMessage) -> String {
@@ -133,12 +118,10 @@ impl BalloonFormatter for HTML<'_> {
     }
 
     fn format_find_my(&self, balloon: &AppMessage) -> String {
-        FindMyVM {
+        render_template(&FindMyVM {
             app_name: balloon.app_name.into(),
             ldtext: balloon.ldtext.into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_check_in(&self, balloon: &AppMessage) -> String {
@@ -151,13 +134,11 @@ impl BalloonFormatter for HTML<'_> {
             }
         });
 
-        CheckInVM {
+        render_template(&CheckInVM {
             name: balloon.app_name.unwrap_or("Check In"),
             ldtext: balloon.ldtext.into(),
             footer,
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 
     fn format_poll(&self, poll: &Poll) -> String {
@@ -187,7 +168,7 @@ impl BalloonFormatter for HTML<'_> {
             })
             .collect();
 
-        PollVM { options }.render().unwrap_or_default()
+        render_template(&PollVM { options })
     }
 
     fn format_generic_app(
@@ -218,7 +199,7 @@ impl HTML<'_> {
         bundle_id: &str,
         attachment_html: Option<Html>,
     ) -> String {
-        AppCardVM {
+        render_template(&AppCardVM {
             url: balloon.url.into(),
             image: balloon.image.into(),
             attachment_html,
@@ -230,8 +211,6 @@ impl HTML<'_> {
             subcaption: balloon.subcaption.into(),
             trailing_caption: balloon.trailing_caption.into(),
             trailing_subcaption: balloon.trailing_subcaption.into(),
-        }
-        .render()
-        .unwrap_or_default()
+        })
     }
 }
