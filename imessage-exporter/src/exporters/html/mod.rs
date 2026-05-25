@@ -558,7 +558,7 @@ mod tests {
             messages::models::{AttachmentMeta, BubbleComponent, TextAttributes},
             table::ME,
         },
-        util::platform::Platform,
+        util::{dirs::home, platform::Platform},
     };
 
     #[test]
@@ -1603,7 +1603,10 @@ mod tests {
         message.rowid = 452567;
 
         let actual = exporter.format_tapback(&message).unwrap();
-        let expected = "<img src=\"/Users/chris/Library/Messages/StickerCache/8e682c381ab52ec2-289D9E83-33EE-4153-AF13-43DB31792C6F/289D9E83-33EE-4153-AF13-43DB31792C6F.heic\" loading=\"lazy\">\n<div class=\"sticker_name\">App: Free People</div><div class=\"sticker_tapback\">&nbsp;by Sample Contact</div>";
+        let expected = format!(
+            "<img src=\"{}/Library/Messages/StickerCache/8e682c381ab52ec2-289D9E83-33EE-4153-AF13-43DB31792C6F/289D9E83-33EE-4153-AF13-43DB31792C6F.heic\" loading=\"lazy\">\n<div class=\"sticker_name\">App: Free People</div><div class=\"sticker_tapback\">&nbsp;by Sample Contact</div>",
+            home()
+        );
 
         assert_eq!(actual, expected);
     }
