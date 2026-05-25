@@ -34,10 +34,13 @@ pub(crate) const ATTACHMENT_NO_FILENAME: &str = "Attachment missing name metadat
 /// top-level anchor / trailing context marker.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RenderContext {
-    /// Standalone message in the export — emitted by [`run_export`].
+    /// Standalone message in the export
+    ///
+    /// Emitted by [`run_export`]
     TopLevel,
-    /// Reply nested inside its parent message's body — emitted from each
-    /// formatter's `build_replies` recursion.
+    /// Reply nested inside its parent message's body
+    ///
+    /// Emitted from each formatter's `build_replies` recursion.
     Reply,
 }
 

@@ -14,8 +14,7 @@ pub const UNKNOWN_PARTICIPANT: &str = "someone";
 
 /// A format-agnostic view of an announcement message. `who` has had the
 /// `ME` → `self_name` (caller-supplied) substitution applied; `timestamp` is
-/// pre-formatted. `announcement` is the library's [`Announcement`] verbatim
-/// — each exporter renders it into its own phrasing.
+/// pre-formatted. `announcement` is the library's [`Announcement`] verbatim.
 ///
 /// `participant_name` exists only because the library reports
 /// [`GroupAction::ParticipantAdded`] / [`GroupAction::ParticipantRemoved`] as

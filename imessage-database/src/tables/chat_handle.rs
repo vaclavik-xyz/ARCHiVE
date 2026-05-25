@@ -430,7 +430,7 @@ mod tests {
         let output = ChatToHandle::dedupe(&input, &chat_lookup_map).unwrap();
 
         // Chats 0,1,5 share participants {1}, and chat 2 maps to 5 via lookup,
-        // and chat 4 maps to 0 via lookup — all are the same conversation
+        // and chat 4 maps to 0 via lookup. All are the same conversation
         assert_eq!(output.get(&0), output.get(&1));
         assert_eq!(output.get(&0), output.get(&4));
         assert_eq!(output.get(&0), output.get(&5));
@@ -521,7 +521,7 @@ mod tests {
         lookup_a.insert(5, 0);
         let output_a = ChatToHandle::dedupe(&input, &lookup_a).unwrap();
 
-        // Case B: canonical is the higher ID (5) — matches real SQL MAX(root) behavior
+        // Case B: canonical is the higher ID (5), which matches real SQL MAX(root) behavior
         let mut lookup_b: HashMap<i32, i32> = HashMap::new();
         lookup_b.insert(0, 5);
         lookup_b.insert(5, 5);

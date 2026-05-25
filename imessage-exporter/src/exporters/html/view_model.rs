@@ -277,9 +277,9 @@ pub(super) struct MessageVM<'a> {
     pub sender: &'a str,
     pub is_deleted: bool,
     pub subject: Option<&'a str>,
-    /// SharePlay marker (`<hr>SharePlay …`) — currently always a `'static` literal.
+    /// SharePlay marker
     pub shareplay: Option<Html<&'a str>>,
-    /// Shared-location marker — currently always a `'static` literal.
+    /// Shared-location marker
     pub shared_location: Option<Html<&'a str>>,
     /// Rendered directly into the outer buffer via [`MessagePartVM`]'s `Display`
     /// impl, avoiding a per-part `String` allocation.
@@ -321,11 +321,11 @@ pub(super) struct RepliesVM {
     pub replies: Vec<ReplyEntry<Html>>,
 }
 
-/// Each [`Html`] field holds pre-rendered HTML — emitted with `|safe`. Wrapping
+/// Each [`Html`] field holds pre-rendered HTML emitted with `|safe`. Wrapping
 /// per variant happens in `message_part.html`, so leaf renderers can move
 /// their HTML in without an extra `format!()` allocation.
 pub(crate) enum PartBody {
-    /// Empty body (no text, edited content missing, etc.) — emits nothing.
+    /// Empty body (no text, edited content missing, etc.)
     Empty,
     TextBubble {
         html: Html,

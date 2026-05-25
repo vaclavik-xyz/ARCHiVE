@@ -19,7 +19,7 @@ pub struct ChatEscaper;
 
 impl Escaper for ChatEscaper {
     fn write_escaped_str<W: fmt::Write>(&self, mut dest: W, string: &str) -> fmt::Result {
-        // Scan bytes — every escape target is either ASCII (one byte) or NBSP
+        // Every escape target is either ASCII (one byte) or NBSP
         // (`0xC2 0xA0`). Slices into `string` only happen at escape positions,
         // which are always valid UTF-8 boundaries because none of the bytes we
         // match can appear as a continuation byte (those live in 0x80..=0xBF).

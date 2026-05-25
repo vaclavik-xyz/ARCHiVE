@@ -71,7 +71,7 @@ pub enum EditDiff {
 /// `date`, `is_last`).
 ///
 /// Events whose underlying `EditedEvent.text` is `None` are filtered out by
-/// [`normalize_edited`] — they carry nothing renderable, and emitting a bare
+/// [`normalize_edited`]. They carry nothing renderable, and emitting a bare
 /// timestamp row produced broken output in TXT. Their timestamps still
 /// advance the diff bookkeeping for subsequent events, so chronology is
 /// preserved across the gap.
@@ -82,7 +82,7 @@ pub struct NormalizedEditEvent<'a> {
     /// `event.text.as_deref()`, guaranteed `Some` since no-text events are
     /// filtered out by [`normalize_edited`] before the rows are collected.
     pub text: &'a str,
-    /// `event.components` — passed through for renderers that need to format
+    /// `event.components` passed through for renderers that need to format
     /// the original text attributes.
     pub components: &'a [BubbleComponent],
     /// Position of this event relative to the previous one in the history.

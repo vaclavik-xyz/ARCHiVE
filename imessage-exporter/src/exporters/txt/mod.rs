@@ -1747,7 +1747,6 @@ mod tests {
 
     #[test]
     fn push_indented_skips_blank_lines() {
-        // Blank lines stay blank — no trailing-whitespace artifacts.
         let mut out = String::new();
         super::TXT::push_indented(&mut out, "a\n\nb\n", "    ");
         assert_eq!(out, "    a\n\n    b\n");

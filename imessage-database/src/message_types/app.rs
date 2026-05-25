@@ -93,7 +93,7 @@ impl AppMessage<'_> {
     /// or the value isn't a parseable iMessage timestamp.
     ///
     /// `offset` is the seconds adjustment to apply to the iMessage epoch when
-    /// converting to local time — pass `0` to use the system's current
+    /// converting to local time: pass `0` to use the system's current
     /// timezone, or a [`get_offset`](crate::util::dates::get_offset)-derived
     /// value when reading a database exported from a different timezone.
     #[must_use]
@@ -119,11 +119,11 @@ impl AppMessage<'_> {
 /// (`estimatedEndTime`, `triggerTime`, `sendDate`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckInKind {
-    /// `estimatedEndTime` — Check In is scheduled and still pending.
+    /// `estimatedEndTime`: Check In is scheduled and still pending.
     Expected,
-    /// `triggerTime` — Check In window has passed without confirmation.
+    /// `triggerTime`: Check In window has passed without confirmation.
     WasExpected,
-    /// `sendDate` — Check In was manually confirmed.
+    /// `sendDate`: Check In was manually confirmed.
     CheckedIn,
 }
 

@@ -44,8 +44,7 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
         // Estimate: 7 bytes covers the longest open+close tag pair (`<b></b>`).
         let mut out = String::with_capacity(text.len() + styles.len() * 7);
         // styles[0] is the outermost wrap, so opens go in reverse order and
-        // closes go in forward order — one pre-allocated buffer instead of
-        // the prior `insert_str(0, …)` per close (O(K²) on stacked styles).
+        // closes go in forward order.
         for style in styles.iter().rev() {
             out.push_str(open_tag(style));
         }

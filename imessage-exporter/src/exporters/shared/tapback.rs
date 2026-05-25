@@ -26,9 +26,7 @@ pub enum TapbackKind<'a, S> {
 /// render an empty string without re-deriving the variant.
 ///
 /// `sticker_renderer` lifts a found sticker attachment into the format's
-/// payload type — HTML wraps the rendered sticker in
-/// [`Html::trust`](crate::exporters::html::safe::Html::trust); TXT returns
-/// the rendered string directly. The closure captures the formatter `self`
+/// payload type. The closure captures the formatter `self`
 /// and `msg` so its body can call back into [`format_sticker`].
 ///
 /// [`format_sticker`]: crate::exporters::formatter::MessageFormatter::format_sticker

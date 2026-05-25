@@ -18,8 +18,7 @@ pub(crate) struct ReplyEntry<S> {
 /// message has no tapbacks for this part *or* every tapback rendered empty
 /// (e.g. all were [`TapbackAction::Removed`](imessage_database::message_types::variants::TapbackAction::Removed)).
 /// `wrap` lifts each per-tapback rendered string into the format's payload
-/// type — HTML passes [`Html::trust`](crate::exporters::html::safe::Html::trust);
-/// TXT passes [`std::convert::identity`].
+/// type.
 pub(crate) fn build_tapbacks<'a, F, T>(
     formatter: &'a F,
     message: &'a Message,
@@ -54,8 +53,8 @@ where
 
 /// Render the replies threaded under a message part. Tapbacks in the reply
 /// list are skipped (they render alongside their parent via `build_tapbacks`).
-/// `buffer_capacity` is the format's `MessageWriter::BUFFER_CAPACITY` — used
-/// to pre-allocate the per-reply scratch buffer. `wrap_body` lifts the
+/// `buffer_capacity` is the format's `MessageWriter::BUFFER_CAPACITY` (used
+/// to pre-allocate the per-reply scratch buffer). `wrap_body` lifts the
 /// rendered reply body into the format's payload type.
 pub(crate) fn build_replies<'a, F, S>(
     formatter: &'a F,
