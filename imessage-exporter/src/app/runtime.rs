@@ -199,10 +199,9 @@ impl Config {
                 None => UNKNOWN,
             };
 
-            if participant_details.len() + out_s.len() < max_len {
-                if !out_s.is_empty() {
-                    out_s.push_str(", ");
-                }
+            let separator = if out_s.is_empty() { "" } else { ", " };
+            if participant_details.len() + separator.len() + out_s.len() <= max_len {
+                out_s.push_str(separator);
                 out_s.push_str(participant_details);
                 added += 1;
             } else {
@@ -809,6 +808,33 @@ mod filename_tests {
         let filename = app.filename_from_participants(&people);
         assert_eq!(filename, "He slipped his key into the lock, and we all very quietly entered the cell. The sleeper half turned, and then settled down once more into a deep slumber. Holmes stooped to the water-jug, moistened his sponge, and then rubbed it tw".to_string());
         assert!(filename.len() <= MAX_LENGTH);
+    }
+
+    #[test]
+    fn can_get_filename_respects_separator_length() {
+        let options = Options::fake_options(crate::app::export_type::ExportType::Html);
+        let mut app = Config::fake_app(options);
+
+        let export_path_len = app.options.export_path.as_os_str().len();
+        let max_len = MAX_LENGTH.saturating_sub(export_path_len + 1);
+
+        // P + N = max_len - 1 passes the raw-bytes check; pushing ", " would overflow.
+        let first_len = max_len / 2;
+        let second_len = max_len - first_len - 1;
+        let first = "a".repeat(first_len);
+        let second = "b".repeat(second_len);
+
+        app.participants.insert(10, Name::fake_name(&first));
+        app.participants.insert(11, Name::fake_name(&second));
+        app.real_participants.insert(10, 10);
+        app.real_participants.insert(11, 11);
+
+        let mut people = BTreeSet::new();
+        people.insert(10);
+        people.insert(11);
+
+        let actual = app.filename_from_participants(&people);
+        assert!(actual.len() <= max_len);
     }
 
     #[test]
