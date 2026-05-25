@@ -161,14 +161,13 @@ where
         writer.config().data_source.db(),
         &writer.config().options.query_context,
     )?;
-    let messages = statement.query_map([], |row| Ok(Message::from_row(row)))?;
 
     // Reused across iterations so each message doesn't allocate a fresh
     // output buffer. Capacity grows naturally to fit the largest message
     // and `clear()` retains it.
     let mut msg_buf = String::with_capacity(W::BUFFER_CAPACITY);
-    for message in messages {
-        let mut msg = Message::extract(message)?;
+    for message in Message::rows(&mut statement, [])? {
+        let mut msg = message?;
 
         // Early escape if we try and render the same message GUID twice
         // See https://github.com/ReagentX/imessage-exporter/issues/135

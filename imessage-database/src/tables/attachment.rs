@@ -163,11 +163,8 @@ impl Attachment {
                     ))
                 })?;
 
-            let iter = statement.query_map([msg.rowid], |row| Ok(Attachment::from_row(row)))?;
-
-            for attachment in iter {
-                let m = Attachment::extract(attachment)?;
-                out_l.push(m);
+            for attachment in Attachment::rows(&mut statement, [msg.rowid])? {
+                out_l.push(attachment?);
             }
         }
         Ok(out_l)

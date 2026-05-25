@@ -101,7 +101,7 @@
  let db_path = default_db_path();
  let db = get_connection(&db_path).unwrap();
 
- let mut statement = db.prepare("
+ let mut statement = db.prepare_cached("
  SELECT
      *,
      c.chat_id,
@@ -117,9 +117,9 @@
      m.date;
  ").unwrap();
 
- let messages = statement.query_map([], |row| Ok(Message::from_row(row))).unwrap();
-
- messages.for_each(|msg| println!("{:#?}", Message::extract(msg)));
+ for message in Message::rows(&mut statement, []).unwrap() {
+     println!("{:#?}", message);
+ }
  ```
 */
 
@@ -429,12 +429,9 @@ impl Cacheable for Message {
         )));
 
         if let Ok(mut statement) = statement {
-            // Execute query to build the message tapback map
-            let messages = statement.query_map([], |row| Ok(Message::from_row(row)))?;
-
             // Iterate over the messages and update the map
-            for message in messages {
-                let message = Self::extract(message)?;
+            for message in Self::rows(&mut statement, [])? {
+                let message = message?;
                 if message.is_tapback()
                     && let Some((idx, tapback_target_guid)) = message.clean_associated_guid()
                 {
@@ -1072,9 +1069,9 @@ impl Message {
     ///
     /// let mut statement = Message::stream_rows(&conn, &context).unwrap();
     ///
-    /// let messages = statement.query_map([], |row| Ok(Message::from_row(row))).unwrap();
-    ///
-    /// messages.for_each(|msg| println!("{:#?}", Message::extract(msg)));
+    /// for message in Message::rows(&mut statement, []).unwrap() {
+    ///     println!("{:#?}", message);
+    /// }
     /// ```
     pub fn stream_rows<'a>(
         db: &'a Connection,
@@ -1142,11 +1139,8 @@ impl Message {
                 .prepare_cached(&ios_16_newer_query(Some(filters)))
                 .or_else(|_| db.prepare_cached(&ios_14_15_query(Some(filters))))?;
 
-            let iter =
-                statement.query_map([self.guid.as_str()], |row| Ok(Message::from_row(row)))?;
-
-            for message in iter {
-                let m = Message::extract(message)?;
+            for message in Message::rows(&mut statement, [self.guid.as_str()])? {
+                let m = message?;
                 let idx = m.get_reply_index();
                 match out_h.get_mut(&idx) {
                     Some(body_part) => body_part.push(m),
@@ -1175,12 +1169,8 @@ impl Message {
                 .prepare_cached(&ios_16_newer_query(Some(filters)))
                 .or_else(|_| db.prepare_cached(&ios_14_15_query(Some(filters))))?;
 
-            let iter =
-                statement.query_map([self.guid.as_str()], |row| Ok(Message::from_row(row)))?;
-
-            for message in iter {
-                let m = Message::extract(message)?;
-                out_v.push(m);
+            for message in Message::rows(&mut statement, [self.guid.as_str()])? {
+                out_v.push(message?);
             }
         }
 
@@ -1473,7 +1463,7 @@ impl Message {
             .or_else(|_| db.prepare_cached(&ios_14_15_query(Some("WHERE m.guid = ?1"))))
             .or_else(|_| db.prepare_cached(&ios_13_older_query(Some("WHERE m.guid = ?1"))))?;
 
-        Message::extract(statement.query_row([guid], |row| Ok(Message::from_row(row))))
+        Message::row(&mut statement, [guid])
     }
 }
 
