@@ -523,30 +523,24 @@ impl HTML<'_> {
         text: &'a str,
         active_attrs: &'a [(usize, &[TextEffect])],
     ) -> Cow<'a, str> {
-        // If there are no active attributes, return the original text
-        if active_attrs.is_empty() {
-            return Cow::Borrowed(text);
-        }
-
-        // If there are active attributes, we need to format the text
-        let mut result = Cow::Borrowed(text);
-
-        // Iterate through the active attributes and apply their effects
-        // If we encounter a TextEffect that modifies the text, we will convert it to an owned type
-        // to ensure we can modify it.
+        // The first non-`Default` effect flips us into the owned path; from
+        // that point on every iteration reads from `owned` and writes the
+        // next render back into it.
+        let mut owned: Option<String> = None;
         for (_, effects) in active_attrs {
             for effect in *effects {
-                // If the effect is `Default`, we can skip it, because it does not modify the text
-                if !matches!(effect, TextEffect::Default) {
-                    // Once we need to modify, convert to owned and stay owned
-                    let owned_text = result.into_owned();
-                    let formatted = self.format_effect(&owned_text, effect);
-                    result = Cow::Owned(formatted.into_owned());
+                if matches!(effect, TextEffect::Default) {
+                    continue;
                 }
+                let current = owned.as_deref().unwrap_or(text);
+                owned = Some(self.format_effect(current, effect).into_owned());
             }
         }
 
-        result
+        match owned {
+            Some(s) => Cow::Owned(s),
+            None => Cow::Borrowed(text),
+        }
     }
 }
 
