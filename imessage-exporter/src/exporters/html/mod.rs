@@ -24,7 +24,7 @@ use crate::{
             message::MessageContext,
             part::dispatch_part_body,
             reply::{build_replies, build_tapbacks},
-            tapback::TapbackKind,
+            tapback::resolve_tapback,
             time::message_time,
         },
     },
@@ -32,11 +32,7 @@ use crate::{
 
 use imessage_database::{
     error::{message::MessageError, table::TableError},
-    message_types::{
-        edited::EditedMessage,
-        text_effects::TextEffect,
-        variants::{Announcement, Tapback, TapbackAction, Variant},
-    },
+    message_types::{edited::EditedMessage, text_effects::TextEffect, variants::Announcement},
     tables::{
         attachment::{Attachment, MediaType},
         messages::{
@@ -223,30 +219,11 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
     }
 
     fn format_tapback(&self, msg: &Message) -> Result<String, TableError> {
-        let Variant::Tapback(_, action, tapback) = msg.variant() else {
-            unreachable!()
-        };
-        if let TapbackAction::Removed = action {
+        let Some(kind) = resolve_tapback(msg, self.config, |sticker| {
+            Html::trust(self.format_sticker(sticker, msg))
+        })?
+        else {
             return Ok(String::new());
-        }
-        let who = self
-            .config
-            .who(msg.handle_id, msg.is_from_me(), &msg.destination_caller_id);
-        let kind = match tapback {
-            Tapback::Sticker => {
-                let mut paths = Attachment::from_message(self.config.data_source.db(), msg)?;
-                match paths.get_mut(0) {
-                    Some(sticker) => TapbackKind::Sticker {
-                        payload: Html::trust(self.format_sticker(sticker, msg)),
-                        who,
-                    },
-                    None => TapbackKind::StickerMissing { who },
-                }
-            }
-            other => TapbackKind::Reaction {
-                tapback: other,
-                who,
-            },
         };
         Ok(TapbackVM { kind }.render().unwrap_or_default())
     }
