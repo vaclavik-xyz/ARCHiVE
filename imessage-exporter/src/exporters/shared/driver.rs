@@ -186,9 +186,10 @@ where
         apply_body(&mut msg, writer.config().data_source.db());
 
         if msg.is_announcement() {
-            let announcement = writer.format_announcement(&msg);
+            msg_buf.clear();
+            writer.format_announcement(&msg, &mut msg_buf);
             let file = get_or_create_file_for(writer, &msg)?;
-            file.write_all(announcement.as_bytes())
+            file.write_all(msg_buf.as_bytes())
                 .map_err(RuntimeError::DiskError)?;
         }
         // Message tapbacks and poll votes are rendered in context, so no need to render them separately

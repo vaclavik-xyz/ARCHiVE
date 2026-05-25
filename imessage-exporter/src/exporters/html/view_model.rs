@@ -277,9 +277,9 @@ pub(super) struct MessageVM<'a> {
     pub is_deleted: bool,
     pub subject: Option<&'a str>,
     /// SharePlay marker
-    pub shareplay: Option<Html<&'a str>>,
+    pub shareplay: Option<Html<&'static str>>,
     /// Shared-location marker
-    pub shared_location: Option<Html<&'a str>>,
+    pub shared_location: Option<Html<&'static str>>,
     /// Rendered directly into the outer buffer via [`MessagePartVM`]'s
     /// `Display` impl.
     pub parts: Vec<MessagePartVM<'a>>,

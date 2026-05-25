@@ -193,9 +193,9 @@ pub(super) struct MessageVM<'a> {
     pub is_deleted: bool,
     pub subject: Option<&'a str>,
     /// Static SharePlay marker (`"SharePlay Message\nEnded"`).
-    pub shareplay: Option<&'a str>,
+    pub shareplay: Option<&'static str>,
     /// Static shared-location marker.
-    pub shared_location: Option<&'a str>,
+    pub shared_location: Option<&'static str>,
     pub parts: Vec<MessagePartVM<'a>>,
     /// Whether the source message is itself a reply
     pub is_reply: bool,

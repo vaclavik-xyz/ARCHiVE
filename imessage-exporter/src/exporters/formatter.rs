@@ -65,8 +65,10 @@ pub(crate) trait MessageFormatter<'a> {
     ) -> Result<String, MessageError>;
     /// Format a tapback (displayed under a message)
     fn format_tapback(&self, msg: &Message) -> Result<String, TableError>;
-    /// Format an announcement message
-    fn format_announcement(&self, msg: &Message) -> String;
+    /// Render an announcement message directly into `out`. Permits reuse of
+    /// the same buffer that [`format_message_into`](Self::format_message_into)
+    /// uses, so the per-message hot path doesn't allocate per call.
+    fn format_announcement(&self, msg: &Message, out: &mut String);
     /// Format a `SharePlay` message
     fn format_shareplay(&self) -> &'static str;
     /// Format a legacy Shared Location message

@@ -223,7 +223,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         Ok(TapbackVM { kind }.render().unwrap_or_default())
     }
 
-    fn format_announcement(&self, msg: &Message) -> String {
+    fn format_announcement(&self, msg: &Message, out: &mut String) {
         let (kind, wrap_newlines) = match resolve_announcement(msg, self.config, YOU) {
             None => (AnnouncementBody::Unknown, true),
             Some(resolved) => {
@@ -232,15 +232,13 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             }
         };
 
-        let mut out = String::with_capacity(256);
         if wrap_newlines {
             out.push('\n');
         }
-        let _ = AnnouncementInnerVM { kind }.render_into(&mut out);
+        let _ = AnnouncementInnerVM { kind }.render_into(out);
         if wrap_newlines {
             out.push('\n');
         }
-        out
     }
 
     fn format_shareplay(&self) -> &'static str {
@@ -860,7 +858,8 @@ mod tests {
         message.is_from_me = true;
         message.item_type = 2;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You named the conversation <b>Hello world</b></p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -883,7 +882,8 @@ mod tests {
         message.group_title = Some("Hello world".to_string());
         message.item_type = 2;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> Name named the conversation <b>Hello world</b></p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -907,7 +907,8 @@ mod tests {
         message.is_from_me = true;
         message.item_type = 3; // ParticipantLeft
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> Bob &amp; &lt;Alice&gt; left the conversation.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -1176,7 +1177,8 @@ mod tests {
         let mut message = Config::fake_message();
         message.date = 674526582885055488;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected =
             "\n<div class=\"announcement\">\n    <p>Unable to format announcement!</p>\n</div>\n";
 
@@ -1204,7 +1206,8 @@ mod tests {
         message.group_action_type = 1;
         message.other_handle = Some(1);
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You removed Other from the conversation.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -1234,7 +1237,8 @@ mod tests {
         message.group_action_type = 1;
         message.other_handle = Some(2);
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> Other removed Second from the conversation.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -1262,7 +1266,8 @@ mod tests {
         message.group_action_type = 0;
         message.other_handle = Some(1);
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> Other changed their phone number.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -1289,7 +1294,8 @@ mod tests {
         message.group_action_type = 0;
         message.other_handle = Some(1);
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You added Other to the conversation.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -1312,7 +1318,8 @@ mod tests {
         message.is_from_me = true;
         message.item_type = 3;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You left the conversation.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -1336,7 +1343,8 @@ mod tests {
         message.item_type = 3;
         message.group_action_type = 2;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You removed the group photo.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -1360,7 +1368,8 @@ mod tests {
         message.item_type = 3;
         message.group_action_type = 1;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You changed the group photo.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -1384,7 +1393,8 @@ mod tests {
         message.item_type = 3;
         message.group_action_type = 6;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You removed the chat background.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -1408,7 +1418,8 @@ mod tests {
         message.item_type = 3;
         message.group_action_type = 4;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You changed the chat background.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -1430,7 +1441,8 @@ mod tests {
         message.is_from_me = true;
         message.item_type = 5;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "\n<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You kept an audio message.</p>\n</div>\n";
 
         assert_eq!(actual, expected);
@@ -3750,7 +3762,8 @@ mod edited_tests {
 
         message.components = vec![];
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "<div class=\"announcement\">\n    <p><span class=\"timestamp\">May 17, 2022  5:29:42 PM</span> You unsent a message.</p>\n</div>";
 
         assert_eq!(actual, expected);

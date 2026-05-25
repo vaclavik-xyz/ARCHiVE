@@ -170,10 +170,10 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         Ok(TapbackVM { kind }.render().unwrap_or_default())
     }
 
-    fn format_announcement(&self, msg: &Message) -> String {
+    fn format_announcement(&self, msg: &Message, out: &mut String) {
         let kind = resolve_announcement(msg, self.config, YOU)
             .map_or(AnnouncementBody::Unknown, AnnouncementBody::from);
-        AnnouncementVM { kind }.render().unwrap_or_default()
+        let _ = AnnouncementVM { kind }.render_into(out);
     }
 
     fn format_shareplay(&self) -> &'static str {
@@ -707,7 +707,8 @@ mod tests {
         message.is_from_me = true;
         message.item_type = 2;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM You named the conversation Hello world\n\n";
 
         assert_eq!(actual, expected);
@@ -730,7 +731,8 @@ mod tests {
         message.group_title = Some("Hello world".to_string());
         message.item_type = 2;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM Name named the conversation Hello world\n\n";
 
         assert_eq!(actual, expected);
@@ -784,7 +786,8 @@ mod tests {
         let mut message = Config::fake_message();
         message.date = 674526582885055488;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "Unable to format announcement!\n\n";
 
         assert_eq!(actual, expected);
@@ -811,7 +814,8 @@ mod tests {
         message.group_action_type = 1;
         message.other_handle = Some(1);
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM You removed Other from the conversation.\n\n";
 
         assert_eq!(actual, expected);
@@ -841,7 +845,8 @@ mod tests {
         message.group_action_type = 1;
         message.other_handle = Some(2);
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM Other removed Second from the conversation.\n\n";
 
         assert_eq!(actual, expected);
@@ -869,7 +874,8 @@ mod tests {
         message.group_action_type = 0;
         message.other_handle = Some(1);
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM Other changed their phone number.\n\n";
 
         assert_eq!(actual, expected);
@@ -896,7 +902,8 @@ mod tests {
         message.group_action_type = 0;
         message.other_handle = Some(1);
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM You added Other to the conversation.\n\n";
 
         assert_eq!(actual, expected);
@@ -919,7 +926,8 @@ mod tests {
         message.is_from_me = true;
         message.item_type = 3;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM You left the conversation.\n\n";
 
         assert_eq!(actual, expected);
@@ -943,7 +951,8 @@ mod tests {
         message.item_type = 3;
         message.group_action_type = 2;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM You removed the group photo.\n\n";
 
         assert_eq!(actual, expected);
@@ -967,7 +976,8 @@ mod tests {
         message.item_type = 3;
         message.group_action_type = 1;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM You changed the group photo.\n\n";
 
         assert_eq!(actual, expected);
@@ -991,7 +1001,8 @@ mod tests {
         message.item_type = 3;
         message.group_action_type = 6;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM You removed the chat background.\n\n";
 
         assert_eq!(actual, expected);
@@ -1015,7 +1026,8 @@ mod tests {
         message.item_type = 3;
         message.group_action_type = 4;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM You changed the chat background.\n\n";
 
         assert_eq!(actual, expected);
@@ -1037,7 +1049,8 @@ mod tests {
         message.is_from_me = true;
         message.item_type = 5;
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM You kept an audio message.\n\n";
 
         assert_eq!(actual, expected);
@@ -2976,7 +2989,8 @@ mod edited_tests {
 
         message.components = vec![BubbleComponent::Retracted];
 
-        let actual = exporter.format_announcement(&message);
+        let mut actual = String::new();
+        exporter.format_announcement(&message, &mut actual);
         let expected = "May 17, 2022  5:29:42 PM You unsent a message!\n\n";
 
         assert_eq!(actual, expected);
