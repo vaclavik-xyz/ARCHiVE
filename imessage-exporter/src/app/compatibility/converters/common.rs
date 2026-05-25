@@ -22,7 +22,11 @@ pub(super) fn run_command(command: &str, args: Vec<&str>) -> Option<()> {
         .spawn()
     {
         Ok(mut convert) => match convert.wait() {
-            Ok(_) => Some(()),
+            Ok(status) if status.success() => Some(()),
+            Ok(status) => {
+                eprintln!("Conversion failed: {command} exited with {status}");
+                None
+            }
             Err(why) => {
                 eprintln!("Conversion failed: {why}");
                 None
