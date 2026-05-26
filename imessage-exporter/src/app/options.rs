@@ -55,7 +55,7 @@ pub const ABOUT: &str = concat!(
 );
 
 // MARK: Options
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub struct Options {
     /// Path to database file
     pub db_path: PathBuf,
@@ -89,6 +89,34 @@ pub struct Options {
     pub contacts_path: Option<PathBuf>,
     /// If false, suppress the export progress bar regardless of TTY state
     pub show_progress: bool,
+}
+
+// Override Debug default impl to avoid printing the cleartext password if it's set
+impl std::fmt::Debug for Options {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Options")
+            .field("db_path", &self.db_path)
+            .field("attachment_root", &self.attachment_root)
+            .field("attachment_manager", &self.attachment_manager)
+            .field("diagnostic", &self.diagnostic)
+            .field("export_type", &self.export_type)
+            .field("export_path", &self.export_path)
+            .field("query_context", &self.query_context)
+            .field("no_lazy", &self.no_lazy)
+            .field("custom_name", &self.custom_name)
+            .field("use_caller_id", &self.use_caller_id)
+            .field("platform", &self.platform)
+            .field("ignore_disk_space", &self.ignore_disk_space)
+            .field("conversation_filter", &self.conversation_filter)
+            // Don't print the actual password if it's set
+            .field(
+                "cleartext_password",
+                &self.cleartext_password.as_ref().map(|_| "***"),
+            )
+            .field("contacts_path", &self.contacts_path)
+            .field("show_progress", &self.show_progress)
+            .finish()
+    }
 }
 
 // MARK: Validation
