@@ -9,8 +9,9 @@ use crate::{
 };
 
 /// Run the per-attachment side effects every exporter needs before it can
-/// emit a reference to a file on disk: toggle the progress bar's "encoding
-/// video" indicator if the attachment will be transcoded, then ask the
+/// emit a reference to a file on disk: surface a busy indicator on the
+/// progress bar for conversions that spawn ffmpeg (video transcoding and
+/// animated-sticker decoding), then ask the
 /// [`AttachmentManager`](crate::app::compatibility::attachment_manager::AttachmentManager)
 /// to copy or convert the file.
 ///
@@ -27,16 +28,33 @@ pub(crate) fn prepare_attachment(
     attachment: &mut Attachment,
     message: &Message,
 ) -> Result<(), AttachmentRender> {
-    let will_encode = matches!(attachment.mime_type(), MediaType::Video(_))
+    // Determine which conversions actually invoke ffmpeg and freeze the bar.
+    // Both video transcoding (any video in Full mode) and animated-sticker
+    // conversion (HEICS in Basic/Full) spawn ffmpeg, so both should surface
+    // the busy indicator.
+    let mode = &config.options.attachment_manager.mode;
+    let is_video_full = matches!(attachment.mime_type(), MediaType::Video(_))
+        && matches!(mode, AttachmentManagerMode::Full);
+    let is_animated_sticker = attachment.is_sticker
         && matches!(
-            config.options.attachment_manager.mode,
-            AttachmentManagerMode::Full
+            attachment.mime_type(),
+            MediaType::Image("heics" | "HEICS" | "heic-sequence")
+        )
+        && matches!(
+            mode,
+            AttachmentManagerMode::Basic | AttachmentManagerMode::Full
         );
 
-    if will_encode {
-        state
-            .pb
-            .set_busy_style("Encoding video, estimates paused...".to_string());
+    let busy_label = if is_animated_sticker {
+        Some("Encoding animated sticker, estimates paused...")
+    } else if is_video_full {
+        Some("Encoding video, estimates paused...")
+    } else {
+        None
+    };
+
+    if let Some(label) = busy_label {
+        state.pb.set_busy_style(label.to_string());
     }
 
     let handle_result = config
@@ -44,7 +62,7 @@ pub(crate) fn prepare_attachment(
         .attachment_manager
         .handle_attachment(message, attachment, config);
 
-    if will_encode {
+    if busy_label.is_some() {
         state.pb.set_default_style();
     }
 
