@@ -1,7 +1,7 @@
 use std::{
     env::temp_dir,
     fs::File,
-    io::{BufWriter, Write, copy},
+    io::{BufWriter, IsTerminal, Write, copy, stdin},
     path::{Path, PathBuf},
 };
 
@@ -52,6 +52,11 @@ pub fn decrypt_backup(options: &Options) -> Result<Option<Backup>, RuntimeError>
 
 /// Prompt the user for the backup password, reading from the controlling terminal.
 fn prompt_for_password() -> Result<String, RuntimeError> {
+    if !stdin().is_terminal() {
+        return Err(RuntimeError::InvalidOptions(format!(
+            "No terminal available to prompt for the iOS backup password; pass --{OPTION_CLEARTEXT_PASSWORD} for non-interactive use."
+        )));
+    }
     eprintln!("Encrypted iOS backup detected. Enter password (input hidden):");
     rpassword::prompt_password("> ").map_err(|e| {
         RuntimeError::InvalidOptions(format!(
