@@ -4,7 +4,7 @@
 
 use std::{
     env::temp_dir,
-    fs::{create_dir_all, read_dir, remove_dir_all},
+    fs::{create_dir_all, remove_dir_all},
     path::{Path, PathBuf},
     process,
     time::{SystemTime, UNIX_EPOCH},
@@ -168,48 +168,31 @@ fn convert_heics_with_tmp(
                 ],
             )?;
 
-            // This step applies the transparency mask to the images.
-            // Discover the actual frame files emitted by ffmpeg rather than
-            // counting-and-indexing, so the loop matches whatever start
-            // number ffmpeg used.
-            let mut frames: Vec<PathBuf> = read_dir(tmp_path)
-                .ok()?
-                .flatten()
-                .map(|entry| entry.path())
-                .filter(|path| {
-                    path.file_name()
-                        .and_then(|name| name.to_str())
-                        .is_some_and(|name| name.starts_with("frame_") && name.ends_with(".png"))
-                })
-                .collect();
-            frames.sort();
+            // Apply the transparency mask to every frame in a single ffmpeg
+            // invocation. The image2 demuxer reads both sequences in lockstep
+            // and `alphamerge` pairs frame N with alpha N, so we avoid the
+            // per-frame process-spawn cost that previously made animated
+            // stickers take several seconds. `-start_number 0` on the output
+            // matches the demuxer's default in the final encode below, so the
+            // sequence reads reliably across ffmpeg builds without needing a
+            // `-start_number` flag on the gif assembly.
+            run_command(
+                video_converter.name(),
+                vec![
+                    "-i",
+                    &format!("{tmp}/frame_%04d.png"),
+                    "-i",
+                    &format!("{tmp}/alpha_%04d.png"),
+                    "-filter_complex",
+                    "[1:v]format=gray,geq=lum='p(X,Y)':a='p(X,Y)'[mask];[0:v][mask]alphamerge",
+                    "-start_number",
+                    "0",
+                    "-y",
+                    &format!("{tmp}/merged_%04d.png"),
+                ],
+            )?;
 
-            let mut first_merged: Option<PathBuf> = None;
-            for frame in &frames {
-                let stem = frame.file_stem()?.to_str()?;
-                let index = stem.strip_prefix("frame_")?;
-                let alpha = tmp_path.join(format!("alpha_{index}.png"));
-                if !alpha.exists() {
-                    continue;
-                }
-                let merged = tmp_path.join(format!("merged_{index}.png"));
-                run_command(
-                    video_converter.name(),
-                    vec![
-                        "-i",
-                        frame.to_str()?,
-                        "-i",
-                        alpha.to_str()?,
-                        "-filter_complex",
-                        "[1:v]format=gray,geq=lum='p(X,Y)':a='p(X,Y)'[mask];[0:v][mask]alphamerge",
-                        merged.to_str()?,
-                    ],
-                )?;
-                if first_merged.is_none() {
-                    first_merged = Some(merged);
-                }
-            }
-            let first_merged = first_merged?;
+            let first_merged = tmp_path.join("merged_0000.png");
 
             // Once we have the transparent frames,
             // we use the first frame to generate a transparency palette

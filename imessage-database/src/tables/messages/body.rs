@@ -170,8 +170,9 @@ pub fn parse_body_typedstream<'a>(
             }
         }
     }
-    // If we have no components, return None
-    (!out_v.is_empty()).then_some(ParseResult {
+    // Return None only when nothing useful was extracted. `Some("")` is a
+    // valid result.
+    (!out_v.is_empty() || message_text.is_some()).then_some(ParseResult {
         components: out_v,
         text: message_text,
     })
