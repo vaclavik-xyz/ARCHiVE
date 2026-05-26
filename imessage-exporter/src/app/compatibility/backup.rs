@@ -108,9 +108,15 @@ pub fn get_decrypted_contacts_database(backup: &Backup) -> Result<PathBuf, Runti
 pub fn decrypt_file(backup: &Backup, from: &Path) -> Result<PathBuf, RuntimeError> {
     match backup.get_file(
         from.file_name()
-            .ok_or(RuntimeError::FileNameError)?
+            .ok_or_else(|| RuntimeError::FileNameError {
+                path: from.to_path_buf(),
+                reason: "path has no file name component",
+            })?
             .to_str()
-            .ok_or(RuntimeError::FileNameError)?,
+            .ok_or_else(|| RuntimeError::FileNameError {
+                path: from.to_path_buf(),
+                reason: "file name is not valid UTF-8",
+            })?,
     ) {
         Ok(file) => {
             let temp_dir = temp_dir().join(&file.file_id);

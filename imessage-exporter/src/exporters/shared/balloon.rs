@@ -103,7 +103,11 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
                 CustomBalloon::Polls
                 | CustomBalloon::Handwriting
                 | CustomBalloon::DigitalTouch
-                | CustomBalloon::URL => unreachable!(),
+                | CustomBalloon::URL => {
+                    return Err(MessageError::PlistParseError(
+                        PlistParseError::WrongMessageType,
+                    ));
+                }
             },
             Err(why) => return Err(MessageError::PlistParseError(why)),
         }

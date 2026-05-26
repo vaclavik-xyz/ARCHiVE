@@ -345,12 +345,12 @@ impl Config {
         // Export size is usually about 6% the size of the db;
         // we divide by 10 to over-estimate about 10% of the total size
         // for some safe headroom
-        let total_db_size = get_db_size(Path::new(
-            self.data_source
-                .db()
-                .path()
-                .ok_or(RuntimeError::FileNameError)?,
-        ))?;
+        let total_db_size = get_db_size(Path::new(self.data_source.db().path().ok_or_else(
+            || RuntimeError::FileNameError {
+                path: self.options.db_path.clone(),
+                reason: "database connection has no associated path",
+            },
+        )?))?;
         let mut estimated_export_size = total_db_size / 10;
 
         let free_space_at_location = available_space(&self.options.export_path)?;
@@ -490,12 +490,12 @@ impl Config {
         // Global Diagnostics
         println!("Global diagnostic data:");
 
-        let total_db_size = get_db_size(Path::new(
-            self.data_source
-                .db()
-                .path()
-                .ok_or(RuntimeError::FileNameError)?,
-        ))?;
+        let total_db_size = get_db_size(Path::new(self.data_source.db().path().ok_or_else(
+            || RuntimeError::FileNameError {
+                path: self.options.db_path.clone(),
+                reason: "database connection has no associated path",
+            },
+        )?))?;
         println!(
             "    Total database size: {}",
             format_file_size(total_db_size)
