@@ -4,7 +4,7 @@ use std::{
         hash_map::Entry::{Occupied, Vacant},
     },
     fs::File,
-    io::{self, BufWriter, IsTerminal, Write},
+    io::{BufWriter, IsTerminal, Write, stderr},
 };
 
 use imessage_database::tables::{
@@ -43,7 +43,7 @@ impl ExportState {
         let file = File::options().append(true).create(true).open(&orphaned)?;
         // `--no-progress` forces off; otherwise show only when stderr is a TTY
         // so headless invocations (CI, redirects to logfiles) stay clean.
-        let pb_enabled = config.options.show_progress && io::stderr().is_terminal();
+        let pb_enabled = config.options.show_progress && stderr().is_terminal();
         Ok(Self {
             files: HashMap::new(),
             orphaned: BufWriter::new(file),
