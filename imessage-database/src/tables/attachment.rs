@@ -486,10 +486,11 @@ impl Attachment {
     /// Generate an iOS path for an attachment
     fn gen_ios_attachment(file_path: &str, db_path: &Path) -> Option<String> {
         let input = file_path.get(2..)?;
-        let filename = format!(
-            "{:x}",
-            Sha1::digest(format!("MediaDomain-{input}").as_bytes())
-        );
+        let digest = Sha1::digest(format!("MediaDomain-{input}").as_bytes());
+        let filename = digest
+            .iter()
+            .map(|byte| format!("{:02x}", byte))
+            .collect::<String>();
         let directory = filename.get(0..2)?;
 
         Some(format!("{}/{directory}/{filename}", db_path.display()))
