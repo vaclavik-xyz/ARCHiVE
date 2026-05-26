@@ -139,6 +139,12 @@ where
 /// rendered in context by their parent messages, so they're skipped here.
 /// Duplicate ROWIDs are dropped (see [issue #135]).
 ///
+/// Per-message formatting errors (corrupt edited blobs, unparseable balloons,
+/// etc.) are caught, logged to `stderr` (with `rowid` + `guid`), and tallied. The
+/// export continues for the remaining messages. A one-line summary is emitted
+/// after the progress bar only when one or more messages were skipped.
+/// Row-deserialization errors and I/O errors remain fatal.
+///
 /// [issue #135]: https://github.com/ReagentX/imessage-exporter/issues/135
 pub fn run_export<'a, W>(writer: &mut W) -> Result<(), RuntimeError>
 where
@@ -154,6 +160,7 @@ where
 
     let mut current_message_row = -1;
     let mut current_message = 0;
+    let mut failures: u64 = 0;
     let total_messages = Message::get_count(
         writer.config().data_source.db(),
         &writer.config().options.query_context,
@@ -191,9 +198,19 @@ where
         // Message tapbacks and poll votes are rendered in context, so no need to render them separately
         else if !msg.is_tapback() && !msg.is_poll_vote() && !msg.is_poll_update() {
             msg_buf.clear();
-            writer.format_message_into(&msg, RenderContext::TopLevel, &mut msg_buf)?;
-            let file = get_or_create_file_for(writer, &msg)?;
-            file.write_all(msg_buf.as_bytes())?;
+            match writer.format_message_into(&msg, RenderContext::TopLevel, &mut msg_buf) {
+                Ok(()) => {
+                    let file = get_or_create_file_for(writer, &msg)?;
+                    file.write_all(msg_buf.as_bytes())?;
+                }
+                Err(why) => {
+                    failures += 1;
+                    eprintln!(
+                        "Skipping message (rowid={}, guid={}): {}",
+                        msg.rowid, msg.guid, why
+                    );
+                }
+            }
         }
         current_message += 1;
         if current_message % 99 == 0 {
@@ -201,6 +218,10 @@ where
         }
     }
     writer.state().pb.finish();
+
+    if failures > 0 {
+        eprintln!("{failures} messages skipped due to formatting errors.");
+    }
 
     if let Some(notice) = W::footer_notice() {
         eprintln!("{notice}");
