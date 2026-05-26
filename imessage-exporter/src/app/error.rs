@@ -6,6 +6,7 @@ use std::{
     error::Error,
     fmt::{Display, Formatter, Result},
     io::Error as IoError,
+    path::PathBuf,
 };
 
 use crabapple::error::BackupError;
@@ -25,7 +26,7 @@ pub enum RuntimeError {
     MessageError(MessageError),
     BackupError(BackupError),
     NotEnoughAvailableSpace(u64, u64),
-    FileNameError,
+    FileNameError { path: PathBuf, reason: &'static str },
 }
 
 impl Display for RuntimeError {
@@ -44,7 +45,9 @@ impl Display for RuntimeError {
                 )
             }
             RuntimeError::BackupError(why) => write!(fmt, "{why}"),
-            RuntimeError::FileNameError => write!(fmt, "Invalid file name!"),
+            RuntimeError::FileNameError { path, reason } => {
+                write!(fmt, "Invalid file name at {}: {reason}", path.display())
+            }
         }
     }
 }
@@ -58,7 +61,7 @@ impl Error for RuntimeError {
             RuntimeError::BackupError(why) => Some(why),
             RuntimeError::InvalidOptions(_)
             | RuntimeError::NotEnoughAvailableSpace(_, _)
-            | RuntimeError::FileNameError => None,
+            | RuntimeError::FileNameError { .. } => None,
         }
     }
 }
