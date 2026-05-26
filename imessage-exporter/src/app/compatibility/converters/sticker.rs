@@ -184,15 +184,18 @@ fn convert_heics_with_tmp(
                 .collect();
             frames.sort();
 
-            let mut first_merged: Option<PathBuf> = None;
-            for frame in &frames {
-                let stem = frame.file_stem()?.to_str()?;
-                let index = stem.strip_prefix("frame_")?;
-                let alpha = tmp_path.join(format!("alpha_{index}.png"));
-                if !alpha.exists() {
-                    continue;
-                }
-                let merged = tmp_path.join(format!("merged_{index}.png"));
+            // Pair frames with their alpha masks and assign dense merged
+            // destinations starting at 0000. ffmpeg's `image2` demuxer treats
+            // any gap as end-of-sequence, so renumbering densely is what
+            // prevents silent truncation when an alpha mask is missing.
+            // Starting at 0000 also matches the demuxer's default
+            // `start_number=0`, so the final encode reads the sequence
+            // reliably across ffmpeg builds.
+            let (merge_ops, skipped) = plan_merge_ops(&frames, tmp_path);
+            for frame in &skipped {
+                eprintln!("Skipping {}: no matching alpha mask", frame.display());
+            }
+            for (frame, alpha, merged) in &merge_ops {
                 run_command(
                     video_converter.name(),
                     vec![
@@ -205,11 +208,8 @@ fn convert_heics_with_tmp(
                         merged.to_str()?,
                     ],
                 )?;
-                if first_merged.is_none() {
-                    first_merged = Some(merged);
-                }
             }
-            let first_merged = first_merged?;
+            let first_merged = merge_ops.first()?.2.clone();
 
             // Once we have the transparent frames,
             // we use the first frame to generate a transparency palette
@@ -245,6 +245,39 @@ fn convert_heics_with_tmp(
     }
 }
 
+/// Pair each frame file with its matching alpha mask and assign dense
+/// `merged_NNNN.png` destinations starting at index 0. Frames whose alpha
+/// is missing are returned in `skipped` so the caller can warn about them.
+///
+/// Dense numbering is load-bearing: ffmpeg's `image2` demuxer stops at the
+/// first gap in the input pattern, silently truncating the output. Starting
+/// at 0000 also matches the demuxer's default `start_number=0`.
+fn plan_merge_ops(
+    frames: &[PathBuf],
+    tmp_path: &Path,
+) -> (Vec<(PathBuf, PathBuf, PathBuf)>, Vec<PathBuf>) {
+    let mut ops: Vec<(PathBuf, PathBuf, PathBuf)> = Vec::with_capacity(frames.len());
+    let mut skipped: Vec<PathBuf> = Vec::new();
+    for frame in frames {
+        let index = frame
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.strip_prefix("frame_"));
+        let Some(index) = index else {
+            skipped.push(frame.clone());
+            continue;
+        };
+        let alpha = tmp_path.join(format!("alpha_{index}.png"));
+        if !alpha.exists() {
+            skipped.push(frame.clone());
+            continue;
+        }
+        let merged = tmp_path.join(format!("merged_{:04}.png", ops.len()));
+        ops.push((frame.clone(), alpha, merged));
+    }
+    (ops, skipped)
+}
+
 /// Create a unique scratch directory under the platform temp dir.
 ///
 /// Names include the process ID and a nanosecond timestamp so that
@@ -264,4 +297,128 @@ fn unique_tmp_dir() -> Option<PathBuf> {
         return None;
     }
     Some(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs::{File, remove_dir_all},
+        path::{Path, PathBuf},
+    };
+
+    use crate::app::compatibility::converters::sticker::{plan_merge_ops, unique_tmp_dir};
+
+    fn touch(path: &Path) {
+        File::create(path).unwrap();
+    }
+
+    #[test]
+    fn plan_merge_ops_pairs_all_frames_when_alphas_present() {
+        let tmp = unique_tmp_dir().unwrap();
+        let frames = vec![
+            tmp.join("frame_0001.png"),
+            tmp.join("frame_0002.png"),
+            tmp.join("frame_0003.png"),
+        ];
+        for index in ["0001", "0002", "0003"] {
+            touch(&tmp.join(format!("alpha_{index}.png")));
+        }
+
+        let (actual_ops, actual_skipped) = plan_merge_ops(&frames, &tmp);
+        let expected_ops = vec![
+            (
+                frames[0].clone(),
+                tmp.join("alpha_0001.png"),
+                tmp.join("merged_0000.png"),
+            ),
+            (
+                frames[1].clone(),
+                tmp.join("alpha_0002.png"),
+                tmp.join("merged_0001.png"),
+            ),
+            (
+                frames[2].clone(),
+                tmp.join("alpha_0003.png"),
+                tmp.join("merged_0002.png"),
+            ),
+        ];
+        let expected_skipped: Vec<PathBuf> = vec![];
+        assert_eq!(actual_ops, expected_ops);
+        assert_eq!(actual_skipped, expected_skipped);
+
+        let _ = remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn plan_merge_ops_renumbers_densely_around_missing_alpha() {
+        let tmp = unique_tmp_dir().unwrap();
+        let frames = vec![
+            tmp.join("frame_0001.png"),
+            tmp.join("frame_0002.png"),
+            tmp.join("frame_0003.png"),
+        ];
+        // alpha_0002.png deliberately absent
+        touch(&tmp.join("alpha_0001.png"));
+        touch(&tmp.join("alpha_0003.png"));
+
+        let (actual_ops, actual_skipped) = plan_merge_ops(&frames, &tmp);
+        let expected_ops = vec![
+            (
+                frames[0].clone(),
+                tmp.join("alpha_0001.png"),
+                tmp.join("merged_0000.png"),
+            ),
+            (
+                frames[2].clone(),
+                tmp.join("alpha_0003.png"),
+                tmp.join("merged_0001.png"),
+            ),
+        ];
+        let expected_skipped = vec![frames[1].clone()];
+        assert_eq!(actual_ops, expected_ops);
+        assert_eq!(actual_skipped, expected_skipped);
+
+        let _ = remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn plan_merge_ops_handles_zero_indexed_frames() {
+        let tmp = unique_tmp_dir().unwrap();
+        let frames = vec![tmp.join("frame_0000.png"), tmp.join("frame_0001.png")];
+        touch(&tmp.join("alpha_0000.png"));
+        touch(&tmp.join("alpha_0001.png"));
+
+        let (actual_ops, actual_skipped) = plan_merge_ops(&frames, &tmp);
+        let expected_ops = vec![
+            (
+                frames[0].clone(),
+                tmp.join("alpha_0000.png"),
+                tmp.join("merged_0000.png"),
+            ),
+            (
+                frames[1].clone(),
+                tmp.join("alpha_0001.png"),
+                tmp.join("merged_0001.png"),
+            ),
+        ];
+        let expected_skipped: Vec<PathBuf> = vec![];
+        assert_eq!(actual_ops, expected_ops);
+        assert_eq!(actual_skipped, expected_skipped);
+
+        let _ = remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn plan_merge_ops_skips_every_frame_when_no_alphas_exist() {
+        let tmp = unique_tmp_dir().unwrap();
+        let frames = vec![tmp.join("frame_0001.png"), tmp.join("frame_0002.png")];
+
+        let (actual_ops, actual_skipped) = plan_merge_ops(&frames, &tmp);
+        let expected_ops: Vec<(PathBuf, PathBuf, PathBuf)> = vec![];
+        let expected_skipped = frames.clone();
+        assert_eq!(actual_ops, expected_ops);
+        assert_eq!(actual_skipped, expected_skipped);
+
+        let _ = remove_dir_all(&tmp);
+    }
 }
