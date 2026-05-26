@@ -132,7 +132,10 @@ impl<'a> BalloonProvider<'a> for EditedMessage {
                     .as_array()
                     .ok_or_else(|| PlistParseError::InvalidTypeIndex(idx, "array".to_string()))?;
                 let parsed_key = key.parse::<usize>().map_err(|_| {
-                    PlistParseError::InvalidType(key.clone(), "string".to_string())
+                    PlistParseError::InvalidType(
+                        "ec dictionary key".to_string(),
+                        "numeric string".to_string(),
+                    )
                 })?;
 
                 for event in events {
