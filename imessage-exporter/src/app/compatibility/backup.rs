@@ -5,7 +5,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crabapple::{Authentication, Backup, backup::models::manifest::manifest_plist::ManifestData};
+use crabapple::{
+    Authentication, Backup, backup::models::manifest::manifest_plist::ManifestData,
+    error::BackupError,
+};
 use imessage_database::{tables::table::DEFAULT_PATH_IOS, util::platform::Platform};
 
 use crate::app::{
@@ -45,7 +48,15 @@ pub fn decrypt_backup(options: &Options) -> Result<Option<Backup>, RuntimeError>
 
     eprintln!("Decrypting iOS backup...");
     eprintln!("  [1/5] Deriving backup keys...");
-    let backup = Backup::open(options.db_path.clone(), &Authentication::Password(password))?;
+    let backup = match Backup::open(options.db_path.clone(), &Authentication::Password(password)) {
+        Ok(backup) => backup,
+        Err(BackupError::PasswordOrKeyIncorrect) => {
+            return Err(RuntimeError::InvalidOptions(
+                "The iOS backup password was incorrect.".to_string(),
+            ));
+        }
+        Err(other) => return Err(other.into()),
+    };
 
     Ok(Some(backup))
 }
