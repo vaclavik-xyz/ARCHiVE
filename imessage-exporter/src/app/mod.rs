@@ -8,3 +8,6 @@ pub mod options;
 pub mod progress;
 pub mod runtime;
 pub mod sanitizers;
+
+#[cfg(test)]
+pub mod test_dir;
