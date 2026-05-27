@@ -149,6 +149,8 @@ fn convert_heics_with_tmp(
                     from_path,
                     "-map",
                     "0:2",
+                    "-start_number",
+                    "0",
                     "-y",
                     &format!("{tmp}/frame_%04d.png"),
                 ],
@@ -163,6 +165,8 @@ fn convert_heics_with_tmp(
                     from_path,
                     "-map",
                     "0:3",
+                    "-start_number",
+                    "0",
                     "-y",
                     &format!("{tmp}/alpha_%04d.png"),
                 ],
@@ -172,15 +176,19 @@ fn convert_heics_with_tmp(
             // invocation. The image2 demuxer reads both sequences in lockstep
             // and `alphamerge` pairs frame N with alpha N, so we avoid the
             // per-frame process-spawn cost that previously made animated
-            // stickers take several seconds. `-start_number 0` on the output
-            // matches the demuxer's default in the final encode below, so the
-            // sequence reads reliably across ffmpeg builds without needing a
-            // `-start_number` flag on the gif assembly.
+            // stickers take several seconds. Every image2 sequence read and
+            // write in this function pins `-start_number 0` so the pipeline
+            // does not depend on the muxer (default 1) and demuxer (default
+            // 0) defaults agreeing across ffmpeg builds.
             run_command(
                 video_converter.name(),
                 vec![
+                    "-start_number",
+                    "0",
                     "-i",
                     &format!("{tmp}/frame_%04d.png"),
+                    "-start_number",
+                    "0",
                     "-i",
                     &format!("{tmp}/alpha_%04d.png"),
                     "-filter_complex",
@@ -211,6 +219,8 @@ fn convert_heics_with_tmp(
             run_command(
                 video_converter.name(),
                 vec![
+                    "-start_number",
+                    "0",
                     "-i",
                     &format!("{tmp}/merged_%04d.png"),
                     "-i",
