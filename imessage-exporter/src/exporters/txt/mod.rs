@@ -1471,8 +1471,7 @@ mod tests {
     #[test]
     fn can_format_txt_attachment_sticker() {
         // Create exporter
-        let mut options = Options::fake_options(ExportType::Txt);
-        options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
+        let options = Options::fake_options(ExportType::Txt);
 
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1491,7 +1490,12 @@ mod tests {
             .unwrap()
             .join("imessage-database/test_data/stickers/outline.heic");
         attachment.filename = Some(sticker_path.to_string_lossy().to_string());
-        attachment.copied_path = Some(sticker_path);
+        attachment.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
 
         let actual = exporter.format_sticker(&mut attachment, &message);
 
@@ -1499,21 +1503,12 @@ mod tests {
             actual,
             "Outline Sticker from Me: imessage-database/test_data/stickers/outline.heic"
         );
-
-        // Remove the file created by the constructor for this test
-        let orphaned_path = current_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("orphaned.txt");
-        let _ = std::fs::remove_file(orphaned_path);
     }
 
     #[test]
     fn can_format_txt_attachment_sticker_genmoji() {
         // Create exporter
-        let mut options = Options::fake_options(ExportType::Txt);
-        options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
+        let options = Options::fake_options(ExportType::Txt);
 
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1533,7 +1528,12 @@ mod tests {
             .unwrap()
             .join("imessage-database/test_data/stickers/outline.heic");
         attachment.filename = Some(sticker_path.to_string_lossy().to_string());
-        attachment.copied_path = Some(sticker_path);
+        attachment.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
 
         let actual = exporter.format_sticker(&mut attachment, &message);
 
@@ -1541,21 +1541,12 @@ mod tests {
             actual,
             "Sticker from Me: imessage-database/test_data/stickers/outline.heic (Genmoji prompt: Example description)"
         );
-
-        // Remove the file created by the constructor for this test
-        let orphaned_path = current_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("orphaned.txt");
-        let _ = std::fs::remove_file(orphaned_path);
     }
 
     #[test]
     fn can_format_txt_attachment_sticker_app() {
         // Create exporter
-        let mut options = Options::fake_options(ExportType::Txt);
-        options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
+        let options = Options::fake_options(ExportType::Txt);
 
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1574,7 +1565,12 @@ mod tests {
             .unwrap()
             .join("imessage-database/test_data/stickers/outline.heic");
         attachment.filename = Some(sticker_path.to_string_lossy().to_string());
-        attachment.copied_path = Some(sticker_path);
+        attachment.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
 
         let actual = exporter.format_sticker(&mut attachment, &message);
 
@@ -1582,14 +1578,6 @@ mod tests {
             actual,
             "Sticker from Me: imessage-database/test_data/stickers/outline.heic (App: Free People)"
         );
-
-        // Remove the file created by the constructor for this test
-        let orphaned_path = current_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("orphaned.txt");
-        let _ = std::fs::remove_file(orphaned_path);
     }
 
     #[test]
