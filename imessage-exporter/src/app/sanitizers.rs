@@ -11,18 +11,67 @@ use crate::app::escaping::ChatEscaper;
 /// The character to replace disallowed chars with
 const FILENAME_REPLACEMENT_CHAR: char = '_';
 
+/// Windows reserves these device names — case-insensitive, regardless of
+/// extension.
+///
+/// Detail at https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
+const WINDOWS_RESERVED_NAMES: &[&str] = &[
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "COM0",
+    "COM1",
+    "COM2",
+    "COM3",
+    "COM4",
+    "COM5",
+    "COM6",
+    "COM7",
+    "COM8",
+    "COM9",
+    "COM\u{B9}",
+    "COM\u{B2}",
+    "COM\u{B3}",
+    "LPT0",
+    "LPT1",
+    "LPT2",
+    "LPT3",
+    "LPT4",
+    "LPT5",
+    "LPT6",
+    "LPT7",
+    "LPT8",
+    "LPT9",
+    "LPT\u{B9}",
+    "LPT\u{B2}",
+    "LPT\u{B3}",
+];
+
 /// Returns true if a character is disallowed in filenames
 #[inline]
 fn is_filename_disallowed(c: char) -> bool {
     matches!(c, '*' | '"' | '/' | '\\' | '<' | '>' | ':' | '|' | '?')
 }
 
-/// Remove unsafe chars in filenames.
+/// Returns true if the basename (up to the first `.`) matches a Windows
+/// reserved device name.
+fn is_windows_reserved(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name);
+    // ASCII case-fold is sufficient: the only non-ASCII chars in the
+    // reserved set (¹²³) appear identically on both sides.
+    WINDOWS_RESERVED_NAMES
+        .iter()
+        .any(|reserved| stem.eq_ignore_ascii_case(reserved))
+}
+
+/// Remove unsafe chars in filenames, strip trailing `.` and ASCII space,
+/// and escape Windows device names.
 ///
-/// Does not need to use a `Cow` for optimization because the source is always generated based on chat data
-/// so there is no opportunity for the original input to be passed in from another borrow.
+/// Returns `String` rather than `Cow<str>` because callers use the result
+/// both as an on-disk filename and as a `HashMap` key.
 pub fn sanitize_filename(filename: &str) -> String {
-    filename
+    let mut sanitized: String = filename
         .chars()
         .map(|letter| {
             if letter.is_control() || is_filename_disallowed(letter) {
@@ -31,7 +80,22 @@ pub fn sanitize_filename(filename: &str) -> String {
                 letter
             }
         })
-        .collect()
+        .collect();
+
+    // Windows silently strips trailing `.` and ` `; do it up front so platforms
+    // agree on the final name and e.g. "foo" / "foo." can't collide.
+    let trimmed_len = sanitized.trim_end_matches(['.', ' ']).len();
+    sanitized.truncate(trimmed_len);
+
+    if is_windows_reserved(&sanitized) {
+        // Prepend rather than replace so the original name stays readable.
+        let mut out = String::with_capacity(sanitized.len() + 1);
+        out.push(FILENAME_REPLACEMENT_CHAR);
+        out.push_str(&sanitized);
+        out
+    } else {
+        sanitized
+    }
 }
 
 /// Escapes HTML special characters in the input string, allocating only if
@@ -99,8 +163,34 @@ mod filename_sanitization_tests {
     }
 
     #[test]
-    fn handles_trailing_space() {
-        assert_eq!(sanitize_filename("trailing space "), "trailing space ");
+    fn strips_trailing_space() {
+        assert_eq!(sanitize_filename("trailing space "), "trailing space");
+    }
+
+    #[test]
+    fn strips_trailing_dot() {
+        assert_eq!(sanitize_filename("trailing dot."), "trailing dot");
+    }
+
+    #[test]
+    fn strips_multiple_trailing_dots_and_spaces() {
+        assert_eq!(sanitize_filename("mixed. . ."), "mixed");
+        assert_eq!(sanitize_filename("dots..."), "dots");
+        assert_eq!(sanitize_filename("spaces   "), "spaces");
+    }
+
+    #[test]
+    fn preserves_internal_dots_and_spaces() {
+        assert_eq!(
+            sanitize_filename("file.name with spaces.txt"),
+            "file.name with spaces.txt"
+        );
+    }
+
+    #[test]
+    fn collapses_to_empty_when_only_trailing_chars() {
+        assert_eq!(sanitize_filename(". . ."), "");
+        assert_eq!(sanitize_filename("   "), "");
     }
 
     #[test]
@@ -151,6 +241,88 @@ mod filename_sanitization_tests {
     #[test]
     fn handles_chinese() {
         assert_eq!(sanitize_filename("你好/世界"), "你好_世界");
+    }
+
+    #[test]
+    fn prefixes_reserved_name_con() {
+        assert_eq!(sanitize_filename("CON"), "_CON");
+    }
+
+    #[test]
+    fn prefixes_reserved_name_case_insensitive() {
+        assert_eq!(sanitize_filename("con"), "_con");
+        assert_eq!(sanitize_filename("NuL"), "_NuL");
+        assert_eq!(sanitize_filename("Aux"), "_Aux");
+    }
+
+    #[test]
+    fn prefixes_reserved_name_with_extension() {
+        assert_eq!(sanitize_filename("CON.html"), "_CON.html");
+        assert_eq!(sanitize_filename("nul.txt"), "_nul.txt");
+        assert_eq!(sanitize_filename("PRN.tar.gz"), "_PRN.tar.gz");
+    }
+
+    #[test]
+    fn prefixes_all_com_serial_names() {
+        for i in 0..=9 {
+            let actual = sanitize_filename(&format!("COM{i}"));
+            let expected = format!("_COM{i}");
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn prefixes_com_superscript_variants() {
+        assert_eq!(sanitize_filename("COM\u{B9}"), "_COM\u{B9}");
+        assert_eq!(sanitize_filename("COM\u{B2}"), "_COM\u{B2}");
+        assert_eq!(sanitize_filename("COM\u{B3}"), "_COM\u{B3}");
+    }
+
+    #[test]
+    fn prefixes_all_lpt_parallel_names() {
+        for i in 0..=9 {
+            let actual = sanitize_filename(&format!("LPT{i}"));
+            let expected = format!("_LPT{i}");
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn prefixes_lpt_superscript_variants() {
+        assert_eq!(sanitize_filename("LPT\u{B9}"), "_LPT\u{B9}");
+        assert_eq!(sanitize_filename("LPT\u{B2}"), "_LPT\u{B2}");
+        assert_eq!(sanitize_filename("LPT\u{B3}"), "_LPT\u{B3}");
+    }
+
+    #[test]
+    fn leaves_reserved_prefix_alone() {
+        // The match is on the exact stem, not a prefix.
+        assert_eq!(sanitize_filename("CONversation.html"), "CONversation.html");
+        assert_eq!(sanitize_filename("NULL.txt"), "NULL.txt");
+        assert_eq!(sanitize_filename("LPT10"), "LPT10");
+        assert_eq!(sanitize_filename("COM"), "COM");
+    }
+
+    #[test]
+    fn reserved_check_runs_on_sanitized_chars() {
+        // After char sanitization "CON*" becomes "CON_", which is no longer
+        // a reserved name and so is not prefixed.
+        assert_eq!(sanitize_filename("CON*"), "CON_");
+        assert_eq!(sanitize_filename("CON\x00"), "CON_");
+    }
+
+    #[test]
+    fn reserved_name_with_no_bad_chars_is_prefixed() {
+        assert_eq!(sanitize_filename("AUX"), "_AUX");
+    }
+
+    #[test]
+    fn reserved_check_runs_after_trim() {
+        // Trailing strip happens before the reserved-name lookup, so a name
+        // that Windows would silently rewrite to a reserved stem is caught.
+        assert_eq!(sanitize_filename("CON."), "_CON");
+        assert_eq!(sanitize_filename("nul "), "_nul");
+        assert_eq!(sanitize_filename("PRN. "), "_PRN");
     }
 }
 

@@ -1994,8 +1994,7 @@ mod tests {
     #[test]
     fn can_format_html_attachment_sticker() {
         // Create exporter
-        let mut options = Options::fake_options(ExportType::Html);
-        options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
+        let options = Options::fake_options(ExportType::Html);
 
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2011,7 +2010,12 @@ mod tests {
             .unwrap()
             .join("imessage-database/test_data/stickers/outline.heic");
         attachment.filename = Some(sticker_path.to_string_lossy().to_string());
-        attachment.copied_path = Some(sticker_path);
+        attachment.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
 
         let actual = exporter.format_sticker(&mut attachment, &message);
 
@@ -2019,21 +2023,12 @@ mod tests {
             actual,
             "<img src=\"imessage-database/test_data/stickers/outline.heic\" loading=\"lazy\">\n<div class=\"sticker_effect\">Sent with Outline effect</div>"
         );
-
-        // Remove the file created by the constructor for this test
-        let orphaned_path = current_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("orphaned.html");
-        let _ = std::fs::remove_file(orphaned_path);
     }
 
     #[test]
     fn can_format_html_attachment_sticker_genmoji() {
         // Create exporter
-        let mut options = Options::fake_options(ExportType::Html);
-        options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
+        let options = Options::fake_options(ExportType::Html);
 
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2049,7 +2044,12 @@ mod tests {
             .unwrap()
             .join("imessage-database/test_data/stickers/outline.heic");
         attachment.filename = Some(sticker_path.to_string_lossy().to_string());
-        attachment.copied_path = Some(sticker_path);
+        attachment.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
         attachment.emoji_description = Some("pink poodle".to_string());
 
         let actual = exporter.format_sticker(&mut attachment, &message);
@@ -2058,21 +2058,12 @@ mod tests {
             actual,
             "<img src=\"imessage-database/test_data/stickers/outline.heic\" loading=\"lazy\">\n<div class=\"genmoji_prompt\">Genmoji prompt: pink poodle</div>"
         );
-
-        // Remove the file created by the constructor for this test
-        let orphaned_path = current_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("orphaned.html");
-        let _ = std::fs::remove_file(orphaned_path);
     }
 
     #[test]
     fn can_format_html_attachment_sticker_app() {
         // Create exporter
-        let mut options = Options::fake_options(ExportType::Html);
-        options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
+        let options = Options::fake_options(ExportType::Html);
 
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2088,7 +2079,12 @@ mod tests {
             .unwrap()
             .join("imessage-database/test_data/stickers/outline.heic");
         attachment.filename = Some(sticker_path.to_string_lossy().to_string());
-        attachment.copied_path = Some(sticker_path);
+        attachment.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
 
         let actual = exporter.format_sticker(&mut attachment, &message);
 
@@ -2096,14 +2092,6 @@ mod tests {
             actual,
             "<img src=\"imessage-database/test_data/stickers/outline.heic\" loading=\"lazy\">\n<div class=\"sticker_name\">App: Free People</div>"
         );
-
-        // Remove the file created by the constructor for this test
-        let orphaned_path = current_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("orphaned.html");
-        let _ = std::fs::remove_file(orphaned_path);
     }
 
     #[test]
@@ -3636,7 +3624,7 @@ mod edited_tests {
                 edit_history: vec![
                     EditedEvent {
                         date: 758573156000000000,
-                        text: Some("Test".to_string()),
+                        text: "Test".to_string(),
                         components: vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 4,
@@ -3646,7 +3634,7 @@ mod edited_tests {
                     },
                     EditedEvent {
                         date: 758573166000000000,
-                        text: Some("Test".to_string()),
+                        text: "Test".to_string(),
                         components: vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 4,

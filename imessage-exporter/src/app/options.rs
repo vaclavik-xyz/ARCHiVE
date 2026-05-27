@@ -161,6 +161,7 @@ impl Options {
                 (custom_name.is_some(), OPTION_CUSTOM_NAME),
                 (use_caller_id, OPTION_USE_CALLER_ID),
                 (conversation_filter.is_some(), OPTION_CONVERSATION_FILTER),
+                (!show_progress, OPTION_NO_PROGRESS),
             ];
             for (set, opt) in format_deps {
                 if set {
@@ -182,6 +183,7 @@ impl Options {
             (use_caller_id, OPTION_USE_CALLER_ID),
             (custom_name.is_some(), OPTION_CUSTOM_NAME),
             (conversation_filter.is_some(), OPTION_CONVERSATION_FILTER),
+            (!show_progress, OPTION_NO_PROGRESS),
         ];
         for (set, opt) in diag_conflicts {
             if diagnostic && set {
@@ -508,6 +510,8 @@ fn get_command() -> Command {
 #[cfg(test)]
 impl Options {
     pub fn fake_options(export_type: ExportType) -> Options {
+        use crate::app::test_dir::unique_test_dir;
+
         Options {
             db_path: std::env::current_dir()
                 .unwrap()
@@ -518,7 +522,7 @@ impl Options {
             attachment_manager: AttachmentManager::default(),
             diagnostic: false,
             export_type: Some(export_type),
-            export_path: PathBuf::from("/tmp"),
+            export_path: unique_test_dir("fake-options"),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: None,
@@ -540,8 +544,6 @@ pub fn from_command_line() -> ArgMatches {
 
 #[cfg(test)]
 mod arg_tests {
-    use std::fs;
-
     use imessage_database::util::{
         dirs::default_db_path, platform::Platform, query_context::QueryContext,
     };
@@ -550,6 +552,7 @@ mod arg_tests {
         compatibility::attachment_manager::{AttachmentManager, AttachmentManagerMode},
         export_type::ExportType,
         options::{Options, get_command, validate_path},
+        test_dir::unique_test_dir,
     };
 
     #[test]
@@ -634,25 +637,24 @@ mod arg_tests {
 
     #[test]
     fn can_build_option_export_html() {
-        // Cleanup existing temp data
-        let _ = fs::remove_file("/tmp/orphaned.html");
+        let dir = unique_test_dir("build-option-export-html");
+        let dir_str = dir.to_string_lossy().into_owned();
 
         // Get matches from sample args
         let command = get_command();
-        let args = command.get_matches_from(["imessage-exporter", "-f", "html", "-o", "/tmp"]);
+        let args = command.get_matches_from(["imessage-exporter", "-f", "html", "-o", &dir_str]);
 
         // Build the Options
         let actual = Options::from_args(&args).unwrap();
 
         // Expected data
-        let tmp_dir = String::from("/tmp");
         let expected = Options {
             db_path: default_db_path(),
             attachment_root: None,
             attachment_manager: AttachmentManager::from(AttachmentManagerMode::Disabled),
             diagnostic: false,
             export_type: Some(ExportType::Html),
-            export_path: validate_path(Some(&tmp_dir), None).unwrap(),
+            export_path: validate_path(Some(&dir_str), None).unwrap(),
             query_context: QueryContext::default(),
             no_lazy: false,
             custom_name: None,
@@ -670,9 +672,6 @@ mod arg_tests {
 
     #[test]
     fn can_build_option_export_txt_no_lazy() {
-        // Cleanup existing temp data
-        let _ = fs::remove_file("/tmp/orphaned.txt");
-
         // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-f", "txt", "-l"]);
@@ -1109,6 +1108,18 @@ mod arg_tests {
         let actual = Options::from_args(&args).unwrap();
         assert!(actual.show_progress);
     }
+
+    #[test]
+    fn cant_build_option_no_progress_no_export_type() {
+        let args = get_command().get_matches_from(["imessage-exporter", "--no-progress"]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn cant_build_option_diagnostic_flag_with_no_progress() {
+        let args = get_command().get_matches_from(["imessage-exporter", "-d", "--no-progress"]);
+        assert!(Options::from_args(&args).is_err());
+    }
 }
 
 #[cfg(test)]
@@ -1120,61 +1131,55 @@ mod path_tests {
     use crate::app::{
         export_type::ExportType,
         options::{DEFAULT_OUTPUT_DIR, validate_path},
+        test_dir::unique_test_dir,
     };
+
     use imessage_database::util::dirs::home;
 
     #[test]
     fn can_validate_empty() {
-        // Cleanup existing temp data
-        let _ = fs::remove_file("/tmp/orphaned.txt");
-
-        let tmp = String::from("/tmp");
-        let export_path = Some(&tmp);
+        let dir = unique_test_dir("validate-empty");
+        let dir_str = dir.to_string_lossy().into_owned();
+        let export_path = Some(&dir_str);
         let export_type = Some(ExportType::Txt);
 
         let result = validate_path(export_path, export_type.as_ref());
 
-        assert_eq!(result.unwrap(), PathBuf::from("/tmp"));
+        assert_eq!(result.unwrap(), dir);
     }
 
     #[test]
     fn can_validate_different_type() {
-        // Cleanup existing temp data
-        let _ = fs::remove_file("/tmp/orphaned.txt");
-
-        let tmp = String::from("/tmp");
-        let export_path = Some(&tmp);
+        let dir = unique_test_dir("validate-different-type");
+        let dir_str = dir.to_string_lossy().into_owned();
+        let export_path = Some(&dir_str);
         let export_type = Some(ExportType::Txt);
 
         let result = validate_path(export_path, export_type.as_ref());
 
-        let mut tmp = PathBuf::from("/tmp");
-        tmp.push("fake1.html");
-        let mut file = fs::File::create(&tmp).unwrap();
+        let mut fake = dir.clone();
+        fake.push("fake1.html");
+        let mut file = fs::File::create(&fake).unwrap();
         file.write_all(&[]).unwrap();
 
-        assert_eq!(result.unwrap(), PathBuf::from("/tmp"));
-        fs::remove_file(&tmp).unwrap();
+        assert_eq!(result.unwrap(), dir);
     }
 
     #[test]
     fn can_validate_same_type() {
-        // Cleanup existing temp data
-        let _ = fs::remove_file("/tmp/orphaned.txt");
-
-        let tmp = String::from("/tmp");
-        let export_path = Some(&tmp);
+        let dir = unique_test_dir("validate-same-type");
+        let dir_str = dir.to_string_lossy().into_owned();
+        let export_path = Some(&dir_str);
         let export_type = Some(ExportType::Txt);
 
         let result = validate_path(export_path, export_type.as_ref());
 
-        let mut tmp = PathBuf::from("/tmp");
-        tmp.push("fake2.txt");
-        let mut file = fs::File::create(&tmp).unwrap();
+        let mut fake = dir.clone();
+        fake.push("fake2.txt");
+        let mut file = fs::File::create(&fake).unwrap();
         file.write_all(&[]).unwrap();
 
-        assert_eq!(result.unwrap(), PathBuf::from("/tmp"));
-        fs::remove_file(&tmp).unwrap();
+        assert_eq!(result.unwrap(), dir);
     }
 
     #[test]

@@ -66,14 +66,15 @@ where
             let Some(attachment) = attachments.get_mut(*attachment_index) else {
                 return formatter.body_attachment_missing();
             };
-            if attachment.is_sticker {
+            let body = if attachment.is_sticker {
                 let content = formatter.format_sticker(attachment, message);
-                return formatter.body_sticker(content);
-            }
-            let body = match formatter.format_attachment(attachment, message, metadata) {
-                AttachmentRender::Embedded(content) => formatter.body_attachment(content),
-                AttachmentRender::MissingFilename => formatter.body_attachment_missing(),
-                AttachmentRender::NamedFile(name) => formatter.body_attachment_error(&name),
+                formatter.body_sticker(content)
+            } else {
+                match formatter.format_attachment(attachment, message, metadata) {
+                    AttachmentRender::Embedded(content) => formatter.body_attachment(content),
+                    AttachmentRender::MissingFilename => formatter.body_attachment_missing(),
+                    AttachmentRender::NamedFile(name) => formatter.body_attachment_error(&name),
+                }
             };
             *attachment_index += 1;
             body

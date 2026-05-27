@@ -1471,8 +1471,7 @@ mod tests {
     #[test]
     fn can_format_txt_attachment_sticker() {
         // Create exporter
-        let mut options = Options::fake_options(ExportType::Txt);
-        options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
+        let options = Options::fake_options(ExportType::Txt);
 
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1491,7 +1490,12 @@ mod tests {
             .unwrap()
             .join("imessage-database/test_data/stickers/outline.heic");
         attachment.filename = Some(sticker_path.to_string_lossy().to_string());
-        attachment.copied_path = Some(sticker_path);
+        attachment.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
 
         let actual = exporter.format_sticker(&mut attachment, &message);
 
@@ -1499,21 +1503,12 @@ mod tests {
             actual,
             "Outline Sticker from Me: imessage-database/test_data/stickers/outline.heic"
         );
-
-        // Remove the file created by the constructor for this test
-        let orphaned_path = current_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("orphaned.txt");
-        let _ = std::fs::remove_file(orphaned_path);
     }
 
     #[test]
     fn can_format_txt_attachment_sticker_genmoji() {
         // Create exporter
-        let mut options = Options::fake_options(ExportType::Txt);
-        options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
+        let options = Options::fake_options(ExportType::Txt);
 
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1533,7 +1528,12 @@ mod tests {
             .unwrap()
             .join("imessage-database/test_data/stickers/outline.heic");
         attachment.filename = Some(sticker_path.to_string_lossy().to_string());
-        attachment.copied_path = Some(sticker_path);
+        attachment.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
 
         let actual = exporter.format_sticker(&mut attachment, &message);
 
@@ -1541,21 +1541,12 @@ mod tests {
             actual,
             "Sticker from Me: imessage-database/test_data/stickers/outline.heic (Genmoji prompt: Example description)"
         );
-
-        // Remove the file created by the constructor for this test
-        let orphaned_path = current_dir()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("orphaned.txt");
-        let _ = std::fs::remove_file(orphaned_path);
     }
 
     #[test]
     fn can_format_txt_attachment_sticker_app() {
         // Create exporter
-        let mut options = Options::fake_options(ExportType::Txt);
-        options.export_path = current_dir().unwrap().parent().unwrap().to_path_buf();
+        let options = Options::fake_options(ExportType::Txt);
 
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1574,7 +1565,12 @@ mod tests {
             .unwrap()
             .join("imessage-database/test_data/stickers/outline.heic");
         attachment.filename = Some(sticker_path.to_string_lossy().to_string());
-        attachment.copied_path = Some(sticker_path);
+        attachment.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
 
         let actual = exporter.format_sticker(&mut attachment, &message);
 
@@ -1582,14 +1578,160 @@ mod tests {
             actual,
             "Sticker from Me: imessage-database/test_data/stickers/outline.heic (App: Free People)"
         );
+    }
 
-        // Remove the file created by the constructor for this test
-        let orphaned_path = current_dir()
+    #[test]
+    fn dispatch_part_body_advances_index_between_stickers() {
+        // Regression: a message with two stickers must render each sticker
+        // at its own slot. Prior to the fix, the sticker arm of
+        // `dispatch_part_body` returned without advancing `attachment_index`,
+        // so both parts re-resolved `attachments[0]` and the first sticker
+        // rendered at every slot.
+        use crate::exporters::{shared::part::dispatch_part_body, txt::view_model::PartBody};
+
+        let options = Options::fake_options(ExportType::Txt);
+        let mut config = Config::fake_app(options);
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
+        let exporter = TXT::new(&config).unwrap();
+        let message = Config::fake_message();
+
+        let sticker_path = current_dir()
             .unwrap()
             .parent()
             .unwrap()
-            .join("orphaned.txt");
-        let _ = std::fs::remove_file(orphaned_path);
+            .join("imessage-database/test_data/stickers/outline.heic");
+
+        // rowid 3 → "Outline Sticker from Me: …"
+        let mut sticker_a = Config::fake_attachment();
+        sticker_a.rowid = 3;
+        sticker_a.is_sticker = true;
+        sticker_a.filename = Some(sticker_path.to_string_lossy().to_string());
+        sticker_a.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
+
+        // rowid 1 → "Sticker from Me: … (App: Free People)"
+        let mut sticker_b = Config::fake_attachment();
+        sticker_b.rowid = 1;
+        sticker_b.is_sticker = true;
+        sticker_b.filename = Some(sticker_path.to_string_lossy().to_string());
+        sticker_b.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
+
+        let mut attachments = vec![sticker_a, sticker_b];
+        let part = BubbleComponent::Attachment(AttachmentMeta::default());
+        let mut attachment_index: usize = 0;
+
+        let first = dispatch_part_body(
+            &exporter,
+            &message,
+            0,
+            &part,
+            &mut attachments,
+            &mut attachment_index,
+        );
+        assert_eq!(attachment_index, 1);
+        let PartBody::Line { text: first_text } = first else {
+            panic!("expected PartBody::Line for sticker arm");
+        };
+        let expected_first =
+            "Outline Sticker from Me: imessage-database/test_data/stickers/outline.heic";
+        assert_eq!(first_text, expected_first);
+
+        let second = dispatch_part_body(
+            &exporter,
+            &message,
+            1,
+            &part,
+            &mut attachments,
+            &mut attachment_index,
+        );
+        assert_eq!(attachment_index, 2);
+        let PartBody::Line { text: second_text } = second else {
+            panic!("expected PartBody::Line for sticker arm");
+        };
+        let expected_second =
+            "Sticker from Me: imessage-database/test_data/stickers/outline.heic (App: Free People)";
+        assert_eq!(second_text, expected_second);
+    }
+
+    #[test]
+    fn dispatch_part_body_advances_index_after_sticker() {
+        // Regression: when a sticker precedes a non-sticker attachment, the
+        // sticker arm must advance `attachment_index` so the next part
+        // resolves to the non-sticker attachment. Prior to the fix the
+        // second part would re-resolve the sticker.
+        use crate::exporters::{shared::part::dispatch_part_body, txt::view_model::PartBody};
+
+        let options = Options::fake_options(ExportType::Txt);
+        let mut config = Config::fake_app(options);
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
+        let exporter = TXT::new(&config).unwrap();
+        let message = Config::fake_message();
+
+        let sticker_path = current_dir()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("imessage-database/test_data/stickers/outline.heic");
+
+        let mut sticker = Config::fake_attachment();
+        sticker.rowid = 3;
+        sticker.is_sticker = true;
+        sticker.filename = Some(sticker_path.to_string_lossy().to_string());
+        sticker.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
+
+        // Default `fake_attachment` renders as `AttachmentRender::Embedded("a/b/c/d.jpg")`.
+        let image = Config::fake_attachment();
+
+        let mut attachments = vec![sticker, image];
+        let part = BubbleComponent::Attachment(AttachmentMeta::default());
+        let mut attachment_index: usize = 0;
+
+        let first = dispatch_part_body(
+            &exporter,
+            &message,
+            0,
+            &part,
+            &mut attachments,
+            &mut attachment_index,
+        );
+        assert_eq!(attachment_index, 1);
+        let PartBody::Line { text: first_text } = first else {
+            panic!("expected PartBody::Line for sticker arm");
+        };
+        let expected_first =
+            "Outline Sticker from Me: imessage-database/test_data/stickers/outline.heic";
+        assert_eq!(first_text, expected_first);
+
+        let second = dispatch_part_body(
+            &exporter,
+            &message,
+            1,
+            &part,
+            &mut attachments,
+            &mut attachment_index,
+        );
+        assert_eq!(attachment_index, 2);
+        let PartBody::Line { text: second_text } = second else {
+            panic!("expected PartBody::Line for attachment arm");
+        };
+        let expected_second = "a/b/c/d.jpg";
+        assert_eq!(second_text, expected_second);
     }
 
     #[test]

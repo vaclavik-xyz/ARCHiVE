@@ -685,7 +685,7 @@ mod filename_tests {
 
     use imessage_database::tables::chat::Chat;
 
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, path::PathBuf};
 
     pub fn fake_chat() -> Chat {
         Chat {
@@ -731,6 +731,7 @@ mod filename_tests {
     fn can_get_filename_long_multiple() {
         let options = Options::fake_options(crate::app::export_type::ExportType::Html);
         let mut app = Config::fake_app(options);
+        app.options.export_path = PathBuf::from("/tmp");
 
         // Create participant data
         app.participants.insert(
@@ -795,6 +796,7 @@ mod filename_tests {
     fn can_get_filename_single_long() {
         let options = Options::fake_options(crate::app::export_type::ExportType::Html);
         let mut app = Config::fake_app(options);
+        app.options.export_path = PathBuf::from("/tmp");
 
         // Create participant data
         app.participants.insert(10, Name::fake_name("He slipped his key into the lock, and we all very quietly entered the cell. The sleeper half turned, and then settled down once more into a deep slumber. Holmes stooped to the water-jug, moistened his sponge, and then rubbed it twice vigorously across and down the prisoner's face."));
@@ -840,7 +842,8 @@ mod filename_tests {
     #[test]
     fn can_get_filename_chat_display_name_long() {
         let options = Options::fake_options(crate::app::export_type::ExportType::Html);
-        let app = Config::fake_app(options);
+        let mut app = Config::fake_app(options);
+        app.options.export_path = PathBuf::from("/tmp");
 
         // Create chat
         let mut chat = fake_chat();

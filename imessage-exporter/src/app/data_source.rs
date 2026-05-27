@@ -1,4 +1,7 @@
-use std::{fs::remove_file, path::Path};
+use std::{
+    fs::remove_file,
+    path::{Path, PathBuf},
+};
 
 use crabapple::Backup;
 use imessage_database::{tables::table::get_connection, util::platform::Platform};
@@ -25,6 +28,10 @@ pub struct DataSource {
     pub contacts_index: ContactsIndex,
     /// An optional encrypted iOS backup
     pub backup: Option<Backup>,
+    /// Path to a temporary decrypted messages database that this `DataSource` owns and
+    /// must clean up on drop. `None` when the messages database is a real on-disk file
+    /// (macOS, or iOS with an unencrypted backup).
+    temp_messages_db: Option<PathBuf>,
 }
 
 impl DataSource {
@@ -44,6 +51,7 @@ impl DataSource {
                     messages_connection: Some(get_connection(&messages_path)?),
                     contacts_index,
                     backup: None,
+                    temp_messages_db: None,
                 })
             }
             Platform::iOS => match decrypt_backup(options)? {
@@ -68,10 +76,12 @@ impl DataSource {
                         );
                     }
 
+                    let messages_connection = get_connection(&messages_path)?;
                     Ok(Self {
-                        messages_connection: Some(get_connection(&messages_path)?),
+                        messages_connection: Some(messages_connection),
                         contacts_index,
                         backup: Some(backup),
+                        temp_messages_db: Some(messages_path),
                     })
                 }
                 None => {
@@ -84,6 +94,7 @@ impl DataSource {
                         messages_connection: Some(get_connection(&messages_path)?),
                         contacts_index,
                         backup: None,
+                        temp_messages_db: None,
                     })
                 }
             },
@@ -121,25 +132,19 @@ impl DataSource {
 // MARK: Drop
 impl Drop for DataSource {
     fn drop(&mut self) {
-        if let Some(backup) = &self.backup {
-            // Remove the temporary `sms.db` file if it was created
-            if backup.manifest_db.is_temporary
-                && let Some(conn) = self.messages_connection.take()
-            {
-                let path = conn.path().map(|p| p.to_string());
-                conn.close().ok();
+        // Close the connection explicitly before removing the file so the OS isn't
+        // holding the temp file open when we try to delete it (matters on Windows).
+        if let Some(conn) = self.messages_connection.take() {
+            conn.close().ok();
+        }
 
-                // Remove the file, ignoring errors if any. Skip silently if the
-                // connection had no filesystem path (e.g. opened in-memory),
-                // which shouldn't be reachable after a successful decrypt.
-                if let Some(path) = path
-                    && let Err(e) = remove_file(&path)
-                {
-                    eprintln!(
-                        "warning: failed to remove temporary messages database at {path}: {e}"
-                    );
-                }
-            }
+        if let Some(path) = self.temp_messages_db.take()
+            && let Err(e) = remove_file(&path)
+        {
+            eprintln!(
+                "warning: failed to remove temporary messages database at {}: {e}",
+                path.display(),
+            );
         }
     }
 }

@@ -2,15 +2,9 @@ use askama::Template;
 
 use imessage_database::{
     message_types::{
-        app::AppMessage,
-        app_store::AppStoreMessage,
-        collaboration::CollaborationMessage,
-        digital_touch::DigitalTouch,
-        handwriting::HandwrittenMessage,
-        music::MusicMessage,
-        placemark::PlacemarkMessage,
-        polls::Poll,
-        url::URLMessage,
+        app::AppMessage, app_store::AppStoreMessage, collaboration::CollaborationMessage,
+        digital_touch::DigitalTouch, handwriting::HandwrittenMessage, music::MusicMessage,
+        placemark::PlacemarkMessage, polls::Poll, url::URLMessage,
     },
     tables::{attachment::Attachment, messages::Message},
 };
