@@ -65,12 +65,13 @@ fn is_windows_reserved(name: &str) -> bool {
         .any(|reserved| stem.eq_ignore_ascii_case(reserved))
 }
 
-/// Remove unsafe chars in filenames and escape Windows device names.
+/// Remove unsafe chars in filenames, strip trailing `.` and ASCII space,
+/// and escape Windows device names.
 ///
 /// Returns `String` rather than `Cow<str>` because the sole caller uses the
 /// result as a `HashMap` key, and the `entry` API requires an owned `String`.
 pub fn sanitize_filename(filename: &str) -> String {
-    let sanitized: String = filename
+    let mut sanitized: String = filename
         .chars()
         .map(|letter| {
             if letter.is_control() || is_filename_disallowed(letter) {
@@ -80,6 +81,11 @@ pub fn sanitize_filename(filename: &str) -> String {
             }
         })
         .collect();
+
+    // Windows silently strips trailing `.` and ` `; do it up front so platforms
+    // agree on the final name and e.g. "foo" / "foo." can't collide.
+    let trimmed_len = sanitized.trim_end_matches(['.', ' ']).len();
+    sanitized.truncate(trimmed_len);
 
     if is_windows_reserved(&sanitized) {
         // Prepend rather than replace so the original name stays readable.
@@ -157,8 +163,34 @@ mod filename_sanitization_tests {
     }
 
     #[test]
-    fn handles_trailing_space() {
-        assert_eq!(sanitize_filename("trailing space "), "trailing space ");
+    fn strips_trailing_space() {
+        assert_eq!(sanitize_filename("trailing space "), "trailing space");
+    }
+
+    #[test]
+    fn strips_trailing_dot() {
+        assert_eq!(sanitize_filename("trailing dot."), "trailing dot");
+    }
+
+    #[test]
+    fn strips_multiple_trailing_dots_and_spaces() {
+        assert_eq!(sanitize_filename("mixed. . ."), "mixed");
+        assert_eq!(sanitize_filename("dots..."), "dots");
+        assert_eq!(sanitize_filename("spaces   "), "spaces");
+    }
+
+    #[test]
+    fn preserves_internal_dots_and_spaces() {
+        assert_eq!(
+            sanitize_filename("file.name with spaces.txt"),
+            "file.name with spaces.txt"
+        );
+    }
+
+    #[test]
+    fn collapses_to_empty_when_only_trailing_chars() {
+        assert_eq!(sanitize_filename(". . ."), "");
+        assert_eq!(sanitize_filename("   "), "");
     }
 
     #[test]
@@ -282,6 +314,15 @@ mod filename_sanitization_tests {
     #[test]
     fn reserved_name_with_no_bad_chars_is_prefixed() {
         assert_eq!(sanitize_filename("AUX"), "_AUX");
+    }
+
+    #[test]
+    fn reserved_check_runs_after_trim() {
+        // Trailing strip happens before the reserved-name lookup, so a name
+        // that Windows would silently rewrite to a reserved stem is caught.
+        assert_eq!(sanitize_filename("CON."), "_CON");
+        assert_eq!(sanitize_filename("nul "), "_nul");
+        assert_eq!(sanitize_filename("PRN. "), "_PRN");
     }
 }
 
