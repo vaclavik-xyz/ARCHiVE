@@ -55,9 +55,12 @@ impl StickerSource {
 /// Format-agnostic description of a sticker's source, ready for rendering by
 /// callers. Produced by [`Attachment::get_sticker_decoration`](crate::tables::attachment::Attachment::get_sticker_decoration).
 ///
-/// `None` from `get_sticker_decoration` means the sticker either has no
-/// source row or the source can't supply a decoration (e.g.,
-/// [`StickerSource::UserGenerated`] with no readable effect).
+/// `None` from `get_sticker_decoration` means one of:
+/// - The sticker has no readable source (missing `STICKER_USER_INFO`,
+///   malformed plist, or unrecognized bundle id).
+/// - The source is [`StickerSource::Genmoji`] but no description is stored.
+/// - The source is [`StickerSource::UserGenerated`] but the effect blob is
+///   missing or unreadable.
 #[derive(Debug, PartialEq, Eq)]
 pub enum StickerDecoration {
     /// A [`StickerSource::Genmoji`] with the user-supplied prompt.

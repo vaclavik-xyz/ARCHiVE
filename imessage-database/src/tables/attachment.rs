@@ -548,9 +548,16 @@ impl Attachment {
     /// and [`get_sticker_effect`](Self::get_sticker_effect) so
     /// consumers don't have to re-derive the dispatch.
     ///
-    /// Returns `None` when the sticker has no source row or when the source
-    /// can't yield a decoration (e.g., [`StickerSource::UserGenerated`] with
-    /// an unreadable effect blob).
+    /// Returns `None` in three cases:
+    /// - The sticker has no readable source (missing [`STICKER_USER_INFO`],
+    ///   malformed plist, or unrecognized bundle id).
+    /// - The source is [`StickerSource::Genmoji`] but `emoji_description` is
+    ///   unset.
+    /// - The source is [`StickerSource::UserGenerated`] but the effect blob
+    ///   is missing or unreadable.
+    ///
+    /// [`StickerSource::Memoji`] and [`StickerSource::App`] always yield
+    /// `Some`.
     pub fn get_sticker_decoration(
         &self,
         db: &Connection,
