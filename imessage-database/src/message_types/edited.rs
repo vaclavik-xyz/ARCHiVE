@@ -35,8 +35,9 @@ pub enum EditStatus {
 pub struct EditedEvent {
     /// The date the message part was edited
     pub date: i64,
-    /// The content of the edited message part deserialized from the [`typedstream`](crate::util::typedstream) format
-    pub text: Option<String>,
+    /// The content of the edited message part, deserialized from the
+    /// [`typedstream`](crate::util::typedstream) format.
+    pub text: String,
     /// The parsed [`typedstream`](crate::util::typedstream) component data used to add attributes to the message text
     pub components: Vec<BubbleComponent>,
     /// A GUID reference to another message
@@ -46,7 +47,7 @@ pub struct EditedEvent {
 impl EditedEvent {
     pub(crate) fn new(
         date: i64,
-        text: Option<String>,
+        text: String,
         components: Vec<BubbleComponent>,
         guid: Option<String>,
     ) -> Self {
@@ -155,7 +156,11 @@ impl<'a> BalloonProvider<'a> for EditedMessage {
                             )
                         })?;
 
-                    let text = result.text;
+                    let text = result.text.ok_or_else(|| {
+                        PlistParseError::InvalidEditedMessage(
+                            "Edit-history entry missing text!".to_string(),
+                        )
+                    })?;
 
                     let guid = message_data
                         .get("bcg")
@@ -248,7 +253,7 @@ mod test_parser {
                 edit_history: vec![
                     EditedEvent::new(
                         690513474000000000,
-                        Some("First message  ".to_string()),
+                        "First message  ".to_string(),
                         vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 15,
@@ -258,7 +263,7 @@ mod test_parser {
                     ),
                     EditedEvent::new(
                         690513480000000000,
-                        Some("Edit 1".to_string()),
+                        "Edit 1".to_string(),
                         vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 6,
@@ -268,7 +273,7 @@ mod test_parser {
                     ),
                     EditedEvent::new(
                         690513485000000000,
-                        Some("Edit 2".to_string()),
+                        "Edit 2".to_string(),
                         vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 6,
@@ -278,7 +283,7 @@ mod test_parser {
                     ),
                     EditedEvent::new(
                         690513494000000000,
-                        Some("Edited message".to_string()),
+                        "Edited message".to_string(),
                         vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 14,
@@ -317,7 +322,7 @@ mod test_parser {
                     edit_history: vec![
                         EditedEvent::new(
                             690514004000000000,
-                            Some("here we go!".to_string()),
+                            "here we go!".to_string(),
                             vec![BubbleComponent::Text(vec![TextAttributes {
                                 start: 0,
                                 end: 11,
@@ -327,10 +332,7 @@ mod test_parser {
                         ),
                         EditedEvent::new(
                             690514772000000000,
-                            Some(
-                                "https://github.com/ReagentX/imessage-exporter/issues/10"
-                                    .to_string(),
-                            ),
+                            "https://github.com/ReagentX/imessage-exporter/issues/10".to_string(),
                             vec![BubbleComponent::Text(vec![TextAttributes {
                                 start: 0,
                                 end: 55,
@@ -362,7 +364,7 @@ mod test_parser {
                 edit_history: vec![
                     EditedEvent::new(
                         690514809000000000,
-                        Some("This is a normal message".to_string()),
+                        "This is a normal message".to_string(),
                         vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 24,
@@ -372,10 +374,8 @@ mod test_parser {
                     ),
                     EditedEvent::new(
                         690514819000000000,
-                        Some(
-                            "Edit to a url https://github.com/ReagentX/imessage-exporter/issues/10"
-                                .to_string(),
-                        ),
+                        "Edit to a url https://github.com/ReagentX/imessage-exporter/issues/10"
+                            .to_string(),
                         vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 69,
@@ -385,7 +385,7 @@ mod test_parser {
                     ),
                     EditedEvent::new(
                         690514834000000000,
-                        Some("And edit it back to a normal message...".to_string()),
+                        "And edit it back to a normal message...".to_string(),
                         vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 39,
@@ -479,7 +479,7 @@ mod test_parser {
                     edit_history: vec![
                         EditedEvent::new(
                             743907180000000000,
-                            Some("Second message".to_string()),
+                            "Second message".to_string(),
                             vec![BubbleComponent::Text(vec![TextAttributes {
                                 start: 0,
                                 end: 14,
@@ -489,7 +489,7 @@ mod test_parser {
                         ),
                         EditedEvent::new(
                             743907190000000000,
-                            Some("Second message got edited!".to_string()),
+                            "Second message got edited!".to_string(),
                             vec![BubbleComponent::Text(vec![TextAttributes {
                                 start: 0,
                                 end: 26,
@@ -530,7 +530,7 @@ mod test_parser {
                     edit_history: vec![
                         EditedEvent::new(
                             743907435000000000,
-                            Some("Second test".to_string()),
+                            "Second test".to_string(),
                             vec![BubbleComponent::Text(vec![TextAttributes {
                                 start: 0,
                                 end: 11,
@@ -540,7 +540,7 @@ mod test_parser {
                         ),
                         EditedEvent::new(
                             743907448000000000,
-                            Some("Second test was edited!".to_string()),
+                            "Second test was edited!".to_string(),
                             vec![BubbleComponent::Text(vec![TextAttributes {
                                 start: 0,
                                 end: 23,
@@ -576,7 +576,7 @@ mod test_parser {
                 edit_history: vec![
                     EditedEvent::new(
                         758573156000000000,
-                        Some("Test".to_string()),
+                        "Test".to_string(),
                         vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 4,
@@ -586,7 +586,7 @@ mod test_parser {
                     ),
                     EditedEvent::new(
                         758573166000000000,
-                        Some("Test".to_string()),
+                        "Test".to_string(),
                         vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 4,

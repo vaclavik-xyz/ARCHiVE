@@ -3624,7 +3624,7 @@ mod edited_tests {
                 edit_history: vec![
                     EditedEvent {
                         date: 758573156000000000,
-                        text: Some("Test".to_string()),
+                        text: "Test".to_string(),
                         components: vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 4,
@@ -3634,7 +3634,7 @@ mod edited_tests {
                     },
                     EditedEvent {
                         date: 758573166000000000,
-                        text: Some("Test".to_string()),
+                        text: "Test".to_string(),
                         components: vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 4,

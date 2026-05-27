@@ -587,13 +587,13 @@ mod typedstream_tests {
                     edit_history: vec![
                         EditedEvent::new(
                             743907435000000000,
-                            Some("Second test".to_string()),
+                            "Second test".to_string(),
                             vec![],
                             None,
                         ),
                         EditedEvent::new(
                             743907448000000000,
-                            Some("Second test was edited!".to_string()),
+                            "Second test was edited!".to_string(),
                             vec![],
                             None,
                         ),
@@ -677,7 +677,7 @@ mod typedstream_tests {
                 edit_history: vec![
                     EditedEvent {
                         date: 758573156000000000,
-                        text: Some("Test".to_string()),
+                        text: "Test".to_string(),
                         components: vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 4,
@@ -687,7 +687,7 @@ mod typedstream_tests {
                     },
                     EditedEvent {
                         date: 758573166000000000,
-                        text: Some("Test".to_string()),
+                        text: "Test".to_string(),
                         components: vec![BubbleComponent::Text(vec![TextAttributes {
                             start: 0,
                             end: 4,
