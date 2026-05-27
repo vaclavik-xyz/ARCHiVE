@@ -368,6 +368,38 @@ mod typedstream_tests {
     };
 
     #[test]
+    #[ignore = "exploratory dump for FormattedInlineStickers fixture"]
+    fn dump_formatted_inline_stickers_fixture() {
+        let mut m = Message::blank();
+        m.text = Some("\u{FFFC}🫪\u{FFFC}🙏".to_string());
+
+        let typedstream_path = current_dir()
+            .unwrap()
+            .as_path()
+            .join("test_data/typedstream/FormattedInlineStickers");
+        let mut file = File::open(typedstream_path).unwrap();
+        let mut bytes = vec![];
+        file.read_to_end(&mut bytes).unwrap();
+
+        // Pass 1: dump the parse_body_typedstream output.
+        let mut parser = TypedStreamDeserializer::new(&bytes);
+        let iter = parser.iter_root().unwrap();
+        let parsed = parse_body_typedstream(Some(iter), m.edited_parts.as_ref()).unwrap();
+        eprintln!("---- parse_body_typedstream ----");
+        eprintln!("text = {:?}", parsed.text);
+        eprintln!("components = {:#?}", parsed.components);
+
+        // Pass 2: walk the raw root property iterator so we can see what
+        // crabstep surfaces *before* parse_body_typedstream consumes it.
+        let mut parser2 = TypedStreamDeserializer::new(&bytes);
+        let iter2 = parser2.iter_root().unwrap();
+        eprintln!("---- crabstep root iter ----");
+        for (i, prop) in iter2.enumerate() {
+            eprintln!("[{i}] {prop:?}");
+        }
+    }
+
+    #[test]
     fn can_get_message_body_simple() {
         let mut m = Message::blank();
         m.text = Some("Noter test".to_string());

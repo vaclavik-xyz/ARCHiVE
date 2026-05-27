@@ -1,7 +1,7 @@
 use askama::Template;
 
 use imessage_database::{
-    message_types::{expressives::Expressive, sticker::StickerDecoration, variants::Announcement},
+    message_types::{expressives::Expressive, variants::Announcement},
     tables::messages::models::{GroupAction, Service},
 };
 
@@ -226,7 +226,24 @@ pub(super) enum AttachmentVariant<'a> {
 #[derive(Template)]
 #[template(path = "attachments/sticker_suffix.html")]
 pub(super) struct StickerSuffixVM {
-    pub kind: StickerDecoration,
+    /// CSS class for the wrapping `<div>` (e.g. `"sticker_effect"`).
+    pub class: &'static str,
+    /// Pre-formatted plain-text label (e.g. `"Sent with Outline effect"`).
+    pub label: String,
+}
+
+#[derive(Template)]
+#[template(path = "attachments/sticker_inline.html")]
+pub(super) struct StickerInlineVM {
+    pub lazy: bool,
+    /// `Some` on the success path; `None` when no filename is available so
+    /// the template omits `src=` entirely. (Empty-string `src=""` is invalid
+    /// per HTML and some browsers reinterpret it as the current document.)
+    pub embed_path: Option<String>,
+    /// Plain-text decoration (e.g. `"Sent with Outline effect"`) surfaced via
+    /// the `<img>` `alt=` and `title=` attributes so the data is still
+    /// reachable on hover and to screen readers.
+    pub label: Option<String>,
 }
 
 #[derive(Template)]
@@ -321,6 +338,10 @@ pub(crate) enum PartBody {
     /// Empty body (no text, edited content missing, etc.)
     Empty,
     TextBubble {
+        /// Pre-rendered class list for the wrapping `<span>` (e.g. `"bubble"`,
+        /// `"bubble jumbo"`). Computed in Rust so the template stays a tidy
+        /// one-liner that the autoformatter won't wrap.
+        bubble_class: &'static str,
         html: Html,
     },
     TextTranslated {
@@ -337,8 +358,18 @@ pub(crate) enum PartBody {
         error: Html,
     },
     AttachmentMissing,
+    /// Block-level sticker rendering (animated stickers and tapback stickers).
+    /// Inline static stickers are emitted as part of an
+    /// [`InlineBubble`](Self::InlineBubble).
     Sticker {
         html: Html,
+    },
+    /// A single bubble containing interleaved text and inline (non-animated)
+    /// stickers — the emoji-like rendering iMessage uses for static stickers
+    /// alongside text.
+    InlineBubble {
+        bubble_class: &'static str,
+        segments: Vec<InlineSegment>,
     },
     App {
         html: Html,
@@ -349,4 +380,35 @@ pub(crate) enum PartBody {
     Retracted {
         html: Html,
     },
+}
+
+/// One element of an [`PartBody::InlineBubble`] — either a span of text
+/// (already escaped and text-effected) or a glyph-sized sticker `<img>` tag.
+pub(crate) enum InlineSegment {
+    Text(Html),
+    Sticker(Html),
+}
+
+/// Jumbomoji size class applied to a bubble whose content is purely glyphs
+/// (emoji and/or inline stickers).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GlyphSize {
+    /// Default — no extra class emitted.
+    Normal,
+    /// One glyph in a pure-glyph message.
+    Jumbo,
+    /// Two or three glyphs in a pure-glyph message.
+    Medium,
+}
+
+impl GlyphSize {
+    /// Pre-rendered class list ready to drop into `class="…"` on a bubble.
+    #[must_use]
+    pub(crate) fn bubble_class(self) -> &'static str {
+        match self {
+            GlyphSize::Normal => "bubble",
+            GlyphSize::Jumbo => "bubble jumbo",
+            GlyphSize::Medium => "bubble medium",
+        }
+    }
 }

@@ -205,6 +205,19 @@ impl Attachment {
         }
     }
 
+    /// `true` when this sticker's underlying file is animated: a HEIC
+    /// sequence (`image/heics`, `image/heic-sequence`) or a video
+    /// (`video/*`). Static stickers (HEIC, PNG, etc.) return `false`.
+    /// Renderer presentation decisions are the caller's concern.
+    #[must_use]
+    pub fn is_animated_sticker(&self) -> bool {
+        self.is_sticker
+            && matches!(
+                self.mime_type(),
+                MediaType::Image("heics" | "HEICS" | "heic-sequence") | MediaType::Video(_),
+            )
+    }
+
     /// Read the attachment from the disk into a vector of bytes in memory
     ///
     /// `db_path` is the path to the root of the backup directory.
@@ -671,6 +684,38 @@ mod tests {
         let mut attachment = sample_attachment();
         attachment.mime_type = None;
         assert_eq!(attachment.mime_type(), MediaType::Unknown);
+    }
+
+    #[test]
+    fn is_animated_sticker_static_heic() {
+        let mut attachment = sample_attachment();
+        attachment.is_sticker = true;
+        attachment.mime_type = Some("image/heic".to_string());
+        assert!(!attachment.is_animated_sticker());
+    }
+
+    #[test]
+    fn is_animated_sticker_heic_sequence() {
+        let mut attachment = sample_attachment();
+        attachment.is_sticker = true;
+        attachment.mime_type = Some("image/heic-sequence".to_string());
+        assert!(attachment.is_animated_sticker());
+    }
+
+    #[test]
+    fn is_animated_sticker_video_memoji() {
+        let mut attachment = sample_attachment();
+        attachment.is_sticker = true;
+        attachment.mime_type = Some("video/quicktime".to_string());
+        assert!(attachment.is_animated_sticker());
+    }
+
+    #[test]
+    fn is_animated_sticker_requires_sticker_flag() {
+        let mut attachment = sample_attachment();
+        attachment.is_sticker = false;
+        attachment.mime_type = Some("video/quicktime".to_string());
+        assert!(!attachment.is_animated_sticker());
     }
 
     #[test]

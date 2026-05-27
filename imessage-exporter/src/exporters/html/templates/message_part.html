@@ -2,7 +2,7 @@
 <div class="message_part">
     {% match body -%}
     {%- when PartBody::Empty -%}
-    {%- when PartBody::TextBubble { html } -%}<span class="bubble">{{ html|safe }}</span>
+    {%- when PartBody::TextBubble { bubble_class, html } -%}<span class="{{ bubble_class }}">{{ html|safe }}</span>
     {% when PartBody::TextTranslated { translated, original } -%}<span class="bubble">{{ translated|safe }}</span>
     <div class="translated"><span class="bubble">{{ original|safe }}</span></div>
     {% when PartBody::TextEdited { html } -%}<div class="edited">{{ html|safe }}</div>
@@ -11,6 +11,9 @@
         error|safe }}</span>
     {% when PartBody::AttachmentMissing -%}<span class="attachment_error">Attachment does not exist!</span>
     {% when PartBody::Sticker { html } -%}<div class="sticker">{{ html|safe }}</div>
+    {% when PartBody::InlineBubble { bubble_class, segments } -%}<span class="{{ bubble_class }}">{% for seg in segments
+        %}{% match seg %}{% when InlineSegment::Text(h) %}{{ h|safe }}{% when InlineSegment::Sticker(h) %}{{ h|safe }}{%
+        endmatch %}{% endfor %}</span>
     {% when PartBody::App { html } -%}<div class="app">{{ html|safe }}</div>
     {% when PartBody::AppError { html } -%}<div class="app_error">{{ html|safe }}</div>
     {% when PartBody::Retracted { html } -%}<span class="unsent">{{ html|safe }}</span>
