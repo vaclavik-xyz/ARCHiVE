@@ -68,8 +68,8 @@ fn is_windows_reserved(name: &str) -> bool {
 /// Remove unsafe chars in filenames, strip trailing `.` and ASCII space,
 /// and escape Windows device names.
 ///
-/// Returns `String` rather than `Cow<str>` because the sole caller uses the
-/// result as a `HashMap` key, and the `entry` API requires an owned `String`.
+/// Returns `String` rather than `Cow<str>` because callers use the result
+/// both as an on-disk filename and as a `HashMap` key.
 pub fn sanitize_filename(filename: &str) -> String {
     let mut sanitized: String = filename
         .chars()
