@@ -5,12 +5,14 @@ mod exporters;
 
 pub use exporters::{html::HTML, txt::TXT};
 
+use std::process::ExitCode;
+
 use app::{
     options::{Options, from_command_line},
     runtime::Config,
 };
 
-fn main() {
+fn main() -> ExitCode {
     // Get args from command line
     let args = from_command_line();
     // Create application options
@@ -25,12 +27,18 @@ fn main() {
 
                 if let Err(why) = app.start() {
                     eprintln!("Unable to export: {why}");
+                    return ExitCode::FAILURE;
                 }
+                ExitCode::SUCCESS
             }
             Err(why) => {
                 eprintln!("Invalid configuration: {why}");
+                ExitCode::FAILURE
             }
         },
-        Err(why) => eprintln!("Invalid command line options: {why}"),
+        Err(why) => {
+            eprintln!("Invalid command line options: {why}");
+            ExitCode::FAILURE
+        }
     }
 }
