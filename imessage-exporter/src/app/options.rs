@@ -161,6 +161,7 @@ impl Options {
                 (custom_name.is_some(), OPTION_CUSTOM_NAME),
                 (use_caller_id, OPTION_USE_CALLER_ID),
                 (conversation_filter.is_some(), OPTION_CONVERSATION_FILTER),
+                (!show_progress, OPTION_NO_PROGRESS),
             ];
             for (set, opt) in format_deps {
                 if set {
@@ -182,6 +183,7 @@ impl Options {
             (use_caller_id, OPTION_USE_CALLER_ID),
             (custom_name.is_some(), OPTION_CUSTOM_NAME),
             (conversation_filter.is_some(), OPTION_CONVERSATION_FILTER),
+            (!show_progress, OPTION_NO_PROGRESS),
         ];
         for (set, opt) in diag_conflicts {
             if diagnostic && set {
@@ -1108,6 +1110,18 @@ mod arg_tests {
         let args = get_command().get_matches_from(["imessage-exporter", "-f", "txt"]);
         let actual = Options::from_args(&args).unwrap();
         assert!(actual.show_progress);
+    }
+
+    #[test]
+    fn cant_build_option_no_progress_no_export_type() {
+        let args = get_command().get_matches_from(["imessage-exporter", "--no-progress"]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn cant_build_option_diagnostic_flag_with_no_progress() {
+        let args = get_command().get_matches_from(["imessage-exporter", "-d", "--no-progress"]);
+        assert!(Options::from_args(&args).is_err());
     }
 }
 
