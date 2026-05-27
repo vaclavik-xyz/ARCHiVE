@@ -2,6 +2,7 @@
  Defines routines common across all converters.
 */
 use std::{
+    ffi::OsStr,
     fs::{File, FileTimes, copy, create_dir_all, metadata, read_dir},
     path::Path,
     process::{Command, Stdio},
@@ -14,7 +15,11 @@ use crate::app::runtime::Config;
 
 /// Run a command, ignoring output. Returns [`None`] if the process cannot be
 /// spawned, cannot be waited on, or exits with a non-zero status.
-pub(super) fn run_command(command: &str, args: Vec<&str>) -> Option<()> {
+pub(super) fn run_command<I, S>(command: &str, args: I) -> Option<()>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     match Command::new(command)
         .args(args)
         .stdout(Stdio::null())
@@ -40,15 +45,8 @@ pub(super) fn run_command(command: &str, args: Vec<&str>) -> Option<()> {
     }
 }
 
-/// Get the path details formatted for a CLI argument and ensure the directory tree exists
-pub(super) fn ensure_paths<'a>(from: &'a Path, to: &'a Path) -> Option<(&'a str, &'a str)> {
-    // Get the path we want to copy from
-    let from_path = from.to_str()?;
-
-    // Get the path we want to write to
-    let to_path = to.to_str()?;
-
-    // Ensure the directory tree exists
+/// Ensure the parent directory of `to` exists, creating it if necessary.
+pub(super) fn ensure_output_dir(to: &Path) -> Option<()> {
     if let Some(folder) = to.parent()
         && !folder.exists()
         && let Err(why) = create_dir_all(folder)
@@ -56,7 +54,7 @@ pub(super) fn ensure_paths<'a>(from: &'a Path, to: &'a Path) -> Option<(&'a str,
         eprintln!("Unable to create {}: {why}", folder.display());
         return None;
     }
-    Some((from_path, to_path))
+    Some(())
 }
 
 /// Copy a file or directory without altering it

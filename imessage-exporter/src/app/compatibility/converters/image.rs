@@ -2,12 +2,15 @@
  Defines routines for converting image files.
 */
 
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use imessage_database::tables::attachment::MediaType;
 
 use crate::app::compatibility::{
-    converters::common::{copy_raw, ensure_paths, run_command},
+    converters::common::{copy_raw, ensure_output_dir, run_command},
     models::{Converter, ImageConverter, ImageType},
 };
 
@@ -57,18 +60,18 @@ fn convert_heic(
     converter: &ImageConverter,
     output_image_type: &ImageType,
 ) -> Option<()> {
-    let (from_path, to_path) = ensure_paths(from, to)?;
+    ensure_output_dir(to)?;
 
-    let args = match converter {
+    let args: Vec<&OsStr> = match converter {
         ImageConverter::Sips => vec![
-            "-s",
-            "format",
-            output_image_type.to_str(),
-            from_path,
-            "-o",
-            to_path,
+            OsStr::new("-s"),
+            OsStr::new("format"),
+            OsStr::new(output_image_type.to_str()),
+            from.as_os_str(),
+            OsStr::new("-o"),
+            to.as_os_str(),
         ],
-        ImageConverter::Imagemagick => vec![from_path, to_path],
+        ImageConverter::Imagemagick => vec![from.as_os_str(), to.as_os_str()],
     };
 
     run_command(converter.name(), args)
