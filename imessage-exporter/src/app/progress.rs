@@ -4,6 +4,7 @@
 
 use std::{
     cell::{Cell, RefCell},
+    fmt::Display,
     io::{self, Write},
     time::Instant,
 };
@@ -121,6 +122,25 @@ impl ExportProgress {
         self.position.set(self.length.get());
         self.draw();
         eprintln!();
+    }
+
+    /// Print a line above the bar without clobbering it.
+    ///
+    /// Clears the bar's current line, writes `msg` followed by a newline,
+    /// then redraws the bar one row below. When the bar is disabled, falls
+    /// back to plain `eprintln!` so headless / log-file output is unchanged.
+    pub fn println(&self, msg: impl Display) {
+        if !self.enabled {
+            eprintln!("{msg}");
+            return;
+        }
+        {
+            let mut stderr = io::stderr().lock();
+            // \x1b[K erases from cursor to end of line, clearing the bar
+            let _ = writeln!(stderr, "\r\x1b[K{msg}");
+            let _ = stderr.flush();
+        }
+        self.draw();
     }
 
     /// Render the progress bar to stderr
