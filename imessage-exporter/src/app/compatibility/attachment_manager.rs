@@ -26,6 +26,7 @@ use crate::app::{
             sticker::sticker_copy_convert,
             video::video_copy_convert,
         },
+        error::ConversionError,
         models::{AudioConverter, Converter, HardwareEncoder, ImageConverter, VideoConverter},
     },
     runtime::Config,
@@ -132,14 +133,18 @@ impl AttachmentManager {
         message: &Message,
         attachment: &'a mut Attachment,
         config: &Config,
-    ) -> Option<()> {
+    ) -> Result<(), ConversionError> {
         if !matches!(self.mode, AttachmentManagerMode::Disabled) {
             // Resolve the path to the attachment
-            let attachment_path = attachment.resolved_attachment_path(
+            let Some(attachment_path) = attachment.resolved_attachment_path(
                 &config.options.platform,
                 &config.options.db_path,
                 config.options.attachment_root.as_deref(),
-            )?;
+            ) else {
+                return Err(ConversionError::UnresolvedPath {
+                    transfer_name: attachment.transfer_name.clone(),
+                });
+            };
 
             let mut is_temp = false;
             let mut from = PathBuf::from(&attachment_path);
@@ -156,8 +161,10 @@ impl AttachmentManager {
                             is_temp = true;
                         }
                         Err(why) => {
-                            eprintln!("Unable to decrypt {}: {why}", from.display());
-                            return None;
+                            return Err(ConversionError::DecryptFailed {
+                                path: from,
+                                source: why,
+                            });
                         }
                     }
                 }
@@ -165,8 +172,7 @@ impl AttachmentManager {
 
             // Ensure the file exists at the specified location
             if !from.exists() {
-                eprintln!("Attachment not found at specified path: {}", from.display());
-                return None;
+                return Err(ConversionError::NotFound { path: from });
             }
 
             // Create a path to copy the file to
@@ -180,14 +186,16 @@ impl AttachmentManager {
             to.push(attachment.rowid.to_string());
 
             // Set the new file's extension to the original one, if provided
-            if !from.is_dir() && attachment.extension().is_some() {
-                to.set_extension(attachment.extension()?);
+            if !from.is_dir()
+                && let Some(ext) = attachment.extension()
+            {
+                to.set_extension(ext);
             }
 
             // If the same file was referenced more than once, i.e. in a reply or response that we render twice, escape early
             if to.exists() {
                 attachment.copied_path = Some(to);
-                return Some(());
+                return Ok(());
             }
 
             // If we convert the attachment, we need to update the media type
@@ -271,7 +279,7 @@ impl AttachmentManager {
             }
         }
 
-        Some(())
+        Ok(())
     }
 }
 

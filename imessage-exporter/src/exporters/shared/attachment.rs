@@ -17,11 +17,7 @@ use crate::{
 ///
 /// Returns `Ok(())` when the attachment has a filename and
 /// `handle_attachment` succeeded; otherwise returns the
-/// [`AttachmentRender`] fallback the caller should propagate. The filename
-/// check fires regardless of `handle_attachment`'s result: when
-/// `AttachmentManagerMode::Disabled` is in effect, `handle_attachment`
-/// returns `Some(())` without touching `filename`, but the caller still
-/// can't render anything useful downstream without one.
+/// [`AttachmentRender`] fallback the caller should propagate.
 pub(crate) fn prepare_attachment(
     config: &Config,
     state: &ExportState,
@@ -69,7 +65,8 @@ pub(crate) fn prepare_attachment(
     let Some(filename) = attachment.filename() else {
         return Err(AttachmentRender::MissingFilename);
     };
-    if handle_result.is_none() {
+    if let Err(why) = handle_result {
+        state.pb.println(why);
         return Err(AttachmentRender::NamedFile(filename.to_string()));
     }
     Ok(())
