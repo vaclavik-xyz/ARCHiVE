@@ -2,12 +2,15 @@
  Defines routines for converting video files.
 */
 
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use imessage_database::tables::attachment::MediaType;
 
 use crate::app::compatibility::{
-    converters::common::{copy_raw, ensure_paths, run_command},
+    converters::common::{copy_raw, ensure_output_dir, run_command},
     models::{Converter, HardwareEncoder, VideoConverter, VideoType},
 };
 
@@ -42,31 +45,47 @@ pub(crate) fn video_copy_convert(
 }
 
 /// Build ffmpeg arguments for remuxing without re-encoding
-fn build_remux_args<'a>(from_path: &'a str, to_path: &'a str) -> Vec<&'a str> {
+fn build_remux_args<'a>(from: &'a Path, to: &'a Path) -> Vec<&'a OsStr> {
     vec![
-        "-i",
-        from_path,
-        "-c",
-        "copy",
-        "-f",
-        VideoType::Mp4.to_str(),
-        to_path,
+        OsStr::new("-i"),
+        from.as_os_str(),
+        OsStr::new("-c"),
+        OsStr::new("copy"),
+        OsStr::new("-f"),
+        OsStr::new(VideoType::Mp4.to_str()),
+        to.as_os_str(),
     ]
 }
 
 // Build ffmpeg arguments for encoding with optional hardware acceleration
 fn build_encode_args<'a>(
-    from_path: &'a str,
-    to_path: &'a str,
-    hw: Option<&HardwareEncoder>,
-) -> Vec<&'a str> {
-    let mut args = vec!["-i", from_path];
+    from: &'a Path,
+    to: &'a Path,
+    hw: Option<&'a HardwareEncoder>,
+) -> Vec<&'a OsStr> {
+    let mut args: Vec<&OsStr> = vec![OsStr::new("-i"), from.as_os_str()];
     if let Some(hw) = hw {
-        args.extend(&["-c:v", hw.codec_name(), "-preset", "fast"]);
+        args.extend([
+            OsStr::new("-c:v"),
+            OsStr::new(hw.codec_name()),
+            OsStr::new("-preset"),
+            OsStr::new("fast"),
+        ]);
     } else {
-        args.extend(&["-c:v", "libx264", "-preset", "fast"]);
+        args.extend([
+            OsStr::new("-c:v"),
+            OsStr::new("libx264"),
+            OsStr::new("-preset"),
+            OsStr::new("fast"),
+        ]);
     }
-    args.extend(&["-c:a", "copy", "-movflags", "+faststart", to_path]);
+    args.extend([
+        OsStr::new("-c:a"),
+        OsStr::new("copy"),
+        OsStr::new("-movflags"),
+        OsStr::new("+faststart"),
+        to.as_os_str(),
+    ]);
     args
 }
 
@@ -77,21 +96,23 @@ fn convert_mov(
     converter: &VideoConverter,
     hardware_encoder: Option<&HardwareEncoder>,
 ) -> Option<()> {
-    let (from_path, to_path) = ensure_paths(from, to)?;
+    ensure_output_dir(to)?;
 
     // First, try remuxing into MP4 container without re-encoding
-    let remux_args = build_remux_args(from_path, to_path);
+    let remux_args = build_remux_args(from, to);
     if run_command(converter.name(), remux_args).is_some() {
         return Some(());
     }
 
     // Remux failed; fallback to re-encoding
-    let encode_args = build_encode_args(from_path, to_path, hardware_encoder);
+    let encode_args = build_encode_args(from, to, hardware_encoder);
     run_command(converter.name(), encode_args)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{ffi::OsStr, path::Path};
+
     use crate::app::compatibility::{
         converters::video::{build_encode_args, build_remux_args},
         models::{HardwareEncoder, VideoType},
@@ -99,52 +120,60 @@ mod tests {
 
     #[test]
     fn test_build_remux_args() {
-        let from = "input.mov";
-        let to = "output.mp4";
-        let args = build_remux_args(from, to);
-        let expected: Vec<&str> = vec!["-i", from, "-c", "copy", "-f", VideoType::Mp4.to_str(), to];
-        assert_eq!(args, expected);
+        let from = Path::new("input.mov");
+        let to = Path::new("output.mp4");
+        let actual = build_remux_args(from, to);
+        let expected: Vec<&OsStr> = vec![
+            OsStr::new("-i"),
+            from.as_os_str(),
+            OsStr::new("-c"),
+            OsStr::new("copy"),
+            OsStr::new("-f"),
+            OsStr::new(VideoType::Mp4.to_str()),
+            to.as_os_str(),
+        ];
+        assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_build_encode_args_hw() {
-        let from = "in.mov";
-        let to = "out.mp4";
-        let args = build_encode_args(from, to, Some(&HardwareEncoder::Nvenc));
-        let expected: Vec<&str> = vec![
-            "-i",
-            from,
-            "-c:v",
-            "h264_nvenc",
-            "-preset",
-            "fast",
-            "-c:a",
-            "copy",
-            "-movflags",
-            "+faststart",
-            to,
+        let from = Path::new("in.mov");
+        let to = Path::new("out.mp4");
+        let actual = build_encode_args(from, to, Some(&HardwareEncoder::Nvenc));
+        let expected: Vec<&OsStr> = vec![
+            OsStr::new("-i"),
+            from.as_os_str(),
+            OsStr::new("-c:v"),
+            OsStr::new("h264_nvenc"),
+            OsStr::new("-preset"),
+            OsStr::new("fast"),
+            OsStr::new("-c:a"),
+            OsStr::new("copy"),
+            OsStr::new("-movflags"),
+            OsStr::new("+faststart"),
+            to.as_os_str(),
         ];
-        assert_eq!(args, expected);
+        assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_build_encode_args_sw() {
-        let from = "in.mov";
-        let to = "out.mp4";
-        let args = build_encode_args(from, to, None);
-        let expected: Vec<&str> = vec![
-            "-i",
-            from,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-c:a",
-            "copy",
-            "-movflags",
-            "+faststart",
-            to,
+        let from = Path::new("in.mov");
+        let to = Path::new("out.mp4");
+        let actual = build_encode_args(from, to, None);
+        let expected: Vec<&OsStr> = vec![
+            OsStr::new("-i"),
+            from.as_os_str(),
+            OsStr::new("-c:v"),
+            OsStr::new("libx264"),
+            OsStr::new("-preset"),
+            OsStr::new("fast"),
+            OsStr::new("-c:a"),
+            OsStr::new("copy"),
+            OsStr::new("-movflags"),
+            OsStr::new("+faststart"),
+            to.as_os_str(),
         ];
-        assert_eq!(args, expected);
+        assert_eq!(actual, expected);
     }
 }

@@ -47,8 +47,7 @@ pub fn unique_test_dir(label: &str) -> PathBuf {
 }
 
 /// Remove leftover [`PREFIX`]-tagged directories whose mtime is older than
-/// [`STALE_AFTER`]. Bounded best-effort hygiene — errors are swallowed so a
-/// permission glitch or a racing sibling never fails a test.
+/// [`STALE_AFTER`].
 fn sweep_stale_test_dirs() {
     let Ok(entries) = read_dir(temp_dir()) else {
         return;
