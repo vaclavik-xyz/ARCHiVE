@@ -126,34 +126,36 @@ impl AppStoreVM<'_> {
     }
 }
 
+/// The placemark's full address model.
 #[derive(Template)]
 #[template(path = "balloons/placemark.html")]
+#[allow(dead_code)]
 pub(super) struct PlacemarkVM<'a> {
     pub place_name: OptionalText<'a>,
     pub url: OptionalText<'a>,
     pub name: OptionalText<'a>,
     pub address: OptionalText<'a>,
+    // Retained for completeness but not rendered by the template
     pub state: OptionalText<'a>,
+    // Retained for completeness but not rendered by the template
     pub city: OptionalText<'a>,
+    // Retained for completeness but not rendered by the template
     pub iso_country_code: OptionalText<'a>,
     pub postal_code: OptionalText<'a>,
     pub country: OptionalText<'a>,
+    // Retained for completeness but not rendered by the template
     pub street: OptionalText<'a>,
     pub sub_administrative_area: OptionalText<'a>,
+    // Retained for completeness but not rendered by the template
     pub sub_locality: OptionalText<'a>,
 }
 
 impl PlacemarkVM<'_> {
     fn has_footer(&self) -> bool {
         self.address.get().is_some()
-            || self.state.get().is_some()
-            || self.city.get().is_some()
-            || self.iso_country_code.get().is_some()
             || self.postal_code.get().is_some()
             || self.country.get().is_some()
-            || self.street.get().is_some()
             || self.sub_administrative_area.get().is_some()
-            || self.sub_locality.get().is_some()
     }
 }
 
