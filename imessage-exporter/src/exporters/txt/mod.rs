@@ -11,7 +11,7 @@ use crate::{
             driver::{ExportState, MessageWriter},
             edited::{EditDiff, normalize_edited},
             message::MessageContext,
-            part::dispatch_part_body,
+            part::{dispatch_part_body, resolve_run_attachment_indices},
             render::{render_template, render_template_into},
             reply::{build_replies, build_tapbacks},
             tapback::resolve_tapback,
@@ -26,7 +26,7 @@ use imessage_database::{
         attachment::Attachment,
         messages::{
             Message,
-            models::{AttachmentMeta, SharedLocation, TextAttributes},
+            models::{AttachmentMeta, AttributedRange, SharedLocation},
         },
         table::YOU,
     },
@@ -217,23 +217,92 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         Some(render_template(&EditedVM { kind }))
     }
 
-    fn format_attributes(&self, text: &str, attributes: &[TextAttributes]) -> String {
+    fn format_attributes(&self, text: &str, ranges: &[AttributedRange]) -> String {
         let mut formatted_text = String::with_capacity(text.len());
         let mut prev_start = 0;
         let mut prev_end = 0;
 
-        for effect in attributes {
-            if prev_start == effect.start && prev_end == effect.end {
+        for range in ranges {
+            // Attachment ranges carry no text of their own.
+            if range.attachment.is_some() {
                 continue;
             }
-            if let Some(message_content) = text.get(effect.start..effect.end) {
-                prev_start = effect.start;
-                prev_end = effect.end;
+            if prev_start == range.start && prev_end == range.end {
+                continue;
+            }
+            if let Some(message_content) = text.get(range.start..range.end) {
+                prev_start = range.start;
+                prev_end = range.end;
                 // There isn't really a way to represent formatted text in a plain text export
                 formatted_text.push_str(message_content);
             }
         }
         formatted_text
+    }
+
+    fn render_run(
+        &'a self,
+        message: &'a Message,
+        ranges: &'a [AttributedRange],
+        attachments: &'a mut Vec<Attachment>,
+        attachment_index: &mut usize,
+    ) -> <Self as PartBodyBuilder>::Body {
+        let text = message.text.as_deref().unwrap_or_default();
+
+        // A run with no attachment ranges is a plain text bubble, rendered
+        // exactly as the pre-refactor text component was, translation included.
+        if ranges.iter().all(|range| range.attachment.is_none()) {
+            let formatted = {
+                let attr_text = self.format_attributes(text, ranges);
+                if attr_text.is_empty() {
+                    self.body_escape(text)
+                } else {
+                    attr_text
+                }
+            };
+            let config = self.config;
+            if config.translated_messages.contains(&message.guid)
+                && let Ok(Some(translation)) = message.get_translation(config.data_source.db())
+            {
+                let safe_translated = self.body_escape(&translation.translated_text);
+                return self.body_text_translated(safe_translated, formatted);
+            }
+            return self.body_text_bubble(formatted);
+        }
+
+        // Otherwise the run mixes text and/or attachments. Pair attachment ranges
+        // to their attachments by file-transfer GUID (display order), then render
+        // each range as its own line and join them (one line per range). Every
+        // TXT body variant is a single `Line`, so a lone-attachment run
+        // reproduces the pre-refactor per-attachment output.
+        let resolved = resolve_run_attachment_indices(ranges, attachments, *attachment_index);
+        *attachment_index += resolved.len();
+        let mut seen = 0;
+        let mut lines: Vec<String> = Vec::with_capacity(ranges.len());
+        for range in ranges {
+            if let Some(meta) = &range.attachment {
+                let idx = resolved[seen];
+                seen += 1;
+                let line = match attachments.get_mut(idx) {
+                    Some(attachment) if attachment.is_sticker => {
+                        self.format_sticker(attachment, message)
+                    }
+                    Some(attachment) => match self.format_attachment(attachment, message, meta) {
+                        AttachmentRender::Embedded(content) => content,
+                        AttachmentRender::MissingFilename => "Attachment missing!".to_string(),
+                        AttachmentRender::NamedFile(name) => name,
+                    },
+                    None => "Attachment missing!".to_string(),
+                };
+                lines.push(line);
+            } else {
+                let segment = self.format_attributes(text, std::slice::from_ref(range));
+                if !segment.is_empty() {
+                    lines.push(segment);
+                }
+            }
+        }
+        self.body_text_bubble(lines.join("\n"))
     }
 
     fn format_message_into(
@@ -414,7 +483,7 @@ mod tests {
     use imessage_database::{
         message_types::text_effects::TextEffect,
         tables::{
-            messages::models::{AttachmentMeta, BubbleComponent, TextAttributes},
+            messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
             table::ME,
         },
         util::{dirs::home, platform::Platform},
@@ -1627,7 +1696,11 @@ mod tests {
         );
 
         let mut attachments = vec![sticker_a, sticker_b];
-        let part = BubbleComponent::Attachment(AttachmentMeta::default());
+        let part = BubbleComponent::Run(vec![AttributedRange::attachment(
+            0,
+            3,
+            AttachmentMeta::default(),
+        )]);
         let mut attachment_index: usize = 0;
 
         let first = dispatch_part_body(
@@ -1699,7 +1772,11 @@ mod tests {
         let image = Config::fake_attachment();
 
         let mut attachments = vec![sticker, image];
-        let part = BubbleComponent::Attachment(AttachmentMeta::default());
+        let part = BubbleComponent::Run(vec![AttributedRange::attachment(
+            0,
+            3,
+            AttachmentMeta::default(),
+        )]);
         let mut attachment_index: usize = 0;
 
         let first = dispatch_part_body(
@@ -1779,8 +1856,8 @@ mod tests {
         message.date = 674526582885055488;
         // Set the message components to a single url
         message.text = Some("https://example.com".to_string());
-        message.components = vec![BubbleComponent::Text(vec![
-                TextAttributes::new(
+        message.components = vec![BubbleComponent::Run(vec![
+                AttributedRange::text(
                     0,
                     84,
                     vec![
@@ -2851,7 +2928,7 @@ mod balloon_format_tests {
 mod text_effect_tests {
     use imessage_database::{
         message_types::text_effects::{Animation, Style, TextEffect, Unit},
-        tables::messages::models::{BubbleComponent, TextAttributes},
+        tables::messages::models::{AttributedRange, BubbleComponent},
     };
 
     use crate::{
@@ -2874,11 +2951,11 @@ mod text_effect_tests {
         message.is_from_me = true;
         message.chat_id = Some(0);
 
-        message.components = vec![BubbleComponent::Text(vec![
-            TextAttributes::new(0, 9, vec![TextEffect::Styles(vec![Style::Underline])]),
-            TextAttributes::new(9, 17, vec![TextEffect::Default]),
-            TextAttributes::new(17, 23, vec![TextEffect::Animated(Animation::Jitter)]),
-            TextAttributes::new(23, 30, vec![TextEffect::Default]),
+        message.components = vec![BubbleComponent::Run(vec![
+            AttributedRange::text(0, 9, vec![TextEffect::Styles(vec![Style::Underline])]),
+            AttributedRange::text(9, 17, vec![TextEffect::Default]),
+            AttributedRange::text(17, 23, vec![TextEffect::Animated(Animation::Jitter)]),
+            AttributedRange::text(23, 30, vec![TextEffect::Default]),
         ])];
 
         let mut actual = String::new();
@@ -2905,7 +2982,7 @@ mod text_effect_tests {
         message.is_from_me = true;
         message.chat_id = Some(0);
 
-        message.components = vec![BubbleComponent::Text(vec![TextAttributes::new(
+        message.components = vec![BubbleComponent::Run(vec![AttributedRange::text(
             0,
             61,
             vec![
@@ -2939,11 +3016,11 @@ mod text_effect_tests {
         message.is_from_me = true;
         message.chat_id = Some(0);
 
-        message.components = vec![BubbleComponent::Text(vec![
-            TextAttributes::new(0, 7, vec![TextEffect::Default]),
-            TextAttributes::new(7, 11, vec![TextEffect::Styles(vec![Style::Bold])]),
-            TextAttributes::new(11, 12, vec![TextEffect::Default]),
-            TextAttributes::new(12, 21, vec![TextEffect::Styles(vec![Style::Underline])]),
+        message.components = vec![BubbleComponent::Run(vec![
+            AttributedRange::text(0, 7, vec![TextEffect::Default]),
+            AttributedRange::text(7, 11, vec![TextEffect::Styles(vec![Style::Bold])]),
+            AttributedRange::text(11, 12, vec![TextEffect::Default]),
+            AttributedRange::text(12, 21, vec![TextEffect::Styles(vec![Style::Underline])]),
         ])];
 
         let mut actual = String::new();
@@ -2969,8 +3046,8 @@ mod text_effect_tests {
         message.is_from_me = true;
         message.chat_id = Some(0);
 
-        message.components = vec![BubbleComponent::Text(vec![
-            TextAttributes::new(
+        message.components = vec![BubbleComponent::Run(vec![
+            AttributedRange::text(
                 0,
                 1,
                 vec![
@@ -2978,8 +3055,8 @@ mod text_effect_tests {
                     TextEffect::Styles(vec![Style::Bold]),
                 ],
             ),
-            TextAttributes::new(1, 2, vec![TextEffect::Conversion(Unit::Timezone)]),
-            TextAttributes::new(
+            AttributedRange::text(1, 2, vec![TextEffect::Conversion(Unit::Timezone)]),
+            AttributedRange::text(
                 2,
                 4,
                 vec![
@@ -2987,8 +3064,8 @@ mod text_effect_tests {
                     TextEffect::Styles(vec![Style::Underline]),
                 ],
             ),
-            TextAttributes::new(4, 5, vec![TextEffect::Conversion(Unit::Timezone)]),
-            TextAttributes::new(
+            AttributedRange::text(4, 5, vec![TextEffect::Conversion(Unit::Timezone)]),
+            AttributedRange::text(
                 5,
                 7,
                 vec![
@@ -3015,7 +3092,7 @@ mod edited_tests {
             edited::{EditStatus, EditedMessage, EditedMessagePart},
             text_effects::TextEffect,
         },
-        tables::messages::models::{AttachmentMeta, BubbleComponent, TextAttributes},
+        tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
     };
 
     use crate::{
@@ -3062,15 +3139,27 @@ mod edited_tests {
         });
 
         message.components = vec![
-            BubbleComponent::Text(vec![TextAttributes::new(0, 28, vec![TextEffect::Default])]),
-            BubbleComponent::Attachment(AttachmentMeta {
-                guid: Some("D0551D89-4E11-43D0-9A0E-06F19704E97B".to_string()),
-                transcription: None,
-                height: None,
-                width: None,
-                name: None,
-            }),
-            BubbleComponent::Text(vec![TextAttributes::new(31, 63, vec![TextEffect::Default])]),
+            BubbleComponent::Run(vec![AttributedRange::text(
+                0,
+                28,
+                vec![TextEffect::Default],
+            )]),
+            BubbleComponent::Run(vec![AttributedRange::attachment(
+                28,
+                31,
+                AttachmentMeta {
+                    guid: Some("D0551D89-4E11-43D0-9A0E-06F19704E97B".to_string()),
+                    transcription: None,
+                    height: None,
+                    width: None,
+                    name: None,
+                },
+            )]),
+            BubbleComponent::Run(vec![AttributedRange::text(
+                31,
+                63,
+                vec![TextEffect::Default],
+            )]),
             BubbleComponent::Retracted,
         ];
 
@@ -3136,15 +3225,27 @@ mod edited_tests {
         message.chat_id = Some(0);
 
         message.components = vec![
-            BubbleComponent::Text(vec![TextAttributes::new(0, 28, vec![TextEffect::Default])]),
-            BubbleComponent::Attachment(AttachmentMeta {
-                guid: Some("D0551D89-4E11-43D0-9A0E-06F19704E97B".to_string()),
-                transcription: None,
-                height: None,
-                width: None,
-                name: None,
-            }),
-            BubbleComponent::Text(vec![TextAttributes::new(31, 63, vec![TextEffect::Default])]),
+            BubbleComponent::Run(vec![AttributedRange::text(
+                0,
+                28,
+                vec![TextEffect::Default],
+            )]),
+            BubbleComponent::Run(vec![AttributedRange::attachment(
+                28,
+                31,
+                AttachmentMeta {
+                    guid: Some("D0551D89-4E11-43D0-9A0E-06F19704E97B".to_string()),
+                    transcription: None,
+                    height: None,
+                    width: None,
+                    name: None,
+                },
+            )]),
+            BubbleComponent::Run(vec![AttributedRange::text(
+                31,
+                63,
+                vec![TextEffect::Default],
+            )]),
             BubbleComponent::Retracted,
         ];
 

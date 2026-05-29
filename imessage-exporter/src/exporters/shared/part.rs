@@ -1,21 +1,65 @@
+use std::collections::HashMap;
+
 use imessage_database::tables::{
     attachment::Attachment,
-    messages::{Message, models::BubbleComponent},
+    messages::{
+        Message,
+        models::{AttributedRange, BubbleComponent},
+    },
 };
 
-use crate::exporters::{
-    formatter::{AttachmentRender, MessageFormatter, PartBodyBuilder},
-    shared::balloon::rewrite_fitness_receiver,
-};
+use crate::exporters::formatter::{MessageFormatter, PartBodyBuilder};
 
-/// Walks `message_part` and produces the format's part-body. Owns:
+/// Resolve each attachment range in `ranges` to an index into `attachments`,
+/// matching by file-transfer GUID and falling back to positional order
+/// (starting at `positional_start`) for ranges that carry no GUID (the legacy
+/// (non-typedstream) parse path).
 ///
-///  - text-vs-attachment-vs-app-vs-retracted branching
+/// The message body lists attachment placeholders in display order, but
+/// [`Attachment::from_message`](imessage_database::tables::attachment::Attachment::from_message)
+/// returns rows in the join's (unspecified) order, so pairing placeholders to
+/// attachments by position can mis-order a message with several attachments.
+/// Pairing by GUID keeps every placeholder bound to its own attachment.
+///
+/// Returns one index per attachment range, in range order.
+pub(crate) fn resolve_run_attachment_indices(
+    ranges: &[AttributedRange],
+    attachments: &[Attachment],
+    positional_start: usize,
+) -> Vec<usize> {
+    let guid_to_idx: HashMap<&str, usize> = attachments
+        .iter()
+        .enumerate()
+        .filter_map(|(i, a)| a.guid.as_deref().map(|g| (g, i)))
+        .collect();
+
+    let mut out = Vec::new();
+    let mut positional = positional_start;
+    for range in ranges {
+        if let Some(meta) = &range.attachment {
+            let idx = meta
+                .guid
+                .as_deref()
+                .and_then(|g| guid_to_idx.get(g).copied())
+                .unwrap_or(positional);
+            out.push(idx);
+            positional += 1;
+        }
+    }
+    out
+}
+
+/// Walks `message_part` and produces the format's part-body. Owns the
+/// format-agnostic control flow:
+///
+///  - run-vs-app-vs-retracted branching
 ///  - the part-edited / Retracted edit-history dance
-///  - attachment index advancement
-///  - translation lookup
 ///
-/// Each leaf wrapping is delegated to the format's [`PartBodyBuilder`] impl.
+/// A plain (non-edited) [`Run`](BubbleComponent::Run)–a bubble's worth of
+/// attributed ranges–is delegated to the format's
+/// [`MessageFormatter::render_run`], which interleaves text and inline
+/// attachments, advances `attachment_index`, and applies translation. App and
+/// Retracted leaves are wrapped via the format's [`PartBodyBuilder`] impl.
 pub(crate) fn dispatch_part_body<'a, F>(
     formatter: &'a F,
     message: &'a Message,
@@ -28,10 +72,8 @@ where
     F: MessageFormatter<'a> + PartBodyBuilder,
 {
     match message_part {
-        BubbleComponent::Text(text_attrs) => {
-            let Some(text) = &message.text else {
-                return formatter.body_empty();
-            };
+        BubbleComponent::Run(ranges) => {
+            // An edited part renders its edit history in place of the live body.
             if message.is_part_edited(idx) {
                 return match &message.edited_parts {
                     Some(edited_parts) => match formatter.format_edited(message, edited_parts, idx)
@@ -42,42 +84,7 @@ where
                     None => formatter.body_empty(),
                 };
             }
-
-            let formatted_text = {
-                let attr_text = formatter.format_attributes(text, text_attrs);
-                if attr_text.is_empty() {
-                    formatter.body_escape(text)
-                } else {
-                    attr_text
-                }
-            };
-
-            let config = formatter.config();
-            if config.translated_messages.contains(&message.guid)
-                && let Ok(Some(translation)) = message.get_translation(config.data_source.db())
-            {
-                let safe_translated = formatter.body_escape(&translation.translated_text);
-                formatter.body_text_translated(safe_translated, formatted_text)
-            } else {
-                formatter.body_text_bubble(rewrite_fitness_receiver(formatted_text))
-            }
-        }
-        BubbleComponent::Attachment(metadata) => {
-            let Some(attachment) = attachments.get_mut(*attachment_index) else {
-                return formatter.body_attachment_missing();
-            };
-            let body = if attachment.is_sticker {
-                let content = formatter.format_sticker(attachment, message);
-                formatter.body_sticker(content)
-            } else {
-                match formatter.format_attachment(attachment, message, metadata) {
-                    AttachmentRender::Embedded(content) => formatter.body_attachment(content),
-                    AttachmentRender::MissingFilename => formatter.body_attachment_missing(),
-                    AttachmentRender::NamedFile(name) => formatter.body_attachment_error(&name),
-                }
-            };
-            *attachment_index += 1;
-            body
+            formatter.render_run(message, ranges, attachments, attachment_index)
         }
         BubbleComponent::App => match formatter.format_app(message, attachments) {
             Ok(content) => formatter.body_app(content),

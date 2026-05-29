@@ -364,9 +364,7 @@ pub(crate) enum PartBody {
     Sticker {
         html: Html,
     },
-    /// A single bubble containing interleaved text and inline (non-animated)
-    /// stickers — the emoji-like rendering iMessage uses for static stickers
-    /// alongside text.
+    /// A single bubble containing interleaved text and inline (non-animated) stickers
     InlineBubble {
         bubble_class: &'static str,
         segments: Vec<InlineSegment>,
@@ -382,7 +380,7 @@ pub(crate) enum PartBody {
     },
 }
 
-/// One element of an [`PartBody::InlineBubble`] — either a span of text
+/// One element of an [`PartBody::InlineBubble`]: either a span of text
 /// (already escaped and text-effected) or a glyph-sized sticker `<img>` tag.
 pub(crate) enum InlineSegment {
     Text(Html),
@@ -393,7 +391,7 @@ pub(crate) enum InlineSegment {
 /// (emoji and/or inline stickers).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GlyphSize {
-    /// Default — no extra class emitted.
+    /// Default, no extra class emitted.
     Normal,
     /// One glyph in a pure-glyph message.
     Jumbo,

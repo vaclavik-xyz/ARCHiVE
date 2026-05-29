@@ -11,8 +11,8 @@ use crate::exporters::html::view_model::GlyphSize;
 
 /// Range check against the standard emoji Unicode blocks. Coarse on purpose:
 /// the classifier bails on any non-emoji codepoint, so a too-narrow set just
-/// causes some pure-emoji messages to miss jumbomoji sizing — never a wrong
-/// upsize. If a real miss surfaces, swap for `unicode-properties`.
+/// causes some pure-emoji messages to miss jumbomoji sizing, never a wrong
+/// upsize.
 fn is_emoji_codepoint(c: char) -> bool {
     matches!(
         c as u32,
@@ -92,7 +92,7 @@ pub(crate) fn count_emoji_glyphs(text: &str) -> Option<usize> {
         }
         if is_keycap_base(c) {
             // Only counts as emoji when followed by U+FE0F U+20E3. Anything
-            // else means it's plain text — bail.
+            // else means it's plain text, so we should bail.
             if chars.peek() == Some(&VS16) {
                 chars.next();
                 if chars.peek() == Some(&KEYCAP_COMBINING) {
@@ -143,28 +143,32 @@ pub(crate) fn classify_message(
     let mut attachment_index = 0usize;
     for component in components {
         match component {
-            BubbleComponent::Text(attrs) => {
-                let Some(text) = full_text else {
-                    return GlyphSize::Normal;
-                };
-                for attr in attrs {
-                    let end = attr.end.min(text.len());
-                    let start = attr.start.min(end);
-                    let Some(slice_count) = count_emoji_glyphs(&text[start..end]) else {
-                        return GlyphSize::Normal;
-                    };
-                    count = count.saturating_add(slice_count);
+            BubbleComponent::Run(ranges) => {
+                for range in ranges {
+                    if range.attachment.is_some() {
+                        // Attachment range: only a static sticker counts (as one
+                        // glyph). Animated stickers and non-stickers bail.
+                        let Some(attachment) = attachments.get(attachment_index) else {
+                            return GlyphSize::Normal;
+                        };
+                        attachment_index += 1;
+                        if !attachment.is_sticker || attachment.is_animated_sticker() {
+                            return GlyphSize::Normal;
+                        }
+                        count = count.saturating_add(1);
+                    } else {
+                        // Text range: every codepoint must be emoji/whitespace.
+                        let Some(text) = full_text else {
+                            return GlyphSize::Normal;
+                        };
+                        let end = range.end.min(text.len());
+                        let start = range.start.min(end);
+                        let Some(slice_count) = count_emoji_glyphs(&text[start..end]) else {
+                            return GlyphSize::Normal;
+                        };
+                        count = count.saturating_add(slice_count);
+                    }
                 }
-            }
-            BubbleComponent::Attachment(_) => {
-                let Some(attachment) = attachments.get(attachment_index) else {
-                    return GlyphSize::Normal;
-                };
-                attachment_index += 1;
-                if !attachment.is_sticker || attachment.is_animated_sticker() {
-                    return GlyphSize::Normal;
-                }
-                count = count.saturating_add(1);
             }
             BubbleComponent::App | BubbleComponent::Retracted => {
                 return GlyphSize::Normal;
@@ -182,7 +186,7 @@ pub(crate) fn classify_message(
 mod tests {
     use imessage_database::{
         message_types::text_effects::TextEffect,
-        tables::messages::models::{AttachmentMeta, BubbleComponent, TextAttributes},
+        tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
     };
 
     use super::*;
@@ -241,7 +245,7 @@ mod tests {
 
     #[test]
     fn bare_digits_are_not_emoji() {
-        // "123" must NOT classify as pure-emoji — keycap base requires the
+        // "123" must NOT classify as pure-emoji, keycap base requires the
         // FE0F / 20E3 suffix.
         assert_eq!(count_emoji_glyphs("123"), None);
     }
@@ -281,7 +285,7 @@ mod tests {
     #[test]
     fn classify_single_emoji_is_jumbo() {
         let text = "🎉".to_string();
-        let components = vec![BubbleComponent::Text(vec![TextAttributes::new(
+        let components = vec![BubbleComponent::Run(vec![AttributedRange::text(
             0,
             text.len(),
             vec![TextEffect::Default],
@@ -294,7 +298,7 @@ mod tests {
     #[test]
     fn classify_three_emoji_is_medium() {
         let text = "🎉🎊🎁".to_string();
-        let components = vec![BubbleComponent::Text(vec![TextAttributes::new(
+        let components = vec![BubbleComponent::Run(vec![AttributedRange::text(
             0,
             text.len(),
             vec![TextEffect::Default],
@@ -307,7 +311,7 @@ mod tests {
     #[test]
     fn classify_four_emoji_is_normal() {
         let text = "🎉🎊🎁🎀".to_string();
-        let components = vec![BubbleComponent::Text(vec![TextAttributes::new(
+        let components = vec![BubbleComponent::Run(vec![AttributedRange::text(
             0,
             text.len(),
             vec![TextEffect::Default],
@@ -320,7 +324,7 @@ mod tests {
     #[test]
     fn classify_emoji_with_text_is_normal() {
         let text = "Hello 👋".to_string();
-        let components = vec![BubbleComponent::Text(vec![TextAttributes::new(
+        let components = vec![BubbleComponent::Run(vec![AttributedRange::text(
             0,
             text.len(),
             vec![TextEffect::Default],
@@ -335,7 +339,11 @@ mod tests {
         let mut sticker = Config::fake_attachment();
         sticker.is_sticker = true;
         sticker.mime_type = Some("image/heic".to_string());
-        let components = vec![BubbleComponent::Attachment(AttachmentMeta::default())];
+        let components = vec![BubbleComponent::Run(vec![AttributedRange::attachment(
+            0,
+            3,
+            AttachmentMeta::default(),
+        )])];
         let actual = classify_message(&components, std::slice::from_ref(&sticker), None);
         let expected = GlyphSize::Jumbo;
         assert_eq!(actual, expected);
@@ -346,7 +354,11 @@ mod tests {
         let mut sticker = Config::fake_attachment();
         sticker.is_sticker = true;
         sticker.mime_type = Some("image/heic-sequence".to_string());
-        let components = vec![BubbleComponent::Attachment(AttachmentMeta::default())];
+        let components = vec![BubbleComponent::Run(vec![AttributedRange::attachment(
+            0,
+            3,
+            AttachmentMeta::default(),
+        )])];
         let actual = classify_message(&components, std::slice::from_ref(&sticker), None);
         let expected = GlyphSize::Normal;
         assert_eq!(actual, expected);
@@ -358,14 +370,12 @@ mod tests {
         sticker.is_sticker = true;
         sticker.mime_type = Some("image/heic".to_string());
         let text = "🎉".to_string();
-        let components = vec![
-            BubbleComponent::Text(vec![TextAttributes::new(
-                0,
-                text.len(),
-                vec![TextEffect::Default],
-            )]),
-            BubbleComponent::Attachment(AttachmentMeta::default()),
-        ];
+        // Emoji text plus an inline static sticker live in one bubble (one Run),
+        // text range first then the attachment placeholder range.
+        let components = vec![BubbleComponent::Run(vec![
+            AttributedRange::text(0, text.len(), vec![TextEffect::Default]),
+            AttributedRange::attachment(text.len(), text.len() + 3, AttachmentMeta::default()),
+        ])];
         let actual = classify_message(&components, std::slice::from_ref(&sticker), Some(&text));
         let expected = GlyphSize::Medium;
         assert_eq!(actual, expected);
@@ -374,7 +384,11 @@ mod tests {
     #[test]
     fn classify_non_sticker_attachment_is_normal() {
         let attachment = Config::fake_attachment();
-        let components = vec![BubbleComponent::Attachment(AttachmentMeta::default())];
+        let components = vec![BubbleComponent::Run(vec![AttributedRange::attachment(
+            0,
+            3,
+            AttachmentMeta::default(),
+        )])];
         let actual = classify_message(&components, std::slice::from_ref(&attachment), None);
         let expected = GlyphSize::Normal;
         assert_eq!(actual, expected);

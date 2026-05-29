@@ -18,7 +18,7 @@ use imessage_database::{
         attachment::Attachment,
         messages::{
             Message,
-            models::{AttachmentMeta, SharedLocation, TextAttributes},
+            models::{AttachmentMeta, AttributedRange, SharedLocation},
         },
     },
 };
@@ -90,8 +90,23 @@ pub(crate) trait MessageFormatter<'a> {
         edited_message: &'a EditedMessage,
         message_part_idx: usize,
     ) -> Option<String>;
-    /// Format all [`TextAttributes`]s applied to a given set of text
-    fn format_attributes(&self, text: &str, attributes: &[TextAttributes]) -> String;
+    /// Format the text of a set of [`AttributedRange`]s applied to `text`.
+    /// Attachment ranges are ignored; only text ranges contribute.
+    fn format_attributes(&self, text: &str, ranges: &[AttributedRange]) -> String;
+    /// Render one plain (non-edited) [`Run`](imessage_database::tables::messages::models::BubbleComponent::Run)
+    /// (a bubble's worth of attributed ranges) into this format's part body.
+    /// Interleaves text ranges with inline-attachment ranges and advances
+    /// `attachment_index` past every attachment range consumed. Translation of
+    /// the whole run is handled here so the dispatch stays format-agnostic.
+    fn render_run(
+        &'a self,
+        message: &'a Message,
+        ranges: &'a [AttributedRange],
+        attachments: &'a mut Vec<Attachment>,
+        attachment_index: &mut usize,
+    ) -> <Self as PartBodyBuilder>::Body
+    where
+        Self: PartBodyBuilder;
     /// Render `message` directly into `out`. Permits reuse of a single buffer to
     /// avoid allocating per-message. `context` distinguishes the top-level
     /// driver pass from a nested-reply recursion (see [`RenderContext`]).
