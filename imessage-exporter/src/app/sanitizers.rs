@@ -14,7 +14,7 @@ const FILENAME_REPLACEMENT_CHAR: char = '_';
 /// Windows reserves these device names — case-insensitive, regardless of
 /// extension.
 ///
-/// Detail at https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
+/// Detail at <https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file>
 const WINDOWS_RESERVED_NAMES: &[&str] = &[
     "CON",
     "PRN",

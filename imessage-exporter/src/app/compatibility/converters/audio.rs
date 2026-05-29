@@ -2,12 +2,15 @@
  Defines routines for converting audio files.
 */
 
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use imessage_database::tables::attachment::MediaType;
 
 use crate::app::compatibility::{
-    converters::common::{copy_raw, ensure_paths, run_command},
+    converters::common::{copy_raw, ensure_output_dir, run_command},
     models::{AudioConverter, AudioType, Converter},
 };
 
@@ -46,11 +49,19 @@ pub(crate) fn audio_copy_convert(
 }
 
 fn convert_caf(from: &Path, to: &Path, converter: &AudioConverter) -> Option<()> {
-    let (from_path, to_path) = ensure_paths(from, to)?;
+    ensure_output_dir(to)?;
 
-    let args = match converter {
-        AudioConverter::AfConvert => vec!["-f", "mp4f", "-d", "aac", "-v", from_path, to_path],
-        AudioConverter::Ffmpeg => vec!["-i", from_path, to_path],
+    let args: Vec<&OsStr> = match converter {
+        AudioConverter::AfConvert => vec![
+            OsStr::new("-f"),
+            OsStr::new("mp4f"),
+            OsStr::new("-d"),
+            OsStr::new("aac"),
+            OsStr::new("-v"),
+            from.as_os_str(),
+            to.as_os_str(),
+        ],
+        AudioConverter::Ffmpeg => vec![OsStr::new("-i"), from.as_os_str(), to.as_os_str()],
     };
 
     run_command(converter.name(), args)
