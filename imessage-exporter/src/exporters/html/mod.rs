@@ -62,6 +62,9 @@ use view_model::{
 const HEADER: &str = "<html>\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
 const FOOTER: &str = "</body></html>";
 const STYLE: &str = include_str!("resources/style.css");
+/// Inline placeholder for an attachment range whose row is absent
+const MISSING_INLINE_ATTACHMENT: &str =
+    "<span class=\"attachment_error\">Attachment does not exist!</span>";
 
 #[derive(Debug, Clone)]
 /// [`EventType`] is used to track the start and end of HTML text attributes
@@ -301,6 +304,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                                     if let Some(attachment) = attachments.get_mut(idx) {
                                         rendered
                                             .push_str(&self.format_sticker_inline(attachment, msg));
+                                    } else {
+                                        rendered.push_str(MISSING_INLINE_ATTACHMENT);
                                     }
                                 } else {
                                     rendered.push_str(&self.render_text_range(event.text, range));
@@ -430,6 +435,10 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                     if let Some(attachment) = attachments.get_mut(idx) {
                         let img = self.format_sticker_inline(attachment, message);
                         segments.push(InlineSegment::Sticker(Html::trust(img)));
+                    } else {
+                        segments.push(InlineSegment::Text(Html::trust(
+                            MISSING_INLINE_ATTACHMENT.to_string(),
+                        )));
                     }
                 } else {
                     segments.push(InlineSegment::Text(Html::trust(
@@ -461,6 +470,8 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                     seen += 1;
                     if let Some(attachment) = attachments.get_mut(idx) {
                         original.push_str(&self.format_sticker_inline(attachment, message));
+                    } else {
+                        original.push_str(MISSING_INLINE_ATTACHMENT);
                     }
                 } else {
                     original.push_str(&self.render_text_range(text, range));
@@ -2858,6 +2869,30 @@ mod tests {
         assert!(
             !actual.contains('\u{FFFC}'),
             "no bare object-replacement placeholder should leak, got: {actual}"
+        );
+    }
+
+    #[test]
+    fn missing_inline_sticker_row_renders_placeholder() {
+        // An inline-sticker range that resolves to an absent attachment row (a
+        // dangling placeholder / orphaned join → out-of-bounds index) must show
+        // the same "missing" marker as the block path, not vanish silently.
+        let options = Options::fake_options(ExportType::Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        message.text = Some("\u{FFFC}".to_string());
+        message.components = vec![BubbleComponent::Run(vec![
+            AttributedRange::inline_attachment(0, 3, AttachmentMeta::default()),
+        ])];
+
+        // No resolved attachments → the range's index is out of bounds.
+        let mut ctx = empty_ctx();
+        let actual = render_parts(&exporter, &message, &mut ctx);
+        assert!(
+            actual.contains("Attachment does not exist!"),
+            "missing inline sticker must render a placeholder, got: {actual}"
         );
     }
 
