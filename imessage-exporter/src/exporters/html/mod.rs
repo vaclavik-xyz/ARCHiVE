@@ -21,7 +21,7 @@ use crate::{
             driver::{ExportState, MessageWriter},
             edited::{EditDiff, normalize_edited},
             message::MessageContext,
-            part::{dispatch_part_body, resolve_run_attachment_indices},
+            part::{AttachmentResolver, dispatch_part_body},
             render::{render_template, render_template_into},
             reply::{build_replies, build_tapbacks},
             tapback::resolve_tapback,
@@ -356,17 +356,18 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         message: &'a Message,
         ranges: &'a [AttributedRange],
         attachments: &'a mut Vec<Attachment>,
-        attachment_index: &mut usize,
+        resolver: &mut AttachmentResolver,
     ) -> <Self as PartBodyBuilder>::Body {
         let text = message.text.as_deref().unwrap_or_default();
         let is_translated = self.config.translated_messages.contains(&message.guid);
 
-        // Pair each attachment range with its resolved attachment by file-transfer
-        // GUID (so display order is preserved regardless of the DB join order),
-        // falling back to positional order. One entry per attachment range, in
-        // range order; advance the message-wide cursor past them.
-        let resolved = resolve_run_attachment_indices(ranges, attachments, *attachment_index);
-        *attachment_index += resolved.len();
+        // Pair each attachment range with its attachment (GUID-first, positional
+        // fallback) once, in body order — one entry per attachment range.
+        let resolved: Vec<usize> = ranges
+            .iter()
+            .filter(|range| range.attachment.is_some())
+            .map(|range| resolver.resolve(range))
+            .collect();
 
         // Does this run carry an inline (static, non-animated) sticker?
         let mut seen = 0;
@@ -607,7 +608,9 @@ impl<'a> HTML<'a> {
         message: &'a Message,
         ctx: &mut MessageContext<'a>,
     ) -> Result<Vec<MessagePartVM<'a>>, RuntimeError> {
-        let mut attachment_index: usize = 0;
+        // Pair body attachment placeholders to resolved attachments by GUID
+        // (positional fallback for legacy bodies); built once for the message.
+        let mut resolver = AttachmentResolver::new(&ctx.attachments);
 
         // Classify the whole message once for jumbomoji sizing; the result is
         // applied to whichever bubble body the dispatch produces.
@@ -625,7 +628,7 @@ impl<'a> HTML<'a> {
                 idx,
                 message_part,
                 &mut ctx.attachments,
-                &mut attachment_index,
+                &mut resolver,
             );
             // Plumb the per-message glyph class into bubble bodies so pure-glyph
             // messages (emoji and/or inline stickers) pick up jumbomoji sizing.

@@ -11,7 +11,7 @@ use crate::{
             driver::{ExportState, MessageWriter},
             edited::{EditDiff, normalize_edited},
             message::MessageContext,
-            part::{dispatch_part_body, resolve_run_attachment_indices},
+            part::{AttachmentResolver, dispatch_part_body},
             render::{render_template, render_template_into},
             reply::{build_replies, build_tapbacks},
             tapback::resolve_tapback,
@@ -245,7 +245,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         message: &'a Message,
         ranges: &'a [AttributedRange],
         attachments: &'a mut Vec<Attachment>,
-        attachment_index: &mut usize,
+        resolver: &mut AttachmentResolver,
     ) -> <Self as PartBodyBuilder>::Body {
         let text = message.text.as_deref().unwrap_or_default();
 
@@ -275,8 +275,11 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         // each range as its own line and join them (one line per range). Every
         // TXT body variant is a single `Line`, so a lone-attachment run
         // reproduces the pre-refactor per-attachment output.
-        let resolved = resolve_run_attachment_indices(ranges, attachments, *attachment_index);
-        *attachment_index += resolved.len();
+        let resolved: Vec<usize> = ranges
+            .iter()
+            .filter(|range| range.attachment.is_some())
+            .map(|range| resolver.resolve(range))
+            .collect();
         let mut seen = 0;
         let mut lines: Vec<String> = Vec::with_capacity(ranges.len());
         for range in ranges {
@@ -312,7 +315,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         out: &mut String,
     ) -> Result<(), RuntimeError> {
         let mut ctx = MessageContext::resolve(message, self.config.data_source.db())?;
-        let mut attachment_index: usize = 0;
+        let mut resolver = AttachmentResolver::new(&ctx.attachments);
 
         let mut parts = Vec::with_capacity(message.components.len());
         for (idx, message_part) in message.components.iter().enumerate() {
@@ -322,7 +325,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 idx,
                 message_part,
                 &mut ctx.attachments,
-                &mut attachment_index,
+                &mut resolver,
             );
             parts.push(MessagePartVM {
                 body,
@@ -1656,7 +1659,10 @@ mod tests {
         // `dispatch_part_body` returned without advancing `attachment_index`,
         // so both parts re-resolved `attachments[0]` and the first sticker
         // rendered at every slot.
-        use crate::exporters::{shared::part::dispatch_part_body, txt::view_model::PartBody};
+        use crate::exporters::{
+            shared::part::{AttachmentResolver, dispatch_part_body},
+            txt::view_model::PartBody,
+        };
 
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
@@ -1701,7 +1707,7 @@ mod tests {
             3,
             AttachmentMeta::default(),
         )]);
-        let mut attachment_index: usize = 0;
+        let mut resolver = AttachmentResolver::new(&attachments);
 
         let first = dispatch_part_body(
             &exporter,
@@ -1709,9 +1715,8 @@ mod tests {
             0,
             &part,
             &mut attachments,
-            &mut attachment_index,
+            &mut resolver,
         );
-        assert_eq!(attachment_index, 1);
         let PartBody::Line { text: first_text } = first else {
             panic!("expected PartBody::Line for sticker arm");
         };
@@ -1725,9 +1730,8 @@ mod tests {
             1,
             &part,
             &mut attachments,
-            &mut attachment_index,
+            &mut resolver,
         );
-        assert_eq!(attachment_index, 2);
         let PartBody::Line { text: second_text } = second else {
             panic!("expected PartBody::Line for sticker arm");
         };
@@ -1742,7 +1746,10 @@ mod tests {
         // sticker arm must advance `attachment_index` so the next part
         // resolves to the non-sticker attachment. Prior to the fix the
         // second part would re-resolve the sticker.
-        use crate::exporters::{shared::part::dispatch_part_body, txt::view_model::PartBody};
+        use crate::exporters::{
+            shared::part::{AttachmentResolver, dispatch_part_body},
+            txt::view_model::PartBody,
+        };
 
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
@@ -1777,7 +1784,7 @@ mod tests {
             3,
             AttachmentMeta::default(),
         )]);
-        let mut attachment_index: usize = 0;
+        let mut resolver = AttachmentResolver::new(&attachments);
 
         let first = dispatch_part_body(
             &exporter,
@@ -1785,9 +1792,8 @@ mod tests {
             0,
             &part,
             &mut attachments,
-            &mut attachment_index,
+            &mut resolver,
         );
-        assert_eq!(attachment_index, 1);
         let PartBody::Line { text: first_text } = first else {
             panic!("expected PartBody::Line for sticker arm");
         };
@@ -1801,9 +1807,8 @@ mod tests {
             1,
             &part,
             &mut attachments,
-            &mut attachment_index,
+            &mut resolver,
         );
-        assert_eq!(attachment_index, 2);
         let PartBody::Line { text: second_text } = second else {
             panic!("expected PartBody::Line for attachment arm");
         };

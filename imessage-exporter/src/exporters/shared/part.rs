@@ -10,43 +10,59 @@ use imessage_database::tables::{
 
 use crate::exporters::formatter::{MessageFormatter, PartBodyBuilder};
 
-/// Resolve each attachment range in `ranges` to an index into `attachments`,
-/// matching by file-transfer GUID and falling back to positional order
-/// (starting at `positional_start`) for ranges that carry no GUID (the legacy
-/// (non-typedstream) parse path).
+/// Resolves a message's body attachment ranges to indices into its resolved
+/// attachment list, preferring the file-transfer GUID.
 ///
-/// The message body lists attachment placeholders in display order, but
+/// The body lists attachment placeholders in display order, but
 /// [`Attachment::from_message`](imessage_database::tables::attachment::Attachment::from_message)
-/// returns rows in the join's (unspecified) order, so pairing placeholders to
-/// attachments by position can mis-order a message with several attachments.
-/// Pairing by GUID keeps every placeholder bound to its own attachment.
+/// returns rows in the join's (unspecified) order — so positional pairing can
+/// mis-order a message with several attachments. Matching by GUID keeps every
+/// placeholder bound to its own attachment regardless of join order, and the
+/// resolved attachments always carry a GUID (it's a column), so this is the
+/// path for any typedstream-parsed body.
 ///
-/// Returns one index per attachment range, in range order.
-pub(crate) fn resolve_run_attachment_indices(
-    ranges: &[AttributedRange],
-    attachments: &[Attachment],
-    positional_start: usize,
-) -> Vec<usize> {
-    let guid_to_idx: HashMap<&str, usize> = attachments
-        .iter()
-        .enumerate()
-        .filter_map(|(i, a)| a.guid.as_deref().map(|g| (g, i)))
-        .collect();
+/// Ranges that carry no GUID — only the legacy (non-typedstream)
+/// [`parse_body_legacy`](imessage_database::tables::messages::body) path, whose
+/// placeholders have no identity to match — fall back to positional order. The
+/// resolver is built once per message and advanced as those fallback ranges are
+/// consumed.
+pub(crate) struct AttachmentResolver {
+    /// `guid → index` into the message's resolved attachments.
+    by_guid: HashMap<String, usize>,
+    /// Cursor for the positional fallback (GUID-less legacy ranges only).
+    next_positional: usize,
+}
 
-    let mut out = Vec::new();
-    let mut positional = positional_start;
-    for range in ranges {
-        if let Some(meta) = &range.attachment {
-            let idx = meta
-                .guid
-                .as_deref()
-                .and_then(|g| guid_to_idx.get(g).copied())
-                .unwrap_or(positional);
-            out.push(idx);
-            positional += 1;
+impl AttachmentResolver {
+    pub(crate) fn new(attachments: &[Attachment]) -> Self {
+        Self {
+            by_guid: attachments
+                .iter()
+                .enumerate()
+                .filter_map(|(i, a)| a.guid.clone().map(|g| (g, i)))
+                .collect(),
+            next_positional: 0,
         }
     }
-    out
+
+    /// Resolve one attachment range to an index into the attachment list.
+    /// Prefers the range's GUID; on a miss (or a GUID-less legacy range)
+    /// consumes the next positional slot. Call exactly once per attachment
+    /// range, in body order. The returned index may be out of bounds (a
+    /// dangling placeholder); callers bounds-check via `attachments.get(idx)`.
+    pub(crate) fn resolve(&mut self, range: &AttributedRange) -> usize {
+        if let Some(idx) = range
+            .attachment
+            .as_ref()
+            .and_then(|meta| meta.guid.as_deref())
+            .and_then(|guid| self.by_guid.get(guid).copied())
+        {
+            return idx;
+        }
+        let idx = self.next_positional;
+        self.next_positional += 1;
+        idx
+    }
 }
 
 /// Walks `message_part` and produces the format's part-body. Owns the
@@ -58,7 +74,7 @@ pub(crate) fn resolve_run_attachment_indices(
 /// A plain (non-edited) [`Run`](BubbleComponent::Run)–a bubble's worth of
 /// attributed ranges–is delegated to the format's
 /// [`MessageFormatter::render_run`], which interleaves text and inline
-/// attachments, advances `attachment_index`, and applies translation. App and
+/// attachments, resolves them via `resolver`, and applies translation. App and
 /// Retracted leaves are wrapped via the format's [`PartBodyBuilder`] impl.
 pub(crate) fn dispatch_part_body<'a, F>(
     formatter: &'a F,
@@ -66,7 +82,7 @@ pub(crate) fn dispatch_part_body<'a, F>(
     idx: usize,
     message_part: &'a BubbleComponent,
     attachments: &'a mut Vec<Attachment>,
-    attachment_index: &mut usize,
+    resolver: &mut AttachmentResolver,
 ) -> F::Body
 where
     F: MessageFormatter<'a> + PartBodyBuilder,
@@ -84,7 +100,7 @@ where
                     None => formatter.body_empty(),
                 };
             }
-            formatter.render_run(message, ranges, attachments, attachment_index)
+            formatter.render_run(message, ranges, attachments, resolver)
         }
         BubbleComponent::App => match formatter.format_app(message, attachments) {
             Ok(content) => formatter.body_app(content),

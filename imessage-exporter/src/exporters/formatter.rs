@@ -23,7 +23,10 @@ use imessage_database::{
     },
 };
 
-use crate::app::{error::RuntimeError, runtime::Config};
+use crate::{
+    app::{error::RuntimeError, runtime::Config},
+    exporters::shared::part::AttachmentResolver,
+};
 
 /// Where a message sits in the rendered conversation hierarchy. Each exporter
 /// applies its own decoration for [`Reply`](Self::Reply) (e.g. line prefixing,
@@ -95,15 +98,16 @@ pub(crate) trait MessageFormatter<'a> {
     fn format_attributes(&self, text: &str, ranges: &[AttributedRange]) -> String;
     /// Render one plain (non-edited) [`Run`](imessage_database::tables::messages::models::BubbleComponent::Run)
     /// (a bubble's worth of attributed ranges) into this format's part body.
-    /// Interleaves text ranges with inline-attachment ranges and advances
-    /// `attachment_index` past every attachment range consumed. Translation of
-    /// the whole run is handled here so the dispatch stays format-agnostic.
+    /// Interleaves text ranges with inline-attachment ranges, pairing each
+    /// attachment to its row via `resolver` (GUID-first, positional fallback).
+    /// Translation of the whole run is handled here so the dispatch stays
+    /// format-agnostic.
     fn render_run(
         &'a self,
         message: &'a Message,
         ranges: &'a [AttributedRange],
         attachments: &'a mut Vec<Attachment>,
-        attachment_index: &mut usize,
+        resolver: &mut AttachmentResolver,
     ) -> <Self as PartBodyBuilder>::Body
     where
         Self: PartBodyBuilder;
