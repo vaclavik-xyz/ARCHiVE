@@ -191,10 +191,14 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
     }
 
     fn format_edited(
-        &self,
+        &'a self,
         msg: &'a Message,
         edited_message: &'a EditedMessage,
         message_part_idx: usize,
+        // Plain text can't embed media, so the edit history keeps the parsed
+        // `\u{FFFC}` placeholder rather than inlining the sticker image.
+        _attachments: &'a mut Vec<Attachment>,
+        _resolver: &mut AttachmentResolver,
     ) -> Option<String> {
         let kind = normalize_edited(msg, edited_message, message_part_idx, self.config, YOU)?
             .map_rows(|event| {

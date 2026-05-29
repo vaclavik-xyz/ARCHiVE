@@ -19,7 +19,7 @@ use crate::{
             attachment::prepare_attachment,
             balloon::{dispatch_app_balloon, rewrite_fitness_receiver},
             driver::{ExportState, MessageWriter},
-            edited::{EditDiff, normalize_edited},
+            edited::{Edit, EditDiff, normalize_edited},
             message::MessageContext,
             part::{AttachmentResolver, dispatch_part_body},
             render::{render_template, render_template_into},
@@ -261,30 +261,72 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
     }
 
     fn format_edited(
-        &self,
+        &'a self,
         msg: &'a Message,
         edited_message: &'a EditedMessage,
         message_part_idx: usize,
+        attachments: &'a mut Vec<Attachment>,
+        resolver: &mut AttachmentResolver,
     ) -> Option<String> {
-        let kind = normalize_edited(msg, edited_message, message_part_idx, self.config, YOU)?
-            .map_rows(|event| {
-                let rendered_text =
-                    if let Some(BubbleComponent::Run(ranges)) = event.components.first() {
-                        self.format_attributes(event.text, ranges)
-                    } else {
-                        sanitize_html(event.text).into_owned()
+        let normalized = normalize_edited(msg, edited_message, message_part_idx, self.config, YOU)?;
+        // Build rows in a direct loop rather than `map_rows`: rendering an inline
+        // sticker needs a `&'a mut Attachment`, which a closure capture can't
+        // hold across iterations.
+        let kind = match normalized {
+            Edit::Unsent { who, elapsed } => Edit::Unsent { who, elapsed },
+            Edit::Edited { rows } => {
+                let mut out = Vec::with_capacity(rows.len());
+                for event in rows {
+                    let rendered_text = match event.components.first() {
+                        // A run carrying an inline sticker interleaves text ranges
+                        // with glyph-sized `<img>`s, exactly as `render_run` does
+                        // for live messages so an edited Memoji/genmoji renders
+                        // as its image, not a bare `\u{FFFC}` placeholder.
+                        Some(BubbleComponent::Run(ranges))
+                            if ranges
+                                .iter()
+                                .any(|range| range.attachment.is_some() && range.emoji_image) =>
+                        {
+                            let resolved: Vec<usize> = ranges
+                                .iter()
+                                .filter(|range| range.attachment.is_some())
+                                .map(|range| resolver.resolve(range))
+                                .collect();
+                            let mut seen = 0;
+                            let mut rendered = String::new();
+                            for range in ranges {
+                                if range.attachment.is_some() {
+                                    let idx = resolved[seen];
+                                    seen += 1;
+                                    if let Some(attachment) = attachments.get_mut(idx) {
+                                        rendered
+                                            .push_str(&self.format_sticker_inline(attachment, msg));
+                                    }
+                                } else {
+                                    rendered.push_str(&self.render_text_range(event.text, range));
+                                }
+                            }
+                            rendered
+                        }
+                        Some(BubbleComponent::Run(ranges)) => {
+                            self.format_attributes(event.text, ranges)
+                        }
+                        _ => sanitize_html(event.text).into_owned(),
                     };
-                let timestamp = match event.diff_since_previous {
-                    EditDiff::First => String::new(),
-                    EditDiff::Failed => "Edited later".to_string(),
-                    EditDiff::Computed(diff) => format!("Edited {diff} later"),
-                };
-                EditedRow {
-                    is_last: event.is_last,
-                    timestamp,
-                    text_html: Html::trust(rendered_text),
+                    let timestamp = match event.diff_since_previous {
+                        EditDiff::First => String::new(),
+                        EditDiff::Failed => "Edited later".to_string(),
+                        EditDiff::Computed(diff) => format!("Edited {diff} later"),
+                    };
+                    out.push(EditedRow {
+                        is_last: event.is_last,
+                        timestamp,
+                        text_html: Html::trust(rendered_text),
+                    });
                 }
-            });
+                Edit::Edited { rows: out }
+            }
+        };
 
         Some(render_template(&EditedVM { kind }))
     }
@@ -361,27 +403,19 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         let text = message.text.as_deref().unwrap_or_default();
         let is_translated = self.config.translated_messages.contains(&message.guid);
 
+        // Does this run carry an inline-rendered attachment? Apple's
+        // `emoji_image` hint is the signal.
+        let has_inline_sticker = ranges
+            .iter()
+            .any(|range| range.attachment.is_some() && range.emoji_image);
+
         // Pair each attachment range with its attachment (GUID-first, positional
-        // fallback) once, in body order — one entry per attachment range.
+        // fallback) once, in body order, with one entry per attachment range.
         let resolved: Vec<usize> = ranges
             .iter()
             .filter(|range| range.attachment.is_some())
             .map(|range| resolver.resolve(range))
             .collect();
-
-        // Does this run carry an inline (static, non-animated) sticker?
-        let mut seen = 0;
-        let has_inline_sticker = ranges.iter().any(|range| {
-            if range.attachment.is_some() {
-                let idx = resolved[seen];
-                seen += 1;
-                attachments
-                    .get(idx)
-                    .is_some_and(|a| a.is_sticker && !a.is_animated_sticker())
-            } else {
-                false
-            }
-        });
 
         // Inline path: text interleaved with glyph-sized static stickers in a
         // single bubble. Suppressed for translated messages so a translated
@@ -614,11 +648,7 @@ impl<'a> HTML<'a> {
 
         // Classify the whole message once for jumbomoji sizing; the result is
         // applied to whichever bubble body the dispatch produces.
-        let glyph_class = jumbomoji::classify_message(
-            &message.components,
-            &ctx.attachments,
-            message.text.as_deref(),
-        );
+        let glyph_class = jumbomoji::classify_message(&message.components, message.text.as_deref());
 
         let mut parts = Vec::with_capacity(message.components.len());
         for (idx, message_part) in message.components.iter().enumerate() {
@@ -2643,7 +2673,7 @@ mod tests {
         // Inline sticker shares the text's part: one Run, ranges in order.
         message.components = vec![BubbleComponent::Run(vec![
             AttributedRange::text(0, 6, vec![TextEffect::Default]),
-            AttributedRange::attachment(6, 9, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(6, 9, AttachmentMeta::default()),
             AttributedRange::text(9, 15, vec![TextEffect::Default]),
         ])];
 
@@ -2674,6 +2704,133 @@ mod tests {
     }
 
     #[test]
+    fn inline_memoji_among_text_renders_inline_and_keeps_text() {
+        // A non-edited run with text, an inline (image/heic) Memoji carrying the
+        // `emoji_image` hint, and a trailing emoji: `render_run` must interleave
+        // the sticker as an inline <img> and keep the surrounding text/emoji,
+        // given the Memoji is resolved in `ctx.attachments`.
+        let options = Options::fake_options(ExportType::Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let guid = "F2C223DB-0140-4D49-B38A-C1A3553B4CBA";
+        let mut message = Config::fake_message();
+        message.text = Some("Check this out: \u{FFFC} 😀".to_string());
+        message.components = vec![BubbleComponent::Run(vec![
+            AttributedRange::text(0, 16, vec![TextEffect::Default]),
+            AttributedRange::inline_attachment(
+                16,
+                19,
+                AttachmentMeta {
+                    guid: Some(guid.to_string()),
+                    ..Default::default()
+                },
+            ),
+            AttributedRange::text(19, 24, vec![TextEffect::Default]),
+        ])];
+
+        // A static image/heic Memoji, matching the real attachment row.
+        let mut memoji = make_static_sticker(&config);
+        memoji.guid = Some(guid.to_string());
+        let mut ctx = empty_ctx();
+        ctx.attachments = vec![memoji];
+
+        let actual = render_parts(&exporter, &message, &mut ctx);
+        assert!(
+            actual.contains("<img class=\"inline_sticker\""),
+            "inline Memoji should render an inline <img>, got: {actual}"
+        );
+        assert!(
+            actual.contains("😀"),
+            "surrounding text/emoji must survive alongside the sticker, got: {actual}"
+        );
+        assert!(
+            !actual.contains("class=\"sticker\""),
+            "Memoji must render inline, not as a block <div class=\"sticker\">, got: {actual}"
+        );
+    }
+
+    #[test]
+    fn edited_message_inlines_memoji_sticker() {
+        // Regression for the `MemojiEdited` fixture: an *edited* message with an
+        // inline Memoji renders through `format_edited`, not `render_run`. It must
+        // still inline the sticker as an <img> in every edit-history row rather
+        // than leaking the bare `\u{FFFC}` placeholder.
+        use imessage_database::message_types::edited::{
+            EditStatus, EditedEvent, EditedMessage, EditedMessagePart,
+        };
+
+        let options = Options::fake_options(ExportType::Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let guid = "F2C223DB-0140-4D49-B38A-C1A3553B4CBA";
+        let mk_meta = || AttachmentMeta {
+            guid: Some(guid.to_string()),
+            ..Default::default()
+        };
+
+        // v1 ends with the Memoji; v2 adds " 😀" after it. Both carry the hint.
+        let v1 = vec![BubbleComponent::Run(vec![
+            AttributedRange::text(0, 16, vec![TextEffect::Default]),
+            AttributedRange::inline_attachment(16, 19, mk_meta()),
+        ])];
+        let v2 = vec![BubbleComponent::Run(vec![
+            AttributedRange::text(0, 16, vec![TextEffect::Default]),
+            AttributedRange::inline_attachment(16, 19, mk_meta()),
+            AttributedRange::text(19, 24, vec![TextEffect::Default]),
+        ])];
+
+        let mut message = Config::fake_message();
+        message.text = Some("Check this out: \u{FFFC} 😀".to_string());
+        message.components = vec![BubbleComponent::Run(vec![AttributedRange::text(
+            0,
+            1,
+            vec![TextEffect::Default],
+        )])];
+        message.edited_parts = Some(EditedMessage {
+            parts: vec![EditedMessagePart {
+                status: EditStatus::Edited,
+                edit_history: vec![
+                    EditedEvent {
+                        date: 758573156000000000,
+                        text: "Check this out: \u{FFFC}".to_string(),
+                        components: v1,
+                        guid: None,
+                    },
+                    EditedEvent {
+                        date: 758573166000000000,
+                        text: "Check this out: \u{FFFC} 😀".to_string(),
+                        components: v2,
+                        guid: None,
+                    },
+                ],
+            }],
+        });
+
+        let mut memoji = make_static_sticker(&config);
+        memoji.guid = Some(guid.to_string());
+        let mut ctx = empty_ctx();
+        ctx.attachments = vec![memoji];
+
+        let actual = render_parts(&exporter, &message, &mut ctx);
+
+        assert_eq!(
+            actual.matches("<img class=\"inline_sticker\"").count(),
+            2,
+            "both edit versions should inline the Memoji as an <img>, got: {actual}"
+        );
+        assert!(
+            actual.contains('😀'),
+            "the trailing emoji must survive, got: {actual}"
+        );
+        assert!(
+            !actual.contains('\u{FFFC}'),
+            "no bare object-replacement placeholder should leak, got: {actual}"
+        );
+    }
+
+    #[test]
     fn single_inline_sticker_renders_jumbo_bubble() {
         // A pure-sticker message (one static sticker, no text) should render
         // as a jumbo-sized inline bubble.
@@ -2683,11 +2840,9 @@ mod tests {
 
         let mut message = Config::fake_message();
         message.text = Some("\u{FFFC}".to_string());
-        message.components = vec![BubbleComponent::Run(vec![AttributedRange::attachment(
-            0,
-            3,
-            AttachmentMeta::default(),
-        )])];
+        message.components = vec![BubbleComponent::Run(vec![
+            AttributedRange::inline_attachment(0, 3, AttachmentMeta::default()),
+        ])];
 
         let mut ctx = empty_ctx();
         ctx.attachments = vec![make_static_sticker(&config)];
@@ -2716,17 +2871,17 @@ mod tests {
         message.text = Some(text);
         // All six inline stickers and the spaces between them share one part.
         message.components = vec![BubbleComponent::Run(vec![
-            AttributedRange::attachment(0, 3, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(0, 3, AttachmentMeta::default()),
             AttributedRange::text(3, 4, vec![TextEffect::Default]),
-            AttributedRange::attachment(4, 7, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(4, 7, AttachmentMeta::default()),
             AttributedRange::text(7, 8, vec![TextEffect::Default]),
-            AttributedRange::attachment(8, 11, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(8, 11, AttachmentMeta::default()),
             AttributedRange::text(11, 12, vec![TextEffect::Default]),
-            AttributedRange::attachment(12, 15, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(12, 15, AttachmentMeta::default()),
             AttributedRange::text(15, 16, vec![TextEffect::Default]),
-            AttributedRange::attachment(16, 19, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(16, 19, AttachmentMeta::default()),
             AttributedRange::text(19, 20, vec![TextEffect::Default]),
-            AttributedRange::attachment(20, 23, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(20, 23, AttachmentMeta::default()),
         ])];
 
         let mut ctx = empty_ctx();
@@ -2848,7 +3003,7 @@ mod tests {
         // sibling sticker live in separate parts; the edit can't bleed across.
         message.components = vec![
             BubbleComponent::Run(vec![AttributedRange::text(0, 3, vec![TextEffect::Default])]),
-            BubbleComponent::Run(vec![AttributedRange::attachment(
+            BubbleComponent::Run(vec![AttributedRange::inline_attachment(
                 3,
                 6,
                 AttachmentMeta::default(),
@@ -2899,7 +3054,7 @@ mod tests {
         // Inline sticker shares the text's part: one Run.
         message.components = vec![BubbleComponent::Run(vec![
             AttributedRange::text(0, 3, vec![TextEffect::Default]),
-            AttributedRange::attachment(3, 6, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(3, 6, AttachmentMeta::default()),
         ])];
 
         let mut sticker = Config::fake_attachment();
@@ -2956,7 +3111,7 @@ mod tests {
         // Text and inline sticker share one part (one Run).
         message.components = vec![BubbleComponent::Run(vec![
             AttributedRange::text(0, 3, vec![TextEffect::Default]),
-            AttributedRange::attachment(3, 6, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(3, 6, AttachmentMeta::default()),
         ])];
 
         let mut ctx = empty_ctx();
@@ -2987,7 +3142,7 @@ mod tests {
         // Text and inline sticker share one part (one Run).
         message.components = vec![BubbleComponent::Run(vec![
             AttributedRange::text(0, 3, vec![TextEffect::Default]),
-            AttributedRange::attachment(3, 6, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(3, 6, AttachmentMeta::default()),
         ])];
 
         let mut reply_a = Config::fake_message();
@@ -3047,7 +3202,7 @@ mod tests {
         // Text and inline sticker share one part (one Run).
         message.components = vec![BubbleComponent::Run(vec![
             AttributedRange::text(0, 3, vec![TextEffect::Default]),
-            AttributedRange::attachment(3, 6, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(3, 6, AttachmentMeta::default()),
         ])];
         message.expressive_send_style_id =
             Some("com.apple.MobileSMS.expressivesend.confetti".to_string());
