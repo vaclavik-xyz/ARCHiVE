@@ -571,6 +571,33 @@ mod typedstream_tests {
     }
 
     #[test]
+    fn can_get_message_body_translated_with_inline_stickers_and_emoji() {
+        // The *original* body of a translated message: text, two inline stickers
+        // (a Memoji + a genmoji), and a trailing regular emoji. The body keeps its
+        // stickers regardless of translation; the translation side (which can't
+        // carry them) is covered by `translation::tests`.
+        let (text, components) = parse_typedstream_fixture("TranslatedWithInlineStickersAndEmoji");
+        assert_eq!(text.as_deref(), Some("This is a test \u{FFFC}\u{FFFC}🫪"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::text(0, 15, vec![TextEffect::Default]),
+                AttributedRange::inline_attachment(
+                    15,
+                    18,
+                    meta("D58F8CD8-CC3F-40C8-B8A3-7426E3DD6F27")
+                ),
+                AttributedRange::inline_attachment(
+                    18,
+                    21,
+                    meta("15733840-BA54-4273-8B3B-0C1439C5CABD")
+                ),
+                AttributedRange::text(21, 25, vec![TextEffect::Default]),
+            ])]
+        );
+    }
+
+    #[test]
     fn can_get_message_body_formatted_inline_stickers() {
         // Inline stickers interleaved with formatted emoji ("￼🫪￼🙏"): the two
         // sticker ranges are inline, the emoji ranges carry their text effects.
