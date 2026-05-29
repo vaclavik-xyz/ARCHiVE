@@ -1,10 +1,12 @@
-//! Per-test scratch directories under [`std::env::temp_dir`].
-//!
-//! Many tests build a fake [`Options`](crate::app::options::Options) and then
-//! construct an exporter, which opens an `orphaned.<ext>` file under
-//! `export_path`. A shared path (such as `/tmp`) collides between parallel
-//! test processes and leaks state across runs, so every caller gets a fresh,
-//! uniquely-named directory instead.
+/*!
+ Per-test scratch directories under [`std::env::temp_dir`].
+
+ Many tests build a fake [`Options`](crate::app::options::Options) and then
+ construct an exporter, which opens an `orphaned.<ext>` file under
+ `export_path`. A shared path (such as `/tmp`) collides between parallel
+ test processes and leaks state across runs, so every caller gets a fresh,
+ uniquely-named directory instead.
+*/
 
 use std::{
     env::temp_dir,
