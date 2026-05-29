@@ -49,11 +49,11 @@ const END_PATTERN: [u8; 2] = [0x0086, 0x0084];
 ///
 /// ```
 /// use imessage_database::message_types::text_effects::TextEffect;
-/// use imessage_database::tables::messages::{models::{TextAttributes, BubbleComponent, AttachmentMeta}};
-///  
+/// use imessage_database::tables::messages::{models::{AttributedRange, BubbleComponent, AttachmentMeta}};
+///
 /// let result = vec![
-///     BubbleComponent::Attachment(AttachmentMeta::default()),
-///     BubbleComponent::Text(vec![TextAttributes::new(3, 24, vec![TextEffect::Default])]),
+///     BubbleComponent::Run(vec![AttributedRange::attachment(0, 3, AttachmentMeta::default())]),
+///     BubbleComponent::Run(vec![AttributedRange::text(3, 24, vec![TextEffect::Default])]),
 /// ];
 /// ```
 pub fn parse(mut stream: Vec<u8>) -> Result<String, StreamTypedError> {
