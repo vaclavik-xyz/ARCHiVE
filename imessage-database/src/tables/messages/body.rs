@@ -256,10 +256,10 @@ fn build_range<'a>(
         // We intentionally do not early-exit: sibling keys on the same range
         // (text effects, the emoji-image hint, the part index) are still read.
         if ATTACHMENT_META_KEYS.contains(key_name) {
-            let mut value = components.next()?;
+            let value = components.next()?;
             attachment
                 .get_or_insert_with(AttachmentMeta::default)
-                .set_from_key_value(key_name, &mut value);
+                .set_from_key_value(key_name, &value);
             continue;
         }
 
@@ -420,36 +420,179 @@ mod typedstream_tests {
         },
     };
 
-    #[test]
-    #[ignore = "exploratory dump for FormattedInlineStickers fixture"]
-    fn dump_formatted_inline_stickers_fixture() {
-        let mut m = Message::blank();
-        m.text = Some("\u{FFFC}🫪\u{FFFC}🙏".to_string());
-
+    /// Parse a `test_data/typedstream/` body fixture, returning its
+    /// `(text, components)`. Shared by the inline-sticker fixture tests below.
+    fn parse_typedstream_fixture(name: &str) -> (Option<String>, Vec<BubbleComponent>) {
         let typedstream_path = current_dir()
             .unwrap()
             .as_path()
-            .join("test_data/typedstream/FormattedInlineStickers");
+            .join(format!("test_data/typedstream/{name}"));
         let mut file = File::open(typedstream_path).unwrap();
         let mut bytes = vec![];
         file.read_to_end(&mut bytes).unwrap();
 
-        // Pass 1: dump the parse_body_typedstream output.
         let mut parser = TypedStreamDeserializer::new(&bytes);
         let iter = parser.iter_root().unwrap();
-        let parsed = parse_body_typedstream(Some(iter), m.edited_parts.as_ref()).unwrap();
-        eprintln!("---- parse_body_typedstream ----");
-        eprintln!("text = {:?}", parsed.text);
-        eprintln!("components = {:#?}", parsed.components);
+        let parsed = parse_body_typedstream(Some(iter), None).unwrap();
+        (parsed.text, parsed.components)
+    }
 
-        // Pass 2: walk the raw root property iterator so we can see what
-        // crabstep surfaces *before* parse_body_typedstream consumes it.
-        let mut parser2 = TypedStreamDeserializer::new(&bytes);
-        let iter2 = parser2.iter_root().unwrap();
-        eprintln!("---- crabstep root iter ----");
-        for (i, prop) in iter2.enumerate() {
-            eprintln!("[{i}] {prop:?}");
+    /// Build an [`AttachmentMeta`] carrying only a file-transfer GUID.
+    fn meta(guid: &str) -> AttachmentMeta {
+        AttachmentMeta {
+            guid: Some(guid.to_string()),
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn can_get_message_body_memoji_only() {
+        // A sticker-only message: a static Memoji with the `emoji_image` hint
+        // parses as a single inline attachment.
+        let (text, components) = parse_typedstream_fixture("MemojiOnly");
+        assert_eq!(text.as_deref(), Some("\u{FFFC}"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::inline_attachment(
+                    0,
+                    3,
+                    meta("34D71074-FBCF-4E4A-BB53-54CE92660C22"),
+                )
+            ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_memoji_with_text() {
+        // Leading text followed by an inline Memoji at the end of the run.
+        let (text, components) = parse_typedstream_fixture("MemojiWithText");
+        assert_eq!(text.as_deref(), Some("Memoji: \u{FFFC}"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::text(0, 8, vec![TextEffect::Default]),
+                AttributedRange::inline_attachment(
+                    8,
+                    11,
+                    meta("31C086FD-E884-405D-8E0E-4BDA5D5E4E4A"),
+                ),
+            ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_animated_sticker_only() {
+        // The negative case: an animated balloon sticker has *no* `emoji_image`
+        // hint, so it parses as a block attachment (`emoji_image == false`), which is the
+        // distinction the inline-vs-block classification hinges on.
+        let (text, components) = parse_typedstream_fixture("AnimatedStickerOnly");
+        assert_eq!(text.as_deref(), Some("\u{FFFC}"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![AttributedRange::attachment(
+                0,
+                3,
+                meta("92EA5F8F-059B-44E2-BE62-80CA706013F6"),
+            )])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_static_animoji_regular_emoji() {
+        // "Check this out: ￼ 😀" bold text, an inline Memoji, an animated
+        // space, and a trailing emoji, all in one run.
+        let (text, components) = parse_typedstream_fixture("StaticAnimojiRegularEmoji");
+        assert_eq!(text.as_deref(), Some("Check this out: \u{FFFC} 😀"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::text(0, 6, vec![TextEffect::Default]),
+                AttributedRange::text(6, 10, vec![TextEffect::Styles(vec![Style::Bold])]),
+                AttributedRange::text(10, 16, vec![TextEffect::Default]),
+                AttributedRange::inline_attachment(
+                    16,
+                    19,
+                    meta("F2C223DB-0140-4D49-B38A-C1A3553B4CBA"),
+                ),
+                AttributedRange::text(19, 20, vec![TextEffect::Animated(Animation::Jitter)]),
+                AttributedRange::text(20, 24, vec![TextEffect::Default]),
+            ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_multiple_types_inline() {
+        // Two text segments each followed by three inline stickers; every
+        // placeholder keeps its own GUID in body order (guards the ordering fix
+        // at the parse layer).
+        let (text, components) = parse_typedstream_fixture("MultipleTypesInline");
+        assert_eq!(
+            text.as_deref(),
+            Some("Some Genmoji: \u{FFFC}\u{FFFC}\u{FFFC}\nSome stickers: \u{FFFC}\u{FFFC}\u{FFFC}")
+        );
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::text(0, 14, vec![TextEffect::Default]),
+                AttributedRange::inline_attachment(
+                    14,
+                    17,
+                    meta("E8F4C3B6-1D70-429F-8DD2-4821A447F644")
+                ),
+                AttributedRange::inline_attachment(
+                    17,
+                    20,
+                    meta("4B3FF592-4FB5-4B69-92F1-B3A545AFA834")
+                ),
+                AttributedRange::inline_attachment(
+                    20,
+                    23,
+                    meta("1ABC2FCE-7BD7-45D3-90A3-5672555BEA91")
+                ),
+                AttributedRange::text(23, 39, vec![TextEffect::Default]),
+                AttributedRange::inline_attachment(
+                    39,
+                    42,
+                    meta("D832964D-33C5-4131-B8F8-9FF9F6CF454F")
+                ),
+                AttributedRange::inline_attachment(
+                    42,
+                    45,
+                    meta("CE30DA18-B86D-4475-AF5E-46EC60C8E5E4")
+                ),
+                AttributedRange::inline_attachment(
+                    45,
+                    48,
+                    meta("2E95ABBC-13F7-486B-8E8C-93AAD885E80A")
+                ),
+            ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_formatted_inline_stickers() {
+        // Inline stickers interleaved with formatted emoji ("￼🫪￼🙏"): the two
+        // sticker ranges are inline, the emoji ranges carry their text effects.
+        let (text, components) = parse_typedstream_fixture("FormattedInlineStickers");
+        assert_eq!(text.as_deref(), Some("\u{FFFC}🫪\u{FFFC}🙏"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::inline_attachment(
+                    0,
+                    3,
+                    meta("1E50CD07-D8F7-4CF1-A662-B23262B9D492")
+                ),
+                AttributedRange::text(3, 7, vec![TextEffect::Animated(Animation::Big)]),
+                AttributedRange::inline_attachment(
+                    7,
+                    10,
+                    meta("49769DA1-FF04-4381-8982-B4810F0EB971")
+                ),
+                AttributedRange::text(10, 14, vec![TextEffect::Default]),
+            ])]
+        );
     }
 
     #[test]

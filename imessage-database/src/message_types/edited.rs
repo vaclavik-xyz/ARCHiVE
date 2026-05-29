@@ -616,6 +616,41 @@ mod test_gen {
     use crate::tables::messages::models::{AttributedRange, BubbleComponent};
 
     #[test]
+    fn test_parse_edited_memoji() {
+        // The `MemojiEdited` fixture: a message edited from "Check this out: ‹Memoji›"
+        // to "Check this out: ‹Memoji› 😀". Both versions must parse the Memoji as
+        // an inline (`emoji_image`) attachment range so the exporter can render it
+        // as an image in the edit history rather than leaking the `\u{FFFC}` placeholder.
+        let plist_path = current_dir()
+            .unwrap()
+            .as_path()
+            .join("test_data/edited_message/MemojiEdited.plist");
+        let plist_data = File::open(plist_path).unwrap();
+        let plist = Value::from_reader(plist_data).unwrap();
+        let parsed = EditedMessage::from_map(&plist).unwrap();
+
+        let history = &parsed.parts[0].edit_history;
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[1].text, "Check this out: \u{FFFC} 😀");
+
+        let BubbleComponent::Run(ranges) = &history[1].components[0] else {
+            panic!("expected a Run, got {:?}", history[1].components);
+        };
+        let memoji = ranges
+            .iter()
+            .find(|range| range.attachment.is_some())
+            .expect("the latest version should contain the Memoji attachment range");
+        assert!(
+            memoji.emoji_image,
+            "the Memoji must be flagged as an inline (emoji_image) sticker"
+        );
+        assert_eq!(
+            memoji.attachment.as_ref().unwrap().guid.as_deref(),
+            Some("F2C223DB-0140-4D49-B38A-C1A3553B4CBA"),
+        );
+    }
+
+    #[test]
     fn test_parse_edited() {
         let plist_path = current_dir()
             .unwrap()
