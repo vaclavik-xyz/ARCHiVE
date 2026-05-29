@@ -11,7 +11,7 @@ use crate::{
             driver::{ExportState, MessageWriter},
             edited::{EditDiff, normalize_edited},
             message::MessageContext,
-            part::{AttachmentResolver, dispatch_part_body},
+            part::{AttachmentResolver, dispatch_part_body, resolve_run},
             render::{render_template, render_template_into},
             reply::{build_replies, build_tapbacks},
             tapback::resolve_tapback,
@@ -267,22 +267,14 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
             return self.text_body_with_translation(message, formatted);
         }
 
-        // Otherwise the run mixes text and/or attachments. Pair attachment ranges
-        // to their attachments by file-transfer GUID (display order), then render
-        // each range as its own line and join them (one line per range), surfacing
-        // the translation (if any) through the same shared helper as the pure-text
+        // Otherwise the run mixes text and/or attachments. Resolve attachment
+        // ranges to their attachments (GUID-first, positional fallback) and
+        // render each range as its own line, joined one-per-range, surfacing the
+        // translation (if any) through the same shared helper as the pure-text
         // path so a translated sticker-bearing message keeps its translation.
-        let resolved: Vec<usize> = ranges
-            .iter()
-            .filter(|range| range.attachment.is_some())
-            .map(|range| resolver.resolve(range))
-            .collect();
-        let mut seen = 0;
         let mut lines: Vec<String> = Vec::with_capacity(ranges.len());
-        for range in ranges {
-            if let Some(meta) = &range.attachment {
-                let idx = resolved[seen];
-                seen += 1;
+        for (range, idx) in resolve_run(ranges, resolver) {
+            if let (Some(meta), Some(idx)) = (range.attachment.as_ref(), idx) {
                 let line = match attachments.get_mut(idx) {
                     Some(attachment) if attachment.is_sticker => {
                         self.format_sticker(attachment, message)

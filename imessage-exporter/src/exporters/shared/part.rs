@@ -64,6 +64,24 @@ impl AttachmentResolver {
     }
 }
 
+/// Pair every range of a run with its resolved attachment index, in body order.
+///
+/// Text ranges (no attachment) yield `None`; attachment ranges yield
+/// `Some(index)` into the message's resolved attachment list, advancing
+/// `resolver` exactly once per attachment range.
+pub(crate) fn resolve_run<'r>(
+    ranges: &'r [AttributedRange],
+    resolver: &mut AttachmentResolver,
+) -> Vec<(&'r AttributedRange, Option<usize>)> {
+    ranges
+        .iter()
+        .map(|range| {
+            let idx = range.attachment.is_some().then(|| resolver.resolve(range));
+            (range, idx)
+        })
+        .collect()
+}
+
 /// Walks `message_part` and produces the format's part-body. Owns the
 /// format-agnostic control flow:
 ///

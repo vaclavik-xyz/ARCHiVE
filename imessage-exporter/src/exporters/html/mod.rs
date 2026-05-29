@@ -21,7 +21,7 @@ use crate::{
             driver::{ExportState, MessageWriter},
             edited::{Edit, EditDiff, normalize_edited},
             message::MessageContext,
-            part::{AttachmentResolver, dispatch_part_body},
+            part::{AttachmentResolver, dispatch_part_body, resolve_run},
             render::{render_template, render_template_into},
             reply::{build_replies, build_tapbacks},
             tapback::resolve_tapback,
@@ -298,28 +298,13 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                             // despite the resolver's "once per range" contract: a
                             // GUID-less range repeated across rows would otherwise
                             // drift the positional cursor.
-                            let resolved: Vec<usize> = ranges
-                                .iter()
-                                .filter(|range| range.attachment.is_some())
-                                .map(|range| resolver.resolve(range))
-                                .collect();
-                            let mut seen = 0;
-                            let mut rendered = String::new();
-                            for range in ranges {
-                                if range.attachment.is_some() {
-                                    let idx = resolved[seen];
-                                    seen += 1;
-                                    if let Some(attachment) = attachments.get_mut(idx) {
-                                        rendered
-                                            .push_str(&self.format_sticker_inline(attachment, msg));
-                                    } else {
-                                        rendered.push_str(MISSING_INLINE_ATTACHMENT);
-                                    }
-                                } else {
-                                    rendered.push_str(&self.render_text_range(event.text, range));
-                                }
-                            }
-                            rendered
+                            inline_segments_to_html(self.interleave_segments(
+                                event.text,
+                                ranges,
+                                msg,
+                                attachments,
+                                resolver,
+                            ))
                         }
                         Some(BubbleComponent::Run(ranges)) => {
                             self.format_attributes(event.text, ranges)
@@ -422,38 +407,11 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             .iter()
             .any(|range| range.attachment.is_some() && range.emoji_image);
 
-        // Pair each attachment range with its attachment (GUID-first, positional
-        // fallback) once, in body order, with one entry per attachment range.
-        let resolved: Vec<usize> = ranges
-            .iter()
-            .filter(|range| range.attachment.is_some())
-            .map(|range| resolver.resolve(range))
-            .collect();
-
         // Inline path: text interleaved with glyph-sized static stickers in a
         // single bubble. Suppressed for translated messages so a translated
         // bubble and an inline sticker don't render side by side incoherently.
         if has_inline_sticker && !is_translated {
-            let mut seen = 0;
-            let mut segments = Vec::with_capacity(ranges.len());
-            for range in ranges {
-                if range.attachment.is_some() {
-                    let idx = resolved[seen];
-                    seen += 1;
-                    if let Some(attachment) = attachments.get_mut(idx) {
-                        let img = self.format_sticker_inline(attachment, message);
-                        segments.push(InlineSegment::Sticker(Html::trust(img)));
-                    } else {
-                        segments.push(InlineSegment::Text(Html::trust(
-                            MISSING_INLINE_ATTACHMENT.to_string(),
-                        )));
-                    }
-                } else {
-                    segments.push(InlineSegment::Text(Html::trust(
-                        self.render_text_range(text, range),
-                    )));
-                }
-            }
+            let segments = self.interleave_segments(text, ranges, message, attachments, resolver);
             return PartBody::InlineBubble {
                 // Patched with the per-message jumbomoji class by the caller.
                 bubble_class: GlyphSize::Normal.bubble_class(),
@@ -470,21 +428,13 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         // through to the block path).
         let has_text = ranges.iter().any(|range| range.attachment.is_none());
         if has_inline_sticker && is_translated && has_text {
-            let mut seen = 0;
-            let mut original = String::new();
-            for range in ranges {
-                if range.attachment.is_some() {
-                    let idx = resolved[seen];
-                    seen += 1;
-                    if let Some(attachment) = attachments.get_mut(idx) {
-                        original.push_str(&self.format_sticker_inline(attachment, message));
-                    } else {
-                        original.push_str(MISSING_INLINE_ATTACHMENT);
-                    }
-                } else {
-                    original.push_str(&self.render_text_range(text, range));
-                }
-            }
+            let original = inline_segments_to_html(self.interleave_segments(
+                text,
+                ranges,
+                message,
+                attachments,
+                resolver,
+            ));
             return match message.get_translation(self.config.data_source.db()) {
                 Ok(Some(translation)) => {
                     let safe_translated = self.body_escape(&translation.translated_text);
@@ -498,14 +448,11 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         // regular file, an animated (block) sticker, or a sticker-only translated
         // message.
         if ranges.iter().any(AttributedRange::is_attachment) {
-            let mut seen = 0;
             let mut body = self.body_attachment_missing();
-            for range in ranges {
-                let Some(meta) = &range.attachment else {
+            for (range, idx) in resolve_run(ranges, resolver) {
+                let (Some(meta), Some(idx)) = (range.attachment.as_ref(), idx) else {
                     continue;
                 };
-                let idx = resolved[seen];
-                seen += 1;
                 body = match attachments.get_mut(idx) {
                     Some(attachment) if attachment.is_sticker => {
                         let content = self.format_sticker(attachment, message);
@@ -723,8 +670,7 @@ impl<'a> HTML<'a> {
                 },
                 // Translated / edited / attachment / app bodies carry no
                 // `bubble_class`, so they intentionally never receive jumbomoji
-                // sizing — a single-emoji message that is also translated or
-                // edited renders at normal size.
+                // sizing.
                 other => other,
             };
 
@@ -761,13 +707,48 @@ impl<'a> HTML<'a> {
         sanitize_html(&text[start..end]).into_owned()
     }
 
+    /// Walk a run's ranges in body order, producing one [`InlineSegment`] per
+    /// range: an inline sticker `<img>` for a resolved attachment range, the
+    /// missing-attachment placeholder for a dangling one, and the text (with
+    /// effects applied) for a text range. Shared by `render_run`'s inline and
+    /// translated-inline paths and by `format_edited`'s inline-sticker branch,
+    /// so the resolve-then-interleave logic lives in exactly one place.
+    fn interleave_segments(
+        &self,
+        text: &str,
+        ranges: &[AttributedRange],
+        message: &Message,
+        attachments: &mut [Attachment],
+        resolver: &mut AttachmentResolver,
+    ) -> Vec<InlineSegment> {
+        let resolved = resolve_run(ranges, resolver);
+        let mut segments = Vec::with_capacity(resolved.len());
+        for (range, idx) in resolved {
+            match idx {
+                Some(idx) => match attachments.get_mut(idx) {
+                    Some(attachment) => {
+                        let img = self.format_sticker_inline(attachment, message);
+                        segments.push(InlineSegment::Sticker(Html::trust(img)));
+                    }
+                    None => segments.push(InlineSegment::Text(Html::trust(
+                        MISSING_INLINE_ATTACHMENT.to_string(),
+                    ))),
+                },
+                None => segments.push(InlineSegment::Text(Html::trust(
+                    self.render_text_range(text, range),
+                ))),
+            }
+        }
+        segments
+    }
+
     /// Render a static sticker as a glyph-sized inline `<img>`. The block-style
     /// "Sent with … effect" suffix is dropped; the same text rides along on a
     /// `title=` attribute (and `alt=`) so it stays reachable on hover and for
     /// screen readers. On a prepare failure the segment still emits an
     /// `<img>` (with no or unreachable `src`) so the browser shows its
     /// broken-image glyph.
-    fn format_sticker_inline(&self, sticker: &'a mut Attachment, message: &Message) -> String {
+    fn format_sticker_inline(&self, sticker: &mut Attachment, message: &Message) -> String {
         let (embed_path, label) =
             match prepare_attachment(self.config, &self.state, sticker, message) {
                 Ok(()) => {
@@ -795,6 +776,24 @@ impl<'a> HTML<'a> {
             label,
         })
     }
+}
+
+/// Flatten a sequence of inline segments into one HTML-safe string by
+/// concatenating their inner markup, exactly as `message_part.html` renders an
+/// [`InlineBubble`](view_model::PartBody::InlineBubble) (each segment emitted
+/// back-to-back inside one bubble span). Used where the inline content must live
+/// in a `String` rather than a bubble: the translated original and edit-history
+/// rows.
+fn inline_segments_to_html(segments: Vec<InlineSegment>) -> String {
+    let mut out = String::new();
+    for segment in segments {
+        match segment {
+            InlineSegment::Text(html) | InlineSegment::Sticker(html) => {
+                out.push_str(&html.into_inner());
+            }
+        }
+    }
+    out
 }
 
 /// Single source of truth for the plain-text label of a [`StickerDecoration`].
