@@ -40,7 +40,7 @@ pub const DEFAULT_SMS_ROOT: &str = "~/Library/SMS";
 pub const DEFAULT_ATTACHMENT_ROOT: &str = "~/Library/Messages/Attachments";
 /// The default root directory for iMessage sticker cache data
 pub const DEFAULT_STICKER_CACHE_ROOT: &str = "~/Library/Messages/StickerCache";
-const COLS: &str = "a.rowid, a.filename, a.uti, a.mime_type, a.transfer_name, a.total_bytes, a.is_sticker, a.hide_attachment, a.emoji_image_short_description";
+const COLS: &str = "a.rowid, a.guid, a.filename, a.uti, a.mime_type, a.transfer_name, a.total_bytes, a.is_sticker, a.hide_attachment, a.emoji_image_short_description";
 
 // MARK: MediaType
 /// Represents the [MIME type](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_Types) of a message's attachment data
@@ -93,6 +93,11 @@ impl MediaType<'_> {
 pub struct Attachment {
     /// The unique identifier for the attachment in the database
     pub rowid: i32,
+    /// The attachment's GUID. Matches the `__kIMFileTransferGUIDAttributeName`
+    /// carried on the message body's attachment ranges, letting the exporter
+    /// pair a body placeholder with its resolved attachment by identity rather
+    /// than by position.
+    pub guid: Option<String>,
     /// The path to the file on disk
     pub filename: Option<String>,
     /// The [Uniform Type Identifier](https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/understanding_utis/understand_utis_intro/understand_utis_intro.html)
@@ -118,6 +123,7 @@ impl Table for Attachment {
     fn from_row(row: &Row) -> Result<Attachment> {
         Ok(Attachment {
             rowid: row.get("rowid")?,
+            guid: row.get("guid").unwrap_or(None),
             filename: row.get("filename").unwrap_or(None),
             uti: row.get("uti").unwrap_or(None),
             mime_type: row.get("mime_type").unwrap_or(None),
@@ -139,7 +145,11 @@ impl Table for Attachment {
 impl Attachment {
     /// Gets a Vector of attachments associated with a single message
     ///
-    /// The order of the attachments aligns with the order of the [`BubbleComponent::Attachment`](crate::tables::messages::models::BubbleComponent::Attachment)s in the message's [`attributed_body()`](crate::tables::messages::message::Message::attributed_body).
+    /// The order of the attachments aligns with the order of the attachment
+    /// [`AttributedRange`](crate::tables::messages::models::AttributedRange)s
+    /// (those whose [`attachment`](crate::tables::messages::models::AttributedRange::attachment)
+    /// is `Some`) across the message's
+    /// [`attributed_body()`](crate::tables::messages::message::Message::attributed_body).
     pub fn from_message(db: &Connection, msg: &Message) -> Result<Vec<Attachment>, TableError> {
         let mut out_l = vec![];
         if msg.has_attachments() {
@@ -621,6 +631,7 @@ mod tests {
     fn sample_attachment() -> Attachment {
         Attachment {
             rowid: 1,
+            guid: None,
             filename: Some("a/b/c.png".to_string()),
             uti: Some("public.png".to_string()),
             mime_type: Some("image/png".to_string()),
