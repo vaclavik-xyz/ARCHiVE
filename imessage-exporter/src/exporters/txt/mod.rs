@@ -264,21 +264,14 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                     attr_text
                 }
             };
-            let config = self.config;
-            if config.translated_messages.contains(&message.guid)
-                && let Ok(Some(translation)) = message.get_translation(config.data_source.db())
-            {
-                let safe_translated = self.body_escape(&translation.translated_text);
-                return self.body_text_translated(safe_translated, formatted);
-            }
-            return self.body_text_bubble(formatted);
+            return self.text_body_with_translation(message, formatted);
         }
 
         // Otherwise the run mixes text and/or attachments. Pair attachment ranges
         // to their attachments by file-transfer GUID (display order), then render
-        // each range as its own line and join them (one line per range). Every
-        // TXT body variant is a single `Line`, so a lone-attachment run
-        // reproduces the pre-refactor per-attachment output.
+        // each range as its own line and join them (one line per range), surfacing
+        // the translation (if any) through the same shared helper as the pure-text
+        // path so a translated sticker-bearing message keeps its translation.
         let resolved: Vec<usize> = ranges
             .iter()
             .filter(|range| range.attachment.is_some())
@@ -309,7 +302,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 }
             }
         }
-        self.body_text_bubble(lines.join("\n"))
+        self.text_body_with_translation(message, lines.join("\n"))
     }
 
     fn format_message_into(
@@ -457,6 +450,18 @@ impl TXT<'_> {
             date.push_str(&read_receipt);
             date
         }
+    }
+
+    /// Render `original` as a plain text bubble, or, when the message is
+    /// translated, pair it with the translation.
+    fn text_body_with_translation(&self, message: &Message, original: String) -> PartBody {
+        if self.config.translated_messages.contains(&message.guid)
+            && let Ok(Some(translation)) = message.get_translation(self.config.data_source.db())
+        {
+            let safe_translated = self.body_escape(&translation.translated_text);
+            return self.body_text_translated(safe_translated, original);
+        }
+        self.body_text_bubble(original)
     }
 
     /// Append `source` to `out`, prefixing every non-blank line with `prefix`.
@@ -1742,6 +1747,76 @@ mod tests {
         let expected_second =
             "Sticker from Me: imessage-database/test_data/stickers/outline.heic (App: Free People)";
         assert_eq!(second_text, expected_second);
+    }
+
+    #[test]
+    fn translated_mixed_run_keeps_translation() {
+        use crate::exporters::{
+            shared::part::{AttachmentResolver, dispatch_part_body},
+            txt::view_model::PartBody,
+        };
+
+        let options = Options::fake_options(ExportType::Txt);
+        let mut config = Config::fake_app(options);
+        config
+            .translated_messages
+            .insert("56FE94B9-2345-4A3C-A57F-949BDDDDF9FF".to_string());
+        config.participants.insert(0, Name::fake_name(ME));
+        config.real_participants.insert(0, 0);
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        message.guid = "56FE94B9-2345-4A3C-A57F-949BDDDDF9FF".to_string();
+        message.rowid = 548216; // row carrying the translation in test.db
+        message.text = Some("Look \u{FFFC}".to_string());
+
+        let sticker_path = current_dir()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("imessage-database/test_data/stickers/outline.heic");
+        let mut sticker = Config::fake_attachment();
+        sticker.rowid = 3;
+        sticker.is_sticker = true;
+        sticker.filename = Some(sticker_path.to_string_lossy().to_string());
+        sticker.copied_path = Some(
+            config
+                .options
+                .export_path
+                .join("imessage-database/test_data/stickers/outline.heic"),
+        );
+
+        let mut attachments = vec![sticker];
+        let part = BubbleComponent::Run(vec![
+            AttributedRange::text(0, 5, vec![TextEffect::Default]),
+            AttributedRange::inline_attachment(5, 8, AttachmentMeta::default()),
+        ]);
+        let mut resolver = AttachmentResolver::new(&attachments);
+
+        let body = dispatch_part_body(
+            &exporter,
+            &message,
+            0,
+            &part,
+            &mut attachments,
+            &mut resolver,
+        );
+        let PartBody::Translated {
+            translated,
+            original,
+        } = body
+        else {
+            panic!("a translated mixed run must produce PartBody::Translated");
+        };
+        assert_eq!(translated, "Oh, il a traduit ce que j'ai envoyé !");
+        assert!(
+            original.contains("Look"),
+            "original text must survive: {original}"
+        );
+        assert!(
+            original.contains("Sticker from Me"),
+            "the sticker line must be present in the original: {original}"
+        );
     }
 
     #[test]

@@ -444,9 +444,40 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             };
         }
 
-        // Block path: a lone attachment range–a regular file, an animated
-        // sticker, or any sticker in a translated message–renders as its own
-        // balloon (matching the pre-refactor block rendering for these types).
+        // Translated run carrying an inline sticker. The inline path above is
+        // suppressed for translated messages, but the lone-attachment block path
+        // below would drop the text *and* the translation, keeping only the last
+        // attachment. Render the text interleaved with the inline sticker(s) as
+        // the original and pair it with the translation, so none of the three is
+        // lost. (A sticker-only translated run has no text to preserve and falls
+        // through to the block path).
+        let has_text = ranges.iter().any(|range| range.attachment.is_none());
+        if has_inline_sticker && is_translated && has_text {
+            let mut seen = 0;
+            let mut original = String::new();
+            for range in ranges {
+                if range.attachment.is_some() {
+                    let idx = resolved[seen];
+                    seen += 1;
+                    if let Some(attachment) = attachments.get_mut(idx) {
+                        original.push_str(&self.format_sticker_inline(attachment, message));
+                    }
+                } else {
+                    original.push_str(&self.render_text_range(text, range));
+                }
+            }
+            return match message.get_translation(self.config.data_source.db()) {
+                Ok(Some(translation)) => {
+                    let safe_translated = self.body_escape(&translation.translated_text);
+                    self.body_text_translated(safe_translated, original)
+                }
+                _ => self.body_text_bubble(original),
+            };
+        }
+
+        // Block path: a run whose attachments each render as their own balloon: a
+        // regular file, an animated (block) sticker, or a sticker-only translated
+        // message.
         if ranges.iter().any(AttributedRange::is_attachment) {
             let mut seen = 0;
             let mut body = self.body_attachment_missing();
@@ -2980,6 +3011,60 @@ mod tests {
         assert!(
             !actual.contains("class=\"inline_sticker\""),
             "no inline_sticker img expected for a translated message: {actual}"
+        );
+    }
+
+    #[test]
+    fn translated_message_with_inline_sticker_keeps_text_and_sticker() {
+        // For a translated run of [text, inline Memoji, text], the text and the
+        // sticker must both survive (interleaved as the translation's "original").
+        // The translation itself is fetched from the DB via `get_translation`, so
+        // with no translation row this renders as a plain bubble: the regression
+        // being guarded is the lost text/sticker, not the translation lookup.
+        let options = Options::fake_options(ExportType::Html);
+        let mut config = Config::fake_app(options);
+        let test_guid = "TRANSLATED-INLINE-TEXT-0001".to_string();
+        config.translated_messages.insert(test_guid.clone());
+        let exporter = HTML::new(&config).unwrap();
+
+        let sticker_guid = "F2C223DB-0140-4D49-B38A-C1A3553B4CBA";
+        let mut message = Config::fake_message();
+        message.guid = test_guid;
+        message.text = Some("Look at this \u{FFFC} now".to_string());
+        message.components = vec![BubbleComponent::Run(vec![
+            AttributedRange::text(0, 13, vec![TextEffect::Default]),
+            AttributedRange::inline_attachment(
+                13,
+                16,
+                AttachmentMeta {
+                    guid: Some(sticker_guid.to_string()),
+                    ..Default::default()
+                },
+            ),
+            AttributedRange::text(16, 20, vec![TextEffect::Default]),
+        ])];
+
+        let mut memoji = make_static_sticker(&config);
+        memoji.guid = Some(sticker_guid.to_string());
+        let mut ctx = empty_ctx();
+        ctx.attachments = vec![memoji];
+
+        let actual = render_parts(&exporter, &message, &mut ctx);
+        assert!(
+            actual.contains("Look at this"),
+            "leading text must survive on the translated path: {actual}"
+        );
+        assert!(
+            actual.contains("now"),
+            "trailing text must survive on the translated path: {actual}"
+        );
+        assert!(
+            actual.contains("<img class=\"inline_sticker\""),
+            "the inline sticker must still render: {actual}"
+        );
+        assert!(
+            !actual.contains("class=\"sticker\""),
+            "must not collapse to a lone block sticker: {actual}"
         );
     }
 
