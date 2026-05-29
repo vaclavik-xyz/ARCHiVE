@@ -149,7 +149,8 @@ impl AttributedRange {
         }
     }
 
-    /// Creates an attachment range carrying the given [`AttachmentMeta`].
+    /// Creates an attachment range carrying the given [`AttachmentMeta`], with
+    /// no inline-emoji hint.
     #[must_use]
     pub fn attachment(start: usize, end: usize, meta: AttachmentMeta) -> Self {
         Self {
@@ -158,6 +159,20 @@ impl AttributedRange {
             effects: vec![],
             attachment: Some(meta),
             emoji_image: false,
+        }
+    }
+
+    /// Creates an inline-rendered attachment range, one Apple flagged with
+    /// `__kIMEmojiImageAttributeName` to render inline like an emoji (a Memoji,
+    /// genmoji, or custom sticker placed amongst text).
+    #[must_use]
+    pub fn inline_attachment(start: usize, end: usize, meta: AttachmentMeta) -> Self {
+        Self {
+            start,
+            end,
+            effects: vec![],
+            attachment: Some(meta),
+            emoji_image: true,
         }
     }
 
@@ -189,11 +204,7 @@ impl AttachmentMeta {
     /// ignoring any key that isn't attachment metadata. Driven per-key by the
     /// body parser's `build_range`, which walks the full attribute dictionary
     /// so non-attachment-meta keys on the same range are still processed.
-    pub(crate) fn set_from_key_value<'a>(
-        &'a mut self,
-        key: &'a str,
-        value: &'a mut Property<'a, 'a>,
-    ) {
+    pub(crate) fn set_from_key_value<'a>(&mut self, key: &str, value: &Property<'a, 'a>) {
         match key {
             "__kIMFileTransferGUIDAttributeName" => {
                 self.guid = as_nsstring(value).map(String::from);
