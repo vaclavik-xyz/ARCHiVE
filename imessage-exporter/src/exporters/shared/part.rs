@@ -15,15 +15,15 @@ use crate::exporters::formatter::{MessageFormatter, PartBodyBuilder};
 ///
 /// The body lists attachment placeholders in display order, but
 /// [`Attachment::from_message`](imessage_database::tables::attachment::Attachment::from_message)
-/// returns rows in the join's (unspecified) order — so positional pairing can
+/// returns rows in the join's (unspecified) order, so positional pairing can
 /// mis-order a message with several attachments. Matching by GUID keeps every
 /// placeholder bound to its own attachment regardless of join order, and the
 /// resolved attachments always carry a GUID (it's a column), so this is the
 /// path for any typedstream-parsed body.
 ///
-/// Ranges that carry no GUID — only the legacy (non-typedstream)
+/// Ranges that carry no GUID (only the legacy (non-typedstream)
 /// [`parse_body_legacy`](imessage_database::tables::messages::body) path, whose
-/// placeholders have no identity to match — fall back to positional order. The
+/// placeholders have no identity to match) fall back to positional order. The
 /// resolver is built once per message and advanced as those fallback ranges are
 /// consumed.
 pub(crate) struct AttachmentResolver {
@@ -92,8 +92,13 @@ where
             // An edited part renders its edit history in place of the live body.
             if message.is_part_edited(idx) {
                 return match &message.edited_parts {
-                    Some(edited_parts) => match formatter.format_edited(message, edited_parts, idx)
-                    {
+                    Some(edited_parts) => match formatter.format_edited(
+                        message,
+                        edited_parts,
+                        idx,
+                        attachments,
+                        resolver,
+                    ) {
                         Some(rendered) => formatter.body_text_edited(rendered),
                         None => formatter.body_empty(),
                     },
@@ -107,10 +112,12 @@ where
             Err(why) => formatter.body_app_error(message, why.to_string()),
         },
         BubbleComponent::Retracted => match &message.edited_parts {
-            Some(edited_parts) => match formatter.format_edited(message, edited_parts, idx) {
-                Some(content) => formatter.body_retracted(content),
-                None => formatter.body_empty(),
-            },
+            Some(edited_parts) => {
+                match formatter.format_edited(message, edited_parts, idx, attachments, resolver) {
+                    Some(content) => formatter.body_retracted(content),
+                    None => formatter.body_empty(),
+                }
+            }
             None => formatter.body_empty(),
         },
     }
