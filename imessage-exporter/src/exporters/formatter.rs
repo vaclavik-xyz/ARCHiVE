@@ -86,12 +86,17 @@ pub(crate) trait MessageFormatter<'a> {
     fn format_shareplay(&self) -> &'static str;
     /// Format a legacy Shared Location message
     fn format_shared_location(&self, kind: SharedLocation) -> &'static str;
-    /// Format an edited message
+    /// Format an edited message by applying the edit's
+    /// [`AttributedRange`]s to the original message text
+    /// and interleaving inline attachments as in
+    /// [`render_run`](Self::render_run).
     fn format_edited(
-        &self,
+        &'a self,
         msg: &'a Message,
         edited_message: &'a EditedMessage,
         message_part_idx: usize,
+        attachments: &'a mut Vec<Attachment>,
+        resolver: &mut AttachmentResolver,
     ) -> Option<String>;
     /// Format the text of a set of [`AttributedRange`]s applied to `text`.
     /// Attachment ranges are ignored; only text ranges contribute.
