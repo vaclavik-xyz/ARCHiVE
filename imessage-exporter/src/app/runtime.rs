@@ -662,6 +662,7 @@ impl Config {
     pub(crate) fn fake_attachment() -> Attachment {
         Attachment {
             rowid: 0,
+            guid: None,
             filename: Some("a/b/c/d.jpg".to_string()),
             uti: Some("public.png".to_string()),
             mime_type: Some("image/png".to_string()),
