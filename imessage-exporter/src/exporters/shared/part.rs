@@ -22,10 +22,9 @@ use crate::exporters::formatter::{MessageFormatter, PartBodyBuilder};
 /// path for any typedstream-parsed body.
 ///
 /// Ranges that carry no GUID (only the legacy (non-typedstream)
-/// [`parse_body_legacy`](imessage_database::tables::messages::body) path, whose
-/// placeholders have no identity to match) fall back to positional order. The
-/// resolver is built once per message and advanced as those fallback ranges are
-/// consumed.
+/// `parse_body_legacy` path, whose placeholders have no identity to match) fall
+/// back to positional order. The resolver is built once per message and advanced
+/// as those fallback ranges are consumed.
 pub(crate) struct AttachmentResolver {
     /// `guid → index` into the message's resolved attachments.
     by_guid: HashMap<String, usize>,
