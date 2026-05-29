@@ -290,6 +290,14 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
                                 .iter()
                                 .any(|range| range.attachment.is_some() && range.emoji_image) =>
                         {
+                            // Edit-history components always come from
+                            // `parse_body_typedstream`, so each attachment range
+                            // carries a file-transfer GUID and `resolve` is
+                            // idempotent (a GUID lookup, not a positional-cursor
+                            // advance). That keeps this per-row resolve safe
+                            // despite the resolver's "once per range" contract: a
+                            // GUID-less range repeated across rows would otherwise
+                            // drift the positional cursor.
                             let resolved: Vec<usize> = ranges
                                 .iter()
                                 .filter(|range| range.attachment.is_some())
@@ -713,6 +721,10 @@ impl<'a> HTML<'a> {
                     bubble_class: glyph_class.bubble_class(),
                     segments,
                 },
+                // Translated / edited / attachment / app bodies carry no
+                // `bubble_class`, so they intentionally never receive jumbomoji
+                // sizing — a single-emoji message that is also translated or
+                // edited renders at normal size.
                 other => other,
             };
 

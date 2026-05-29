@@ -10,9 +10,8 @@ use imessage_database::tables::messages::models::BubbleComponent;
 use crate::exporters::html::view_model::GlyphSize;
 
 /// Range check against the standard emoji Unicode blocks. Coarse on purpose:
-/// the classifier bails on any non-emoji codepoint, so a too-narrow set just
-/// causes some pure-emoji messages to miss jumbomoji sizing, never a wrong
-/// upsize.
+/// the classifier bails on any non-emoji codepoint, so this only matters for
+/// messages that are *entirely* glyphs.
 fn is_emoji_codepoint(c: char) -> bool {
     matches!(
         c as u32,
