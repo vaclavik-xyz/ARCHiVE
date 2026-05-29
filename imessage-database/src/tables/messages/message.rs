@@ -126,7 +126,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Write,
-    io::Read,
+    io::{Cursor, Read},
 };
 
 use chrono::{DateTime, offset::Local};
@@ -1346,7 +1346,8 @@ impl Message {
     /// This column contains data used by iMessage app balloons and can be parsed with
     /// [`parse_ns_keyed_archiver()`](crate::util::plist::parse_ns_keyed_archiver).
     pub fn payload_data(&self, db: &Connection) -> Option<Value> {
-        Value::from_reader(self.get_blob(db, MESSAGE, MESSAGE_PAYLOAD, self.rowid.into())?).ok()
+        // Read the blob into memory first, then parse from a `Cursor`.
+        Value::from_reader(Cursor::new(self.raw_payload_data(db)?)).ok()
     }
 
     /// Get a message's raw data from the [`MESSAGE_PAYLOAD`] BLOB column
@@ -1370,8 +1371,12 @@ impl Message {
     ///
     /// This column contains data used by [`edited`](crate::message_types::edited) iMessages.
     pub fn message_summary_info(&self, db: &Connection) -> Option<Value> {
-        Value::from_reader(self.get_blob(db, MESSAGE, MESSAGE_SUMMARY_INFO, self.rowid.into())?)
-            .ok()
+        // Bulk-read the blob, then parse from memory — see `payload_data`.
+        let mut buf = Vec::new();
+        self.get_blob(db, MESSAGE, MESSAGE_SUMMARY_INFO, self.rowid.into())?
+            .read_to_end(&mut buf)
+            .ok()?;
+        Value::from_reader(Cursor::new(buf)).ok()
     }
 
     /// Get a message's [typedstream](crate::util::typedstream) from the [`ATTRIBUTED_BODY`] BLOB column
