@@ -5,7 +5,7 @@
  very large, 2–3 medium, 4+ at standard text size.
 */
 
-use imessage_database::tables::{attachment::Attachment, messages::models::BubbleComponent};
+use imessage_database::tables::messages::models::BubbleComponent;
 
 use crate::exporters::html::view_model::GlyphSize;
 
@@ -136,23 +136,18 @@ pub(crate) fn count_emoji_glyphs(text: &str) -> Option<usize> {
 #[must_use]
 pub(crate) fn classify_message(
     components: &[BubbleComponent],
-    attachments: &[Attachment],
     full_text: Option<&str>,
 ) -> GlyphSize {
     let mut count = 0usize;
-    let mut attachment_index = 0usize;
     for component in components {
         match component {
             BubbleComponent::Run(ranges) => {
                 for range in ranges {
                     if range.attachment.is_some() {
-                        // Attachment range: only a static sticker counts (as one
-                        // glyph). Animated stickers and non-stickers bail.
-                        let Some(attachment) = attachments.get(attachment_index) else {
-                            return GlyphSize::Normal;
-                        };
-                        attachment_index += 1;
-                        if !attachment.is_sticker || attachment.is_animated_sticker() {
+                        // Attachment range: only an inline sticker
+                        // counts as one glyph. Any other attachment
+                        // means the message isn't pure-glyph.
+                        if !range.emoji_image {
                             return GlyphSize::Normal;
                         }
                         count = count.saturating_add(1);
@@ -190,7 +185,6 @@ mod tests {
     };
 
     use super::*;
-    use crate::Config;
 
     #[test]
     fn single_emoji_counts_as_one() {
@@ -277,9 +271,7 @@ mod tests {
 
     #[test]
     fn classify_empty_message_is_normal() {
-        let actual = classify_message(&[], &[], None);
-        let expected = GlyphSize::Normal;
-        assert_eq!(actual, expected);
+        assert_eq!(classify_message(&[], None), GlyphSize::Normal);
     }
 
     #[test]
@@ -290,9 +282,7 @@ mod tests {
             text.len(),
             vec![TextEffect::Default],
         )])];
-        let actual = classify_message(&components, &[], Some(&text));
-        let expected = GlyphSize::Jumbo;
-        assert_eq!(actual, expected);
+        assert_eq!(classify_message(&components, Some(&text)), GlyphSize::Jumbo);
     }
 
     #[test]
@@ -303,9 +293,10 @@ mod tests {
             text.len(),
             vec![TextEffect::Default],
         )])];
-        let actual = classify_message(&components, &[], Some(&text));
-        let expected = GlyphSize::Medium;
-        assert_eq!(actual, expected);
+        assert_eq!(
+            classify_message(&components, Some(&text)),
+            GlyphSize::Medium
+        );
     }
 
     #[test]
@@ -316,9 +307,10 @@ mod tests {
             text.len(),
             vec![TextEffect::Default],
         )])];
-        let actual = classify_message(&components, &[], Some(&text));
-        let expected = GlyphSize::Normal;
-        assert_eq!(actual, expected);
+        assert_eq!(
+            classify_message(&components, Some(&text)),
+            GlyphSize::Normal
+        );
     }
 
     #[test]
@@ -329,68 +321,47 @@ mod tests {
             text.len(),
             vec![TextEffect::Default],
         )])];
-        let actual = classify_message(&components, &[], Some(&text));
-        let expected = GlyphSize::Normal;
-        assert_eq!(actual, expected);
+        assert_eq!(
+            classify_message(&components, Some(&text)),
+            GlyphSize::Normal
+        );
     }
 
     #[test]
-    fn classify_single_static_sticker_is_jumbo() {
-        let mut sticker = Config::fake_attachment();
-        sticker.is_sticker = true;
-        sticker.mime_type = Some("image/heic".to_string());
+    fn classify_single_inline_sticker_is_jumbo() {
+        // An inline sticker (the `emoji_image` hint) counts as one glyph.
+        let components = vec![BubbleComponent::Run(vec![
+            AttributedRange::inline_attachment(0, 3, AttachmentMeta::default()),
+        ])];
+        assert_eq!(classify_message(&components, None), GlyphSize::Jumbo);
+    }
+
+    #[test]
+    fn classify_block_attachment_is_normal() {
+        // A block attachment means the message isn't pure-glyph.
         let components = vec![BubbleComponent::Run(vec![AttributedRange::attachment(
             0,
             3,
             AttachmentMeta::default(),
         )])];
-        let actual = classify_message(&components, std::slice::from_ref(&sticker), None);
-        let expected = GlyphSize::Jumbo;
-        assert_eq!(actual, expected);
+        assert_eq!(classify_message(&components, None), GlyphSize::Normal);
     }
 
     #[test]
-    fn classify_animated_sticker_is_normal() {
-        let mut sticker = Config::fake_attachment();
-        sticker.is_sticker = true;
-        sticker.mime_type = Some("image/heic-sequence".to_string());
-        let components = vec![BubbleComponent::Run(vec![AttributedRange::attachment(
-            0,
-            3,
-            AttachmentMeta::default(),
-        )])];
-        let actual = classify_message(&components, std::slice::from_ref(&sticker), None);
-        let expected = GlyphSize::Normal;
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn classify_mixed_emoji_and_sticker_is_medium() {
-        let mut sticker = Config::fake_attachment();
-        sticker.is_sticker = true;
-        sticker.mime_type = Some("image/heic".to_string());
+    fn classify_mixed_emoji_and_inline_sticker_is_medium() {
+        // Emoji text plus an inline sticker in one bubble (one Run): two glyphs.
         let text = "🎉".to_string();
-        // Emoji text plus an inline static sticker live in one bubble (one Run),
-        // text range first then the attachment placeholder range.
         let components = vec![BubbleComponent::Run(vec![
             AttributedRange::text(0, text.len(), vec![TextEffect::Default]),
-            AttributedRange::attachment(text.len(), text.len() + 3, AttachmentMeta::default()),
+            AttributedRange::inline_attachment(
+                text.len(),
+                text.len() + 3,
+                AttachmentMeta::default(),
+            ),
         ])];
-        let actual = classify_message(&components, std::slice::from_ref(&sticker), Some(&text));
-        let expected = GlyphSize::Medium;
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn classify_non_sticker_attachment_is_normal() {
-        let attachment = Config::fake_attachment();
-        let components = vec![BubbleComponent::Run(vec![AttributedRange::attachment(
-            0,
-            3,
-            AttachmentMeta::default(),
-        )])];
-        let actual = classify_message(&components, std::slice::from_ref(&attachment), None);
-        let expected = GlyphSize::Normal;
-        assert_eq!(actual, expected);
+        assert_eq!(
+            classify_message(&components, Some(&text)),
+            GlyphSize::Medium
+        );
     }
 }
