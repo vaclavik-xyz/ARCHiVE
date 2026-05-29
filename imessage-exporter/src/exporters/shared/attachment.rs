@@ -33,11 +33,20 @@ pub(crate) fn prepare_attachment(
     let mode = &config.options.attachment_manager.mode;
     let is_video_full = matches!(attachment.mime_type(), MediaType::Video(_))
         && matches!(mode, AttachmentManagerMode::Full);
-    let is_animated_sticker_full = attachment.is_animated_sticker()
-        && (matches!(mode, AttachmentManagerMode::Full)
-            || matches!(attachment.mime_type(), MediaType::Image(_)));
+    let is_animated_sticker_encoding = attachment.is_animated_sticker()
+        && match attachment.mime_type() {
+            // HEICS etc. → `sticker_copy_convert`, which runs in Basic or Full.
+            MediaType::Image(_) => {
+                matches!(
+                    mode,
+                    AttachmentManagerMode::Basic | AttachmentManagerMode::Full
+                )
+            }
+            // Video Memoji etc. → `video_copy_convert`, which runs in Full only.
+            _ => matches!(mode, AttachmentManagerMode::Full),
+        };
 
-    let busy_label = if is_animated_sticker_full {
+    let busy_label = if is_animated_sticker_encoding {
         Some("Encoding animated sticker, estimates paused...")
     } else if is_video_full {
         Some("Encoding video, estimates paused...")
