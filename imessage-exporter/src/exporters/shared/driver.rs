@@ -204,6 +204,13 @@ where
         }
         current_message_row = msg.rowid;
 
+        // Tapbacks, poll votes, and poll updates are rendered in context by
+        // their parent messages, never at the top level, so we can skip them here
+        if !msg.is_edited() && (msg.is_tapback() || msg.is_poll_vote() || msg.is_poll_update()) {
+            current_message += 1;
+            continue;
+        }
+
         apply_body(&mut msg, writer.config().data_source.db());
 
         if msg.is_announcement() {
