@@ -5,7 +5,7 @@
 */
 use std::fmt::Write;
 
-use chrono::{DateTime, Datelike, Local, Months, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Local, Months, TimeZone, Timelike, Utc};
 
 use crate::error::message::MessageError;
 
@@ -81,7 +81,29 @@ pub fn get_local_time(date_stamp: i64, offset: i64) -> Result<DateTime<Local>, M
 /// ```
 #[must_use]
 pub fn format(date: &DateTime<Local>) -> String {
-    DateTime::format(date, "%b %d, %Y %l:%M:%S %p").to_string()
+    // Equivalent to `date.format("%b %d, %Y %l:%M:%S %p").to_string()` but
+    // written directly into one pre-sized buffer
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let (hour12, meridiem) = match date.hour() {
+        0 => (12, "AM"),
+        12 => (12, "PM"),
+        h if h < 12 => (h, "AM"),
+        h => (h - 12, "PM"),
+    };
+
+    let mut out = String::with_capacity(24);
+    let _ = write!(
+        out,
+        "{} {:02}, {} {hour12:2}:{:02}:{:02} {meridiem}",
+        MONTHS[(date.month() - 1) as usize],
+        date.day(),
+        date.year(),
+        date.minute(),
+        date.second(),
+    );
+    out
 }
 
 /// Generate a readable diff from two local timestamps.
