@@ -208,7 +208,13 @@ pub fn get_connection(path: &Path) -> Result<Connection, TableError> {
             path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         ) {
-            Ok(res) => Ok(res),
+            Ok(connection) => {
+                // Memory-map the file so page reads come from the mapped region
+                // instead of read() syscalls + page-cache copies
+                let _ = connection.pragma_update(None, "mmap_size", 8_589_934_592_i64); // up to 8 GiB
+                let _ = connection.pragma_update(None, "cache_size", -65_536_i64); // ~64 MiB
+                Ok(connection)
+            }
             Err(why) => Err(TableError::CannotConnect(TableConnectError::Permissions(
                 why,
             ))),

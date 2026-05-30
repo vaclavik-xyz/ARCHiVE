@@ -18,12 +18,15 @@ use imessage_database::{
         attachment::Attachment,
         messages::{
             Message,
-            models::{AttachmentMeta, SharedLocation, TextAttributes},
+            models::{AttachmentMeta, AttributedRange, SharedLocation},
         },
     },
 };
 
-use crate::app::{error::RuntimeError, runtime::Config};
+use crate::{
+    app::{error::RuntimeError, runtime::Config},
+    exporters::shared::part::AttachmentResolver,
+};
 
 /// Where a message sits in the rendered conversation hierarchy. Each exporter
 /// applies its own decoration for [`Reply`](Self::Reply) (e.g. line prefixing,
@@ -83,15 +86,36 @@ pub(crate) trait MessageFormatter<'a> {
     fn format_shareplay(&self) -> &'static str;
     /// Format a legacy Shared Location message
     fn format_shared_location(&self, kind: SharedLocation) -> &'static str;
-    /// Format an edited message
+    /// Format an edited message by applying the edit's
+    /// [`AttributedRange`]s to the original message text
+    /// and interleaving inline attachments as in
+    /// [`render_run`](Self::render_run).
     fn format_edited(
-        &self,
+        &'a self,
         msg: &'a Message,
         edited_message: &'a EditedMessage,
         message_part_idx: usize,
+        attachments: &'a mut Vec<Attachment>,
+        resolver: &mut AttachmentResolver,
     ) -> Option<String>;
-    /// Format all [`TextAttributes`]s applied to a given set of text
-    fn format_attributes(&self, text: &str, attributes: &[TextAttributes]) -> String;
+    /// Format the text of a set of [`AttributedRange`]s applied to `text`.
+    /// Attachment ranges are ignored; only text ranges contribute.
+    fn format_attributes(&self, text: &str, ranges: &[AttributedRange]) -> String;
+    /// Render one plain (non-edited) [`Run`](imessage_database::tables::messages::models::BubbleComponent::Run)
+    /// (a bubble's worth of attributed ranges) into this format's part body.
+    /// Interleaves text ranges with inline-attachment ranges, pairing each
+    /// attachment to its row via `resolver` (GUID-first, positional fallback).
+    /// Translation of the whole run is handled here so the dispatch stays
+    /// format-agnostic.
+    fn render_run(
+        &'a self,
+        message: &'a Message,
+        ranges: &'a [AttributedRange],
+        attachments: &'a mut Vec<Attachment>,
+        resolver: &mut AttachmentResolver,
+    ) -> <Self as PartBodyBuilder>::Body
+    where
+        Self: PartBodyBuilder;
     /// Render `message` directly into `out`. Permits reuse of a single buffer to
     /// avoid allocating per-message. `context` distinguishes the top-level
     /// driver pass from a nested-reply recursion (see [`RenderContext`]).

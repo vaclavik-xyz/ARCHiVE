@@ -24,24 +24,29 @@ pub(crate) fn prepare_attachment(
     attachment: &mut Attachment,
     message: &Message,
 ) -> Result<(), AttachmentRender> {
-    // Determine which conversions actually invoke ffmpeg and freeze the bar.
-    // Both video transcoding (any video in Full mode) and animated-sticker
-    // conversion (HEICS in Basic/Full) spawn ffmpeg, so both should surface
-    // the busy indicator.
+    // Surface the busy bar only on the `ffmpeg`-spawning conversion paths:
+    //   - animated sticker (image MIME, e.g. HEICS) in Basic or Full
+    //     → `sticker_copy_convert`
+    //   - animated sticker (video MIME, e.g. video Memoji) in Full only
+    //     → `video_copy_convert`
+    //   - any non-sticker video in Full → `video_copy_convert`
     let mode = &config.options.attachment_manager.mode;
     let is_video_full = matches!(attachment.mime_type(), MediaType::Video(_))
         && matches!(mode, AttachmentManagerMode::Full);
-    let is_animated_sticker = attachment.is_sticker
-        && matches!(
-            attachment.mime_type(),
-            MediaType::Image("heics" | "HEICS" | "heic-sequence")
-        )
-        && matches!(
-            mode,
-            AttachmentManagerMode::Basic | AttachmentManagerMode::Full
-        );
+    let is_animated_sticker_encoding = attachment.is_animated_sticker()
+        && match attachment.mime_type() {
+            // HEICS etc. → `sticker_copy_convert`, which runs in Basic or Full.
+            MediaType::Image(_) => {
+                matches!(
+                    mode,
+                    AttachmentManagerMode::Basic | AttachmentManagerMode::Full
+                )
+            }
+            // Video Memoji etc. → `video_copy_convert`, which runs in Full only.
+            _ => matches!(mode, AttachmentManagerMode::Full),
+        };
 
-    let busy_label = if is_animated_sticker {
+    let busy_label = if is_animated_sticker_encoding {
         Some("Encoding animated sticker, estimates paused...")
     } else if is_video_full {
         Some("Encoding video, estimates paused...")

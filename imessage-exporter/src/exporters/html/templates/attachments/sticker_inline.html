@@ -1,0 +1,5 @@
+<img class="inline_sticker"
+{%- if let Some(p)=embed_path -%}{{ " " }}src="{{ p }}"{%- endif -%}
+{%- if let Some(t)=label -%}{{ " " }}alt="{{ t }}"{{ " " }}title="{{ t }}"{%- endif -%}
+{%- if lazy -%}{{ " " }}loading="lazy"{%- endif -%}
+>

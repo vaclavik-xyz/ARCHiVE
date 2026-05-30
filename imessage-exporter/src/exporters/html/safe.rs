@@ -16,6 +16,13 @@ impl<S> Html<S> {
     pub(crate) const fn trust(s: S) -> Self {
         Self(s)
     }
+
+    /// Unwrap the inner HTML-safe value. The contents have already passed
+    /// escaping, so the caller may emit them unescaped (e.g. concatenating a
+    /// sequence of segments into one string).
+    pub(crate) fn into_inner(self) -> S {
+        self.0
+    }
 }
 
 impl<S: AsRef<str>> fmt::Display for Html<S> {

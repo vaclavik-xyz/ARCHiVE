@@ -261,6 +261,22 @@ div.sticker img {
     max-width: 5em;
 }
 
+img.inline_sticker {
+    height: 1em;
+    width: auto;
+    vertical-align: middle;
+}
+
+span.bubble.jumbo {
+    font-size: 3.5em;
+    line-height: 1;
+}
+
+span.bubble.medium {
+    font-size: 2em;
+    line-height: 1;
+}
+
 .announcement {
     text-align: center;
     padding: 2vh 1vw;

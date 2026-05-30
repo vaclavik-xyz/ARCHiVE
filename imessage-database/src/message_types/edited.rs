@@ -231,7 +231,7 @@ mod test_parser {
     use crate::message_types::edited::{EditStatus, EditedEvent, EditedMessagePart};
     use crate::message_types::text_effects::{Style, TextEffect};
     use crate::message_types::{edited::EditedMessage, variants::BalloonProvider};
-    use crate::tables::messages::models::{BubbleComponent, TextAttributes};
+    use crate::tables::messages::models::{AttributedRange, BubbleComponent};
 
     use plist::Value;
     use std::env::current_dir;
@@ -254,41 +254,41 @@ mod test_parser {
                     EditedEvent::new(
                         690513474000000000,
                         "First message  ".to_string(),
-                        vec![BubbleComponent::Text(vec![TextAttributes {
-                            start: 0,
-                            end: 15,
-                            effects: vec![TextEffect::Default],
-                        }])],
+                        vec![BubbleComponent::Run(vec![AttributedRange::text(
+                            0,
+                            15,
+                            vec![TextEffect::Default],
+                        )])],
                         None,
                     ),
                     EditedEvent::new(
                         690513480000000000,
                         "Edit 1".to_string(),
-                        vec![BubbleComponent::Text(vec![TextAttributes {
-                            start: 0,
-                            end: 6,
-                            effects: vec![TextEffect::Default],
-                        }])],
+                        vec![BubbleComponent::Run(vec![AttributedRange::text(
+                            0,
+                            6,
+                            vec![TextEffect::Default],
+                        )])],
                         None,
                     ),
                     EditedEvent::new(
                         690513485000000000,
                         "Edit 2".to_string(),
-                        vec![BubbleComponent::Text(vec![TextAttributes {
-                            start: 0,
-                            end: 6,
-                            effects: vec![TextEffect::Default],
-                        }])],
+                        vec![BubbleComponent::Run(vec![AttributedRange::text(
+                            0,
+                            6,
+                            vec![TextEffect::Default],
+                        )])],
                         None,
                     ),
                     EditedEvent::new(
                         690513494000000000,
                         "Edited message".to_string(),
-                        vec![BubbleComponent::Text(vec![TextAttributes {
-                            start: 0,
-                            end: 14,
-                            effects: vec![TextEffect::Default],
-                        }])],
+                        vec![BubbleComponent::Run(vec![AttributedRange::text(
+                            0,
+                            14,
+                            vec![TextEffect::Default],
+                        )])],
                         None,
                     ),
                 ],
@@ -323,21 +323,21 @@ mod test_parser {
                         EditedEvent::new(
                             690514004000000000,
                             "here we go!".to_string(),
-                            vec![BubbleComponent::Text(vec![TextAttributes {
-                                start: 0,
-                                end: 11,
-                                effects: vec![TextEffect::Default],
-                            }])],
+                            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                                0,
+                                11,
+                                vec![TextEffect::Default],
+                            )])],
                             None,
                         ),
                         EditedEvent::new(
                             690514772000000000,
                             "https://github.com/ReagentX/imessage-exporter/issues/10".to_string(),
-                            vec![BubbleComponent::Text(vec![TextAttributes {
-                                start: 0,
-                                end: 55,
-                                effects: vec![TextEffect::Default],
-                            }])],
+                            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                                0,
+                                55,
+                                vec![TextEffect::Default],
+                            )])],
                             Some("292BF9C6-C9B8-4827-BE65-6EA1C9B5B384".to_string()),
                         ),
                     ],
@@ -365,32 +365,32 @@ mod test_parser {
                     EditedEvent::new(
                         690514809000000000,
                         "This is a normal message".to_string(),
-                        vec![BubbleComponent::Text(vec![TextAttributes {
-                            start: 0,
-                            end: 24,
-                            effects: vec![TextEffect::Default],
-                        }])],
+                        vec![BubbleComponent::Run(vec![AttributedRange::text(
+                            0,
+                            24,
+                            vec![TextEffect::Default],
+                        )])],
                         None,
                     ),
                     EditedEvent::new(
                         690514819000000000,
                         "Edit to a url https://github.com/ReagentX/imessage-exporter/issues/10"
                             .to_string(),
-                        vec![BubbleComponent::Text(vec![TextAttributes {
-                            start: 0,
-                            end: 69,
-                            effects: vec![TextEffect::Default],
-                        }])],
+                        vec![BubbleComponent::Run(vec![AttributedRange::text(
+                            0,
+                            69,
+                            vec![TextEffect::Default],
+                        )])],
                         Some("0B9103FE-280C-4BD0-A66F-4EDEE3443247".to_string()),
                     ),
                     EditedEvent::new(
                         690514834000000000,
                         "And edit it back to a normal message...".to_string(),
-                        vec![BubbleComponent::Text(vec![TextAttributes {
-                            start: 0,
-                            end: 39,
-                            effects: vec![TextEffect::Default],
-                        }])],
+                        vec![BubbleComponent::Run(vec![AttributedRange::text(
+                            0,
+                            39,
+                            vec![TextEffect::Default],
+                        )])],
                         Some("0D93DF88-05BA-4418-9B20-79918ADD9923".to_string()),
                     ),
                 ],
@@ -480,21 +480,21 @@ mod test_parser {
                         EditedEvent::new(
                             743907180000000000,
                             "Second message".to_string(),
-                            vec![BubbleComponent::Text(vec![TextAttributes {
-                                start: 0,
-                                end: 14,
-                                effects: vec![TextEffect::Default],
-                            }])],
+                            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                                0,
+                                14,
+                                vec![TextEffect::Default],
+                            )])],
                             None,
                         ),
                         EditedEvent::new(
                             743907190000000000,
                             "Second message got edited!".to_string(),
-                            vec![BubbleComponent::Text(vec![TextAttributes {
-                                start: 0,
-                                end: 26,
-                                effects: vec![TextEffect::Default],
-                            }])],
+                            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                                0,
+                                26,
+                                vec![TextEffect::Default],
+                            )])],
                             None,
                         ),
                     ],
@@ -531,21 +531,21 @@ mod test_parser {
                         EditedEvent::new(
                             743907435000000000,
                             "Second test".to_string(),
-                            vec![BubbleComponent::Text(vec![TextAttributes {
-                                start: 0,
-                                end: 11,
-                                effects: vec![TextEffect::Default],
-                            }])],
+                            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                                0,
+                                11,
+                                vec![TextEffect::Default],
+                            )])],
                             None,
                         ),
                         EditedEvent::new(
                             743907448000000000,
                             "Second test was edited!".to_string(),
-                            vec![BubbleComponent::Text(vec![TextAttributes {
-                                start: 0,
-                                end: 23,
-                                effects: vec![TextEffect::Default],
-                            }])],
+                            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                                0,
+                                23,
+                                vec![TextEffect::Default],
+                            )])],
                             None,
                         ),
                     ],
@@ -577,21 +577,21 @@ mod test_parser {
                     EditedEvent::new(
                         758573156000000000,
                         "Test".to_string(),
-                        vec![BubbleComponent::Text(vec![TextAttributes {
-                            start: 0,
-                            end: 4,
-                            effects: vec![TextEffect::Default],
-                        }])],
+                        vec![BubbleComponent::Run(vec![AttributedRange::text(
+                            0,
+                            4,
+                            vec![TextEffect::Default],
+                        )])],
                         None,
                     ),
                     EditedEvent::new(
                         758573166000000000,
                         "Test".to_string(),
-                        vec![BubbleComponent::Text(vec![TextAttributes {
-                            start: 0,
-                            end: 4,
-                            effects: vec![TextEffect::Styles(vec![Style::Strikethrough])],
-                        }])],
+                        vec![BubbleComponent::Run(vec![AttributedRange::text(
+                            0,
+                            4,
+                            vec![TextEffect::Styles(vec![Style::Strikethrough])],
+                        )])],
                         Some("76A466B8-D21E-4A20-AF62-FF2D3A20D31C".to_string()),
                     ),
                 ],
@@ -613,7 +613,42 @@ mod test_gen {
 
     use crate::message_types::text_effects::{Style, TextEffect};
     use crate::message_types::{edited::EditedMessage, variants::BalloonProvider};
-    use crate::tables::messages::models::{BubbleComponent, TextAttributes};
+    use crate::tables::messages::models::{AttributedRange, BubbleComponent};
+
+    #[test]
+    fn test_parse_edited_memoji() {
+        // The `MemojiEdited` fixture: a message edited from "Check this out: ‹Memoji›"
+        // to "Check this out: ‹Memoji› 😀". Both versions must parse the Memoji as
+        // an inline (`emoji_image`) attachment range so the exporter can render it
+        // as an image in the edit history rather than leaking the `\u{FFFC}` placeholder.
+        let plist_path = current_dir()
+            .unwrap()
+            .as_path()
+            .join("test_data/edited_message/MemojiEdited.plist");
+        let plist_data = File::open(plist_path).unwrap();
+        let plist = Value::from_reader(plist_data).unwrap();
+        let parsed = EditedMessage::from_map(&plist).unwrap();
+
+        let history = &parsed.parts[0].edit_history;
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[1].text, "Check this out: \u{FFFC} 😀");
+
+        let BubbleComponent::Run(ranges) = &history[1].components[0] else {
+            panic!("expected a Run, got {:?}", history[1].components);
+        };
+        let memoji = ranges
+            .iter()
+            .find(|range| range.attachment.is_some())
+            .expect("the latest version should contain the Memoji attachment range");
+        assert!(
+            memoji.emoji_image,
+            "the Memoji must be flagged as an inline (emoji_image) sticker"
+        );
+        assert_eq!(
+            memoji.attachment.as_ref().unwrap().guid.as_deref(),
+            Some("F2C223DB-0140-4D49-B38A-C1A3553B4CBA"),
+        );
+    }
 
     #[test]
     fn test_parse_edited() {
@@ -626,22 +661,22 @@ mod test_gen {
         let parsed = EditedMessage::from_map(&plist).unwrap();
 
         let expected_attrs = [
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 15,
                 vec![TextEffect::Default],
             )])],
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 6,
                 vec![TextEffect::Default],
             )])],
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 6,
                 vec![TextEffect::Default],
             )])],
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 14,
                 vec![TextEffect::Default],
@@ -666,12 +701,12 @@ mod test_gen {
         let parsed = EditedMessage::from_map(&plist).unwrap();
 
         let expected_attrs = [
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 11,
                 vec![TextEffect::Default],
             )])],
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 55,
                 vec![TextEffect::Default],
@@ -696,17 +731,17 @@ mod test_gen {
         let parsed = EditedMessage::from_map(&plist).unwrap();
 
         let expected_attrs = [
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 24,
                 vec![TextEffect::Default],
             )])],
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 69,
                 vec![TextEffect::Default],
             )])],
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 39,
                 vec![TextEffect::Default],
@@ -769,12 +804,12 @@ mod test_gen {
         let parsed = EditedMessage::from_map(&plist).unwrap();
 
         let expected_attrs = [
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 14,
                 vec![TextEffect::Default],
             )])],
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 26,
                 vec![TextEffect::Default],
@@ -805,12 +840,12 @@ mod test_gen {
         }
 
         let expected_attrs: [Vec<BubbleComponent>; 2] = [
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 11,
                 vec![TextEffect::Default],
             )])],
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 23,
                 vec![TextEffect::Default],
@@ -835,12 +870,12 @@ mod test_gen {
         let parsed = EditedMessage::from_map(&plist).unwrap();
 
         let expected_attrs: [Vec<BubbleComponent>; 2] = [
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 4,
                 vec![TextEffect::Default],
             )])],
-            vec![BubbleComponent::Text(vec![TextAttributes::new(
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 4,
                 vec![TextEffect::Styles(vec![Style::Strikethrough])],
