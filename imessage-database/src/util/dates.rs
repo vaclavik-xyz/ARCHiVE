@@ -204,6 +204,27 @@ mod tests {
     }
 
     #[test]
+    fn can_format_date_midnight() {
+        // Hour 0 renders as 12 AM (and single-digit minute/second are zero-padded).
+        let date = Local.with_ymd_and_hms(2020, 5, 20, 0, 5, 9).unwrap();
+        assert_eq!(format(&date), "May 20, 2020 12:05:09 AM");
+    }
+
+    #[test]
+    fn can_format_date_noon() {
+        // Hour 12 renders as 12 PM, not 0 PM.
+        let date = Local.with_ymd_and_hms(2020, 5, 20, 12, 0, 0).unwrap();
+        assert_eq!(format(&date), "May 20, 2020 12:00:00 PM");
+    }
+
+    #[test]
+    fn can_format_date_afternoon() {
+        // Hour 15 maps to a space-padded 12-hour `3` (note the double space) PM.
+        let date = Local.with_ymd_and_hms(2020, 5, 20, 15, 4, 5).unwrap();
+        assert_eq!(format(&date), "May 20, 2020  3:04:05 PM");
+    }
+
+    #[test]
     fn cant_format_diff_backwards() {
         let end = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 11).unwrap();
         let start = Local.with_ymd_and_hms(2020, 5, 20, 9, 10, 30).unwrap();
