@@ -26,6 +26,8 @@ use crate::{
 pub struct ExportState {
     /// One open [`BufWriter`] per resolved chat filename.
     pub files: HashMap<String, BufWriter<File>>,
+    /// Cache each chat's resolved filename by chat rowid
+    pub route: HashMap<i32, String>,
     /// Destination for messages that don't have a conversation route.
     pub orphaned: BufWriter<File>,
     /// Drives the on-screen progress indicator.
@@ -46,6 +48,7 @@ impl ExportState {
         let pb_enabled = config.options.show_progress && stderr().is_terminal();
         Ok(Self {
             files: HashMap::new(),
+            route: HashMap::new(),
             orphaned: BufWriter::new(file),
             pb: ExportProgress::new(pb_enabled),
         })
@@ -110,8 +113,19 @@ where
     let config = writer.config();
     match config.conversation(message) {
         Some((chatroom, _)) => {
-            let filename = config.filename(chatroom);
+            let chatroom_rowid = chatroom.rowid;
             let state = writer.state_mut();
+            // Reuse the chat's filename if we've already resolved it; otherwise
+            // compute it once and memoize. `config`/`chatroom` are `&'a` and
+            // independent of the `state` borrow.
+            let filename = match state.route.get(&chatroom_rowid) {
+                Some(name) => name.clone(),
+                None => {
+                    let name = config.filename(chatroom);
+                    state.route.insert(chatroom_rowid, name.clone());
+                    name
+                }
+            };
             match state.files.entry(filename) {
                 Occupied(entry) => Ok(entry.into_mut()),
                 Vacant(entry) => {
