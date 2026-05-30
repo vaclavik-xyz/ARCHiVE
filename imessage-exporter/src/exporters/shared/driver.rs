@@ -18,6 +18,9 @@ use crate::{
     exporters::formatter::{MessageFormatter, RenderContext},
 };
 
+/// Capacity for each chat file's [`BufWriter`].
+const FILE_BUFFER_CAPACITY: usize = 64 * 1024;
+
 /// Shared per-export mutable state held by every concrete `MessageWriter`.
 /// Holds the file cache (one [`BufWriter`] per chatroom), the writer for
 /// messages that don't belong to a chat, and the progress bar. The owning
@@ -49,7 +52,7 @@ impl ExportState {
         Ok(Self {
             files: HashMap::new(),
             route: HashMap::new(),
-            orphaned: BufWriter::new(file),
+            orphaned: BufWriter::with_capacity(FILE_BUFFER_CAPACITY, file),
             pb: ExportProgress::new(pb_enabled),
         })
     }
@@ -135,7 +138,7 @@ where
                     // This can happen if multiple chats use the same group name.
                     let file_exists = path.exists();
                     let file = File::options().append(true).create(true).open(&path)?;
-                    let mut buf = BufWriter::new(file);
+                    let mut buf = BufWriter::with_capacity(FILE_BUFFER_CAPACITY, file);
                     if !file_exists {
                         W::write_file_header(&mut buf)?;
                     }
