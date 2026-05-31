@@ -6,7 +6,7 @@ use plist::Value;
 
 use crate::{
     error::plist::PlistParseError,
-    message_types::variants::BalloonProvider,
+    message_types::variants::{BalloonProvider, HasUrl},
     util::plist::{
         get_string_from_dict, get_string_from_nested_dict, rich_link_metadata_and_nested,
     },
@@ -103,10 +103,20 @@ impl<'a> BalloonProvider<'a> for PlacemarkMessage<'a> {
 }
 
 impl<'a> PlacemarkMessage<'a> {
-    /// Get the redirected URL from a URL message, falling back to the original URL, if it exists
+    /// Resolve this message's URL via [`HasUrl::get_url`].
     #[must_use]
     pub fn get_url(&self) -> Option<&str> {
-        self.url.or(self.original_url)
+        <Self as HasUrl>::get_url(self)
+    }
+}
+
+impl HasUrl for PlacemarkMessage<'_> {
+    fn url(&self) -> Option<&str> {
+        self.url
+    }
+
+    fn original_url(&self) -> Option<&str> {
+        self.original_url
     }
 }
 

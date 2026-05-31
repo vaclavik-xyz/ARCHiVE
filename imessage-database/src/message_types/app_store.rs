@@ -6,7 +6,7 @@ use plist::Value;
 
 use crate::{
     error::plist::PlistParseError,
-    message_types::variants::BalloonProvider,
+    message_types::variants::{BalloonProvider, HasUrl},
     util::plist::{
         get_string_from_dict, get_string_from_nested_dict, rich_link_metadata_and_nested,
     },
@@ -51,6 +51,24 @@ impl<'a> BalloonProvider<'a> for AppStoreMessage<'a> {
     }
 }
 
+impl AppStoreMessage<'_> {
+    /// Resolve this message's URL via [`HasUrl::get_url`].
+    #[must_use]
+    pub fn get_url(&self) -> Option<&str> {
+        <Self as HasUrl>::get_url(self)
+    }
+}
+
+impl HasUrl for AppStoreMessage<'_> {
+    fn url(&self) -> Option<&str> {
+        self.url
+    }
+
+    fn original_url(&self) -> Option<&str> {
+        self.original_url
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -82,5 +100,50 @@ mod tests {
         };
 
         assert_eq!(balloon, expected);
+    }
+
+    #[test]
+    fn test_get_url() {
+        let balloon = AppStoreMessage {
+            url: Some("https://apps.apple.com/app/id1560298214"),
+            original_url: Some("https://apps.apple.com/original"),
+            app_name: None,
+            description: None,
+            platform: None,
+            genre: None,
+        };
+
+        assert_eq!(
+            balloon.get_url(),
+            Some("https://apps.apple.com/app/id1560298214")
+        );
+    }
+
+    #[test]
+    fn test_get_original_url() {
+        let balloon = AppStoreMessage {
+            url: None,
+            original_url: Some("https://apps.apple.com/original"),
+            app_name: None,
+            description: None,
+            platform: None,
+            genre: None,
+        };
+
+        assert_eq!(balloon.get_url(), Some("https://apps.apple.com/original"));
+    }
+
+    #[test]
+    fn test_get_no_url() {
+        let balloon = AppStoreMessage {
+            url: None,
+            original_url: None,
+            app_name: None,
+            description: None,
+            platform: None,
+            genre: None,
+        };
+
+        assert_eq!(balloon.get_url(), None);
     }
 }

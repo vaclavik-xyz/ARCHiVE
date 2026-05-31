@@ -13,7 +13,7 @@ use crate::{
         collaboration::CollaborationMessage,
         music::MusicMessage,
         placemark::PlacemarkMessage,
-        variants::{BalloonProvider, URLOverride},
+        variants::{BalloonProvider, HasUrl, URLOverride},
     },
     util::plist::{get_bool_from_dict, get_string_from_dict, get_string_from_nested_dict},
 };
@@ -129,10 +129,20 @@ impl<'a> URLMessage<'a> {
             .collect()
     }
 
-    /// Get the redirected URL from a URL message, falling back to the original URL, if it exists
+    /// Resolve this message's URL via [`HasUrl::get_url`].
     #[must_use]
     pub fn get_url(&self) -> Option<&str> {
-        self.url.or(self.original_url)
+        <Self as HasUrl>::get_url(self)
+    }
+}
+
+impl HasUrl for URLMessage<'_> {
+    fn url(&self) -> Option<&str> {
+        self.url
+    }
+
+    fn original_url(&self) -> Option<&str> {
+        self.original_url
     }
 }
 
