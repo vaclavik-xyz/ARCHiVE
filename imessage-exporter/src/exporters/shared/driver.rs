@@ -18,6 +18,9 @@ use crate::{
     exporters::formatter::{MessageFormatter, RenderContext},
 };
 
+/// Capacity for each chat file's [`BufWriter`].
+const FILE_BUFFER_CAPACITY: usize = 64 * 1024;
+
 /// Shared per-export mutable state held by every concrete `MessageWriter`.
 /// Holds the file cache (one [`BufWriter`] per chatroom), the writer for
 /// messages that don't belong to a chat, and the progress bar. The owning
@@ -26,6 +29,8 @@ use crate::{
 pub struct ExportState {
     /// One open [`BufWriter`] per resolved chat filename.
     pub files: HashMap<String, BufWriter<File>>,
+    /// Cache each chat's resolved filename by chat rowid
+    pub route: HashMap<i32, String>,
     /// Destination for messages that don't have a conversation route.
     pub orphaned: BufWriter<File>,
     /// Drives the on-screen progress indicator.
@@ -46,7 +51,8 @@ impl ExportState {
         let pb_enabled = config.options.show_progress && stderr().is_terminal();
         Ok(Self {
             files: HashMap::new(),
-            orphaned: BufWriter::new(file),
+            route: HashMap::new(),
+            orphaned: BufWriter::with_capacity(FILE_BUFFER_CAPACITY, file),
             pb: ExportProgress::new(pb_enabled),
         })
     }
@@ -110,8 +116,19 @@ where
     let config = writer.config();
     match config.conversation(message) {
         Some((chatroom, _)) => {
-            let filename = config.filename(chatroom);
+            let chatroom_rowid = chatroom.rowid;
             let state = writer.state_mut();
+            // Reuse the chat's filename if we've already resolved it; otherwise
+            // compute it once and memoize. `config`/`chatroom` are `&'a` and
+            // independent of the `state` borrow.
+            let filename = match state.route.get(&chatroom_rowid) {
+                Some(name) => name.clone(),
+                None => {
+                    let name = config.filename(chatroom);
+                    state.route.insert(chatroom_rowid, name.clone());
+                    name
+                }
+            };
             match state.files.entry(filename) {
                 Occupied(entry) => Ok(entry.into_mut()),
                 Vacant(entry) => {
@@ -121,7 +138,7 @@ where
                     // This can happen if multiple chats use the same group name.
                     let file_exists = path.exists();
                     let file = File::options().append(true).create(true).open(&path)?;
-                    let mut buf = BufWriter::new(file);
+                    let mut buf = BufWriter::with_capacity(FILE_BUFFER_CAPACITY, file);
                     if !file_exists {
                         W::write_file_header(&mut buf)?;
                     }
@@ -186,6 +203,13 @@ where
             continue;
         }
         current_message_row = msg.rowid;
+
+        // Tapbacks, poll votes, and poll updates are rendered in context by
+        // their parent messages, never at the top level, so we can skip them here
+        if !msg.is_edited() && (msg.is_tapback() || msg.is_poll_vote() || msg.is_poll_update()) {
+            current_message += 1;
+            continue;
+        }
 
         apply_body(&mut msg, writer.config().data_source.db());
 
