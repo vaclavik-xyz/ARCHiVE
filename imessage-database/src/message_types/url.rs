@@ -51,10 +51,8 @@ impl<'a> BalloonProvider<'a> for URLMessage<'a> {
             url: get_string_from_nested_dict(url_metadata, "URL"),
             original_url: get_string_from_nested_dict(url_metadata, "originalURL"),
             item_type: get_string_from_dict(url_metadata, "itemType"),
-            images: URLMessage::get_array_from_nested_dict(url_metadata, "images")
-                .unwrap_or_default(),
-            icons: URLMessage::get_array_from_nested_dict(url_metadata, "icons")
-                .unwrap_or_default(),
+            images: URLMessage::get_array_from_nested_dict(url_metadata, "images"),
+            icons: URLMessage::get_array_from_nested_dict(url_metadata, "icons"),
             site_name: get_string_from_dict(url_metadata, "siteName"),
             placeholder: get_bool_from_dict(url_metadata, "richLinkIsPlaceholder").unwrap_or(false),
         })
@@ -117,15 +115,20 @@ impl<'a> URLMessage<'a> {
     ///     ...
     /// ]
     /// ```
-    fn get_array_from_nested_dict(payload: &'a Value, key: &str) -> Option<Vec<&'a str>> {
-        payload
-            .as_dictionary()?
-            .get(key)?
-            .as_dictionary()?
-            .get(key)?
-            .as_array()?
+    fn get_array_from_nested_dict(payload: &'a Value, key: &str) -> Vec<&'a str> {
+        let Some(items) = payload
+            .as_dictionary()
+            .and_then(|root| root.get(key))
+            .and_then(Value::as_dictionary)
+            .and_then(|nested| nested.get(key))
+            .and_then(Value::as_array)
+        else {
+            return Vec::new();
+        };
+
+        items
             .iter()
-            .map(|item| get_string_from_nested_dict(item, "URL"))
+            .filter_map(|item| get_string_from_nested_dict(item, "URL"))
             .collect()
     }
 
@@ -152,9 +155,29 @@ mod url_tests {
         message_types::{url::URLMessage, variants::BalloonProvider},
         util::plist::parse_ns_keyed_archiver,
     };
-    use plist::Value;
+    use plist::{Dictionary, Value};
     use std::env::current_dir;
     use std::fs::File;
+
+    fn nested_url(url: &str) -> Value {
+        let mut inner = Dictionary::new();
+        inner.insert("URL".to_string(), Value::String(url.to_string()));
+
+        let mut outer = Dictionary::new();
+        outer.insert("URL".to_string(), Value::Dictionary(inner));
+
+        Value::Dictionary(outer)
+    }
+
+    fn nested_array_payload(key: &str, items: Vec<Value>) -> Value {
+        let mut inner = Dictionary::new();
+        inner.insert(key.to_string(), Value::Array(items));
+
+        let mut outer = Dictionary::new();
+        outer.insert(key.to_string(), Value::Dictionary(inner));
+
+        Value::Dictionary(outer)
+    }
 
     #[test]
     fn test_parse_url_me() {
@@ -271,6 +294,34 @@ mod url_tests {
         };
 
         assert_eq!(balloon, expected);
+    }
+
+    #[test]
+    fn test_get_array_from_nested_dict_skips_malformed_entries() {
+        let payload = nested_array_payload(
+            "images",
+            vec![
+                nested_url("https://example.com/first.png"),
+                Value::Dictionary(Dictionary::new()),
+                nested_url(""),
+                nested_url("https://example.com/second.png"),
+            ],
+        );
+
+        assert_eq!(
+            URLMessage::get_array_from_nested_dict(&payload, "images"),
+            vec![
+                "https://example.com/first.png",
+                "https://example.com/second.png"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_get_array_from_nested_dict_returns_empty_for_missing_list() {
+        let payload = Value::Dictionary(Dictionary::new());
+
+        assert!(URLMessage::get_array_from_nested_dict(&payload, "icons").is_empty());
     }
 
     #[test]
