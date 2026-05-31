@@ -17,6 +17,8 @@ pub enum HandwritingError {
     CompressionUnknown,
     /// Indicates that the strokes length is invalid.
     InvalidStrokesLength(usize, usize),
+    /// Indicates that a stroke contained zero points.
+    EmptyStroke,
     /// Indicates a numeric conversion error.
     ConversionError,
     /// Indicates that the decompressed data was not set.
@@ -50,6 +52,7 @@ impl Display for HandwritingError {
             HandwritingError::InvalidStrokesLength(index, length) => {
                 write!(fmt, "can't access index {index} on array length {length}")
             }
+            HandwritingError::EmptyStroke => write!(fmt, "stroke contains zero points"),
             HandwritingError::ConversionError => write!(fmt, "failed to convert num"),
             HandwritingError::DecompressedNotSet => {
                 write!(fmt, "decompressed length not set on compressed message")
