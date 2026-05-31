@@ -32,7 +32,7 @@ pub struct AppStoreMessage<'a> {
 
 impl<'a> BalloonProvider<'a> for AppStoreMessage<'a> {
     fn from_map(payload: &'a Value) -> Result<Self, PlistParseError> {
-        if let Ok((app_metadata, body)) = rich_link_metadata_and_nested(payload, "specialization") {
+        if let Ok((body, app_metadata)) = rich_link_metadata_and_nested(payload, "specialization") {
             // Ensure the message is not a Music message
             if get_string_from_dict(app_metadata, "album").is_some() {
                 return Err(PlistParseError::WrongMessageType);

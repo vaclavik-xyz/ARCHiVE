@@ -33,7 +33,7 @@ pub struct CollaborationMessage<'a> {
 
 impl<'a> BalloonProvider<'a> for CollaborationMessage<'a> {
     fn from_map(payload: &'a Value) -> Result<Self, PlistParseError> {
-        if let Ok((meta, base)) = rich_link_metadata_and_nested(payload, "collaborationMetadata") {
+        if let Ok((base, meta)) = rich_link_metadata_and_nested(payload, "collaborationMetadata") {
             return Ok(Self {
                 original_url: get_string_from_nested_dict(base, "originalURL"),
                 url: get_string_from_dict(meta, "collaborationIdentifier"),

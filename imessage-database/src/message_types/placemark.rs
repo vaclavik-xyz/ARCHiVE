@@ -85,7 +85,7 @@ pub struct PlacemarkMessage<'a> {
 
 impl<'a> BalloonProvider<'a> for PlacemarkMessage<'a> {
     fn from_map(payload: &'a Value) -> Result<Self, PlistParseError> {
-        if let Ok((placemark, body)) = rich_link_metadata_and_nested(payload, "specialization2") {
+        if let Ok((body, placemark)) = rich_link_metadata_and_nested(payload, "specialization2") {
             // Ensure the message is a placemark
             if get_string_from_dict(placemark, "address").is_none() {
                 return Err(PlistParseError::WrongMessageType);
@@ -179,7 +179,7 @@ mod tests {
         let plist = Value::from_reader(plist_data).unwrap();
         let parsed = parse_ns_keyed_archiver(&plist).unwrap();
 
-        let (placemark_data, _) =
+        let (_, placemark_data) =
             rich_link_metadata_and_nested(&parsed, "specialization2").unwrap();
 
         let placemark = Placemark::new(placemark_data).unwrap();

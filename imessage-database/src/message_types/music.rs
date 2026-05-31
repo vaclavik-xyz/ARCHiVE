@@ -33,7 +33,7 @@ pub struct MusicMessage<'a> {
 
 impl<'a> BalloonProvider<'a> for MusicMessage<'a> {
     fn from_map(payload: &'a Value) -> Result<Self, PlistParseError> {
-        if let Ok((music_metadata, body)) = rich_link_metadata_and_nested(payload, "specialization")
+        if let Ok((body, music_metadata)) = rich_link_metadata_and_nested(payload, "specialization")
         {
             // Ensure the message is a Music message
             if get_string_from_dict(music_metadata, "album").is_none() {
