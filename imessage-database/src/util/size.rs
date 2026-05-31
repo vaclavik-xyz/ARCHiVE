@@ -7,7 +7,7 @@ const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
 
 /// Get a human readable file size for an arbitrary amount of bytes
 ///
-// # Example:
+/// # Example:
 ///
 /// ```
 /// use imessage_database::util::size::format_file_size;
