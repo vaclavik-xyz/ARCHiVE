@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use crate::{
     error::table::TableError,
     tables::{
-        diagnostic::HandleDiagnostic,
+        diagnostic::{HandleDiagnostic, count_query},
         table::{Cacheable, HANDLE, ME, Table},
     },
 };
@@ -159,14 +159,7 @@ impl Handle {
             "WHERE person_centric_id NOT NULL"
         );
 
-        let handles_with_multiple_ids = if let Ok(mut rows) = db.prepare(query) {
-            rows.query_row([], |r| r.get::<_, i64>(0))
-                .ok()
-                .and_then(|count| usize::try_from(count).ok())
-                .unwrap_or(0)
-        } else {
-            0
-        };
+        let handles_with_multiple_ids = count_query(db, query)?;
 
         // Cache all handles
         let all_handles = Self::cache(db)?;

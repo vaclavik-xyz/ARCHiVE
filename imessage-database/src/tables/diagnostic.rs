@@ -2,6 +2,17 @@
  This module contains data structures returned by diagnostic queries on iMessage database tables.
 */
 
+use rusqlite::Connection;
+
+use crate::error::table::TableError;
+
+pub(crate) fn count_query(db: &Connection, sql: &str) -> Result<usize, TableError> {
+    let count = db.prepare(sql)?.query_row([], |row| row.get::<_, i64>(0))?;
+
+    usize::try_from(count)
+        .map_err(|_| TableError::QueryError(rusqlite::Error::IntegralValueOutOfRange(0, count)))
+}
+
 /// Diagnostic data for the `handle` table
 #[derive(Debug)]
 pub struct HandleDiagnostic {
