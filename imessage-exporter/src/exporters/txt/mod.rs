@@ -2610,6 +2610,28 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_txt_app_store_no_url_with_original_url() {
+        // Create exporter
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = AppStoreMessage {
+            url: None,
+            app_name: Some("app_name"),
+            original_url: Some("original_url"),
+            description: Some("description"),
+            platform: Some("platform"),
+            genre: Some("genre"),
+        };
+
+        let actual = exporter.format_app_store(&balloon);
+        let expected = "app_name\ndescription\nplatform\ngenre\noriginal_url";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_txt_placemark() {
         // Create exporter
         let options = Options::fake_options(Txt);

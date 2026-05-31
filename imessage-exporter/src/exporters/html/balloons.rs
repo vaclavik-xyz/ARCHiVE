@@ -61,7 +61,7 @@ impl BalloonFormatter for HTML<'_> {
     fn format_app_store(&self, balloon: &AppStoreMessage) -> String {
         render_template(&AppStoreVM {
             app_name: balloon.app_name.into(),
-            url: balloon.url.into(),
+            url: balloon.get_url().into(),
             description: balloon.description.into(),
             platform: balloon.platform.into(),
             genre: balloon.genre.into(),

@@ -75,7 +75,7 @@ impl BalloonFormatter for TXT<'_> {
             description: balloon.description.into(),
             platform: balloon.platform.into(),
             genre: balloon.genre.into(),
-            url: balloon.url.into(),
+            url: balloon.get_url().into(),
         })
     }
 
