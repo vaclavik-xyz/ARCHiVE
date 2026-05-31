@@ -7,7 +7,9 @@ use plist::Value;
 use crate::{
     error::plist::PlistParseError,
     message_types::variants::BalloonProvider,
-    util::plist::{get_string_from_dict, get_string_from_nested_dict},
+    util::plist::{
+        get_string_from_dict, get_string_from_nested_dict, rich_link_metadata_and_nested,
+    },
 };
 
 /// Representation of Apple's [`CLPlacemark`](https://developer.apple.com/documentation/corelocation/clplacemark) object
@@ -83,7 +85,7 @@ pub struct PlacemarkMessage<'a> {
 
 impl<'a> BalloonProvider<'a> for PlacemarkMessage<'a> {
     fn from_map(payload: &'a Value) -> Result<Self, PlistParseError> {
-        if let Ok((placemark, body)) = PlacemarkMessage::get_body_and_url(payload) {
+        if let Ok((placemark, body)) = rich_link_metadata_and_nested(payload, "specialization2") {
             // Ensure the message is a placemark
             if get_string_from_dict(placemark, "address").is_none() {
                 return Err(PlistParseError::WrongMessageType);
@@ -101,29 +103,6 @@ impl<'a> BalloonProvider<'a> for PlacemarkMessage<'a> {
 }
 
 impl<'a> PlacemarkMessage<'a> {
-    /// Extract the main dictionary of data from the body of the payload
-    ///
-    /// Placemark messages store the URL under `richLinkMetadata` like a normal URL, but has some
-    /// extra data stored under `specialization2` that contains the placemark's metadata.
-    fn get_body_and_url(payload: &'a Value) -> Result<(&'a Value, &'a Value), PlistParseError> {
-        let base = payload
-            .as_dictionary()
-            .ok_or_else(|| {
-                PlistParseError::InvalidType("root".to_string(), "dictionary".to_string())
-            })?
-            .get("richLinkMetadata")
-            .ok_or_else(|| PlistParseError::MissingKey("richLinkMetadata".to_string()))?;
-        Ok((
-            base.as_dictionary()
-                .ok_or_else(|| {
-                    PlistParseError::InvalidType("root".to_string(), "dictionary".to_string())
-                })?
-                .get("specialization2")
-                .ok_or_else(|| PlistParseError::MissingKey("specialization2".to_string()))?,
-            base,
-        ))
-    }
-
     /// Get the redirected URL from a URL message, falling back to the original URL, if it exists
     #[must_use]
     pub fn get_url(&self) -> Option<&str> {
@@ -138,7 +117,7 @@ mod tests {
             placemark::{Placemark, PlacemarkMessage},
             variants::BalloonProvider,
         },
-        util::plist::parse_ns_keyed_archiver,
+        util::plist::{parse_ns_keyed_archiver, rich_link_metadata_and_nested},
     };
     use plist::Value;
     use std::env::current_dir;
@@ -190,7 +169,8 @@ mod tests {
         let plist = Value::from_reader(plist_data).unwrap();
         let parsed = parse_ns_keyed_archiver(&plist).unwrap();
 
-        let (placemark_data, _) = PlacemarkMessage::get_body_and_url(&parsed).unwrap();
+        let (placemark_data, _) =
+            rich_link_metadata_and_nested(&parsed, "specialization2").unwrap();
 
         let placemark = Placemark::new(placemark_data).unwrap();
         let expected = Placemark {

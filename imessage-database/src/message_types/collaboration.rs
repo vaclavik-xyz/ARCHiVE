@@ -7,7 +7,10 @@ use plist::Value;
 use crate::{
     error::plist::PlistParseError,
     message_types::variants::BalloonProvider,
-    util::plist::{get_float_from_nested_dict, get_string_from_dict, get_string_from_nested_dict},
+    util::plist::{
+        get_float_from_nested_dict, get_string_from_dict, get_string_from_nested_dict,
+        rich_link_metadata_and_nested,
+    },
 };
 
 /// This struct is not documented by Apple, but represents messages displayed as
@@ -30,7 +33,7 @@ pub struct CollaborationMessage<'a> {
 
 impl<'a> BalloonProvider<'a> for CollaborationMessage<'a> {
     fn from_map(payload: &'a Value) -> Result<Self, PlistParseError> {
-        if let Ok((meta, base)) = CollaborationMessage::get_meta_and_specialization(payload) {
+        if let Ok((meta, base)) = rich_link_metadata_and_nested(payload, "collaborationMetadata") {
             return Ok(Self {
                 original_url: get_string_from_nested_dict(base, "originalURL"),
                 url: get_string_from_dict(meta, "collaborationIdentifier"),
@@ -45,31 +48,6 @@ impl<'a> BalloonProvider<'a> for CollaborationMessage<'a> {
 }
 
 impl<'a> CollaborationMessage<'a> {
-    /// Extract the main dictionary of data from the body of the payload
-    ///
-    /// Collaboration messages store the URL under `richLinkMetadata` like a normal URL, but has some
-    /// extra data stored under `collaborationMetadata` that contains the collaboration information.
-    fn get_meta_and_specialization(
-        payload: &'a Value,
-    ) -> Result<(&'a Value, &'a Value), PlistParseError> {
-        let base = payload
-            .as_dictionary()
-            .ok_or_else(|| {
-                PlistParseError::InvalidType("root".to_string(), "dictionary".to_string())
-            })?
-            .get("richLinkMetadata")
-            .ok_or_else(|| PlistParseError::MissingKey("richLinkMetadata".to_string()))?;
-        Ok((
-            base.as_dictionary()
-                .ok_or_else(|| {
-                    PlistParseError::InvalidType("root".to_string(), "dictionary".to_string())
-                })?
-                .get("collaborationMetadata")
-                .ok_or_else(|| PlistParseError::MissingKey("collaborationMetadata".to_string()))?,
-            base,
-        ))
-    }
-
     /// Extract the Bundle ID from the `containerSetupInfo` dict
     fn get_bundle_id(payload: &'a Value) -> Option<&'a str> {
         payload

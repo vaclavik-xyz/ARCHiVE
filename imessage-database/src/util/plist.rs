@@ -200,6 +200,28 @@ pub fn plist_as_dictionary(plist: &Value) -> Result<&Dictionary, PlistParseError
         .ok_or_else(|| PlistParseError::InvalidType("body".to_string(), "dictionary".to_string()))
 }
 
+/// Extract the shared `richLinkMetadata` payload and one nested metadata value.
+pub fn rich_link_metadata_and_nested<'a>(
+    payload: &'a Value,
+    nested_key: &str,
+) -> Result<(&'a Value, &'a Value), PlistParseError> {
+    let base = payload
+        .as_dictionary()
+        .ok_or_else(|| PlistParseError::InvalidType("root".to_string(), "dictionary".to_string()))?
+        .get("richLinkMetadata")
+        .ok_or_else(|| PlistParseError::MissingKey("richLinkMetadata".to_string()))?;
+
+    Ok((
+        base.as_dictionary()
+            .ok_or_else(|| {
+                PlistParseError::InvalidType("root".to_string(), "dictionary".to_string())
+            })?
+            .get(nested_key)
+            .ok_or_else(|| PlistParseError::MissingKey(nested_key.to_string()))?,
+        base,
+    ))
+}
+
 /// Extract a dictionary from a specific key in a collection
 pub fn extract_dictionary<'a>(
     body: &'a Dictionary,
