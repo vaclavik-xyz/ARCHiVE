@@ -181,3 +181,19 @@ pub trait BalloonProvider<'a> {
     where
         Self: Sized;
 }
+
+/// Defines shared URL fallback behavior for message types that store both
+/// redirected and original URLs.
+pub trait HasUrl {
+    /// The URL that ended up serving content, after redirects.
+    fn url(&self) -> Option<&str>;
+
+    /// The original URL before redirects.
+    fn original_url(&self) -> Option<&str>;
+
+    /// Get the redirected URL, falling back to the original URL, if it exists.
+    #[must_use]
+    fn get_url(&self) -> Option<&str> {
+        self.url().or(self.original_url())
+    }
+}

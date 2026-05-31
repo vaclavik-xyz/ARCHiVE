@@ -2,13 +2,66 @@
  This module contains data structures returned by diagnostic queries on iMessage database tables.
 */
 
+use rusqlite::Connection;
+
+use crate::error::table::TableError;
+
+pub(crate) fn count_query(db: &Connection, sql: &str) -> Result<usize, TableError> {
+    let count = db.prepare(sql)?.query_row([], |row| row.get::<_, i64>(0))?;
+
+    usize::try_from(count)
+        .map_err(|_| TableError::QueryError(rusqlite::Error::IntegralValueOutOfRange(0, count)))
+}
+
+pub(crate) fn table_exists(db: &Connection, table_name: &str) -> Result<bool, TableError> {
+    let exists = db.query_row(
+        "
+        SELECT EXISTS(
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name = ?1
+        )
+        ",
+        [table_name],
+        |row| row.get::<_, i64>(0),
+    )?;
+
+    Ok(exists != 0)
+}
+
+pub(crate) fn column_exists(
+    db: &Connection,
+    table_name: &str,
+    column_name: &str,
+) -> Result<bool, TableError> {
+    let mut statement = db.prepare(&format!(
+        "PRAGMA table_info({})",
+        quote_sqlite_identifier(table_name)
+    ))?;
+    let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+
+    for column in columns {
+        if column? == column_name {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn quote_sqlite_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
 /// Diagnostic data for the `handle` table
 #[derive(Debug)]
 pub struct HandleDiagnostic {
     /// The total number of handles in the table
     pub total_handles: usize,
-    /// The number of distinct `person_centric_id` values in the handle table
-    pub handles_with_multiple_ids: usize,
+    /// The number of distinct `person_centric_id` values in the handle table, or `None` if the
+    /// column is unavailable on this database schema
+    pub handles_with_multiple_ids: Option<usize>,
     /// The number of handles that were deduplicated into canonical handles
     pub total_duplicated: usize,
 }
@@ -22,8 +75,9 @@ pub struct MessageDiagnostic {
     pub messages_without_chat: usize,
     /// The number of messages that belong to more than one chat
     pub messages_in_multiple_chats: usize,
-    /// The number of recently deleted messages that are still recoverable
-    pub recoverable_messages: usize,
+    /// The number of recently deleted messages that are still recoverable, or `None` if the
+    /// recoverable messages table is unavailable on this database schema
+    pub recoverable_messages: Option<usize>,
     /// The raw `date` value of the earliest message, or `None` if the table is empty
     pub first_message_date: Option<i64>,
     /// The raw `date` value of the most recent message, or `None` if the table is empty
@@ -72,4 +126,44 @@ pub struct ChatHandleDiagnostic {
     pub total_duplicated: usize,
     /// The number of chats that have messages but no associated handles
     pub chats_with_no_handles: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::Connection;
+
+    use super::{column_exists, table_exists};
+
+    #[test]
+    fn table_exists_detects_existing_and_missing_tables() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute("CREATE TABLE test_table (id INTEGER)", [])
+            .unwrap();
+
+        assert!(table_exists(&db, "test_table").unwrap());
+        assert!(!table_exists(&db, "missing_table").unwrap());
+    }
+
+    #[test]
+    fn column_exists_detects_existing_and_missing_columns() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute("CREATE TABLE test_table (id INTEGER, name TEXT)", [])
+            .unwrap();
+
+        assert!(column_exists(&db, "test_table", "name").unwrap());
+        assert!(!column_exists(&db, "test_table", "missing_column").unwrap());
+        assert!(!column_exists(&db, "missing_table", "name").unwrap());
+    }
+
+    #[test]
+    fn column_exists_quotes_table_identifiers() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute(
+            "CREATE TABLE \"quoted\"\"table\" (\"weird column\" TEXT)",
+            [],
+        )
+        .unwrap();
+
+        assert!(column_exists(&db, "quoted\"table", "weird column").unwrap());
+    }
 }

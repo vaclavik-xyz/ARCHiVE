@@ -340,17 +340,26 @@ impl Config {
         }
     }
 
+    /// Get the total size of the connected database file
+    fn total_db_size(&self) -> Result<u64, RuntimeError> {
+        let db_path = self
+            .data_source
+            .db()
+            .path()
+            .ok_or_else(|| RuntimeError::FileNameError {
+                path: self.options.db_path.clone(),
+                reason: "database connection has no associated path",
+            })?;
+
+        get_db_size(Path::new(db_path)).map_err(RuntimeError::from)
+    }
+
     /// Ensure there is available disk space for the requested export
     fn ensure_free_space(&self) -> Result<(), RuntimeError> {
         // Export size is usually about 6% the size of the db;
         // we divide by 10 to over-estimate about 10% of the total size
         // for some safe headroom
-        let total_db_size = get_db_size(Path::new(self.data_source.db().path().ok_or_else(
-            || RuntimeError::FileNameError {
-                path: self.options.db_path.clone(),
-                reason: "database connection has no associated path",
-            },
-        )?))?;
+        let total_db_size = self.total_db_size()?;
         let mut estimated_export_size = total_db_size / 10;
 
         let free_space_at_location = available_space(&self.options.export_path)?;
@@ -394,10 +403,12 @@ impl Config {
         let handle_diag = Handle::run_diagnostic(self.data_source.db())?;
         println!("Handle diagnostic data:");
         println!("    Total handles: {}", handle_diag.total_handles);
-        if handle_diag.handles_with_multiple_ids > 0 {
+        if let Some(handles_with_multiple_ids) = handle_diag.handles_with_multiple_ids
+            && handles_with_multiple_ids > 0
+        {
             println!(
                 "    Handles with more than one ID: {}",
-                handle_diag.handles_with_multiple_ids
+                handles_with_multiple_ids
             );
         }
         if handle_diag.total_duplicated > 0 {
@@ -423,11 +434,10 @@ impl Config {
                 message_diag.messages_in_multiple_chats
             );
         }
-        if message_diag.recoverable_messages > 0 {
-            println!(
-                "    Recoverable deleted messages: {}",
-                message_diag.recoverable_messages
-            );
+        if let Some(recoverable_messages) = message_diag.recoverable_messages
+            && recoverable_messages > 0
+        {
+            println!("    Recoverable deleted messages: {}", recoverable_messages);
         }
         if let (Some(first), Some(last)) = (
             message_diag.first_message_date,
@@ -490,12 +500,7 @@ impl Config {
         // Global Diagnostics
         println!("Global diagnostic data:");
 
-        let total_db_size = get_db_size(Path::new(self.data_source.db().path().ok_or_else(
-            || RuntimeError::FileNameError {
-                path: self.options.db_path.clone(),
-                reason: "database connection has no associated path",
-            },
-        )?))?;
+        let total_db_size = self.total_db_size()?;
         println!(
             "    Total database size: {}",
             format_file_size(total_db_size)

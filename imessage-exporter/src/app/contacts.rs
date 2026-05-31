@@ -136,7 +136,7 @@ impl ContactsIndex {
         let mut idx: HashMap<String, Name> = HashMap::new();
 
         for db_path in find_macos_addressbook_db_paths() {
-            if let Ok(local_conn) = Connection::open(&db_path) {
+            if let Ok(local_conn) = get_connection(&db_path) {
                 let sub = Self::build_from_macos(&local_conn)?;
 
                 for (k, v) in sub.index {

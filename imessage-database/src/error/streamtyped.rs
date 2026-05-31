@@ -13,8 +13,6 @@ pub enum StreamTypedError {
     NoEndPattern,
     /// Error when the prefix length does not match the standard
     InvalidPrefix,
-    /// Error when the timestamp cannot be parsed as a valid integer
-    InvalidTimestamp,
 }
 
 impl std::error::Error for StreamTypedError {}
@@ -25,7 +23,6 @@ impl Display for StreamTypedError {
             StreamTypedError::NoStartPattern => write!(fmt, "No start pattern found!"),
             StreamTypedError::NoEndPattern => write!(fmt, "No end pattern found!"),
             StreamTypedError::InvalidPrefix => write!(fmt, "Prefix length is not standard!"),
-            StreamTypedError::InvalidTimestamp => write!(fmt, "Timestamp integer is not valid!"),
         }
     }
 }

@@ -163,6 +163,9 @@ fn draw_point(canvas: &mut [Vec<char>], x: i64, y: i64) {
 /// Generates svg lines from an array of strokes.
 fn generate_strokes(svg: &mut String, strokes: &[Vec<Point>]) {
     for stroke in strokes {
+        if stroke.is_empty() {
+            continue;
+        }
         let mut segments = String::with_capacity(80 * (stroke.len() - 1));
         for (width, points) in &group_points(stroke) {
             let mut points_svg = String::with_capacity(points.len() * 3);
@@ -186,6 +189,9 @@ fn generate_strokes(svg: &mut String, strokes: &[Vec<Point>]) {
 /// Group points along a stroke together by width
 fn group_points(stroke: &[Point]) -> Vec<(u16, Vec<&Point>)> {
     let mut groups = vec![];
+    if stroke.is_empty() {
+        return groups;
+    }
     let mut curr = stroke[0].width;
     let mut segment = vec![];
 
@@ -249,7 +255,7 @@ fn get_max_dimension(strokes: &[Vec<Point>]) -> (u16, u16, u16) {
             (
                 max_x.max(point.x),
                 max_y.max(point.y),
-                max_width.max(point.width - 1),
+                max_width.max(point.width.saturating_sub(1)),
             )
         },
     )
@@ -269,6 +275,9 @@ fn parse_strokes(msg: &BaseMessage) -> Result<Vec<Vec<Point>>, HandwritingError>
 
         let num_points = u16::from_le_bytes([data[idx], data[idx + 1]]) as usize;
         idx += 2;
+        if num_points == 0 {
+            return Err(HandwritingError::EmptyStroke);
+        }
         if idx + (num_points * 8) > length {
             return Err(HandwritingError::InvalidStrokesLength(
                 idx + (num_points * 8),
@@ -348,6 +357,13 @@ fn parse_coordinates(b1: u8, b2: u8) -> u16 {
 #[cfg(test)]
 mod tests {
     use crate::message_types::handwriting::models::{HandwrittenMessage, Point};
+
+    use super::{generate_strokes, get_max_dimension, group_points, parse_strokes};
+    use crate::error::handwriting::HandwritingError;
+    use crate::message_types::handwriting::handwriting_proto::{
+        BaseMessage, Compression, Handwriting,
+    };
+    use protobuf::{EnumOrUnknown, MessageField};
 
     use std::env::current_dir;
     use std::fs::File;
@@ -11232,5 +11248,86 @@ mod tests {
         expected_data.read_to_string(&mut expected).unwrap();
 
         assert_eq!(balloon.render_svg(), expected);
+    }
+
+    #[test]
+    fn parse_strokes_rejects_empty_stroke() {
+        let mut handwriting = Handwriting::new();
+        handwriting.Compression = EnumOrUnknown::new(Compression::None);
+        handwriting.Strokes = vec![0x00, 0x00];
+
+        let mut msg = BaseMessage::new();
+        msg.Handwriting = MessageField::some(handwriting);
+
+        assert!(matches!(
+            parse_strokes(&msg),
+            Err(HandwritingError::EmptyStroke)
+        ));
+    }
+
+    #[test]
+    fn group_points_handles_empty_stroke() {
+        assert!(group_points(&[]).is_empty());
+    }
+
+    #[test]
+    fn generate_strokes_skips_empty_stroke() {
+        let mut svg = String::new();
+        generate_strokes(&mut svg, &[vec![]]);
+        assert!(svg.is_empty());
+    }
+
+    #[test]
+    fn render_svg_skips_empty_strokes() {
+        let message = HandwrittenMessage {
+            id: "test".to_string(),
+            created_at: 0,
+            height: 10,
+            width: 10,
+            strokes: vec![
+                vec![],
+                vec![
+                    Point {
+                        x: 1,
+                        y: 1,
+                        width: 2,
+                    },
+                    Point {
+                        x: 5,
+                        y: 5,
+                        width: 2,
+                    },
+                ],
+                vec![],
+            ],
+        };
+
+        // Only the single non-empty stroke renders; the empty ones are skipped.
+        assert_eq!(message.render_svg().matches("<polyline").count(), 1);
+    }
+
+    #[test]
+    fn get_max_dimension_handles_zero_width_point() {
+        let strokes = vec![vec![
+            Point {
+                x: 5,
+                y: 7,
+                width: 0,
+            },
+            Point {
+                x: 1,
+                y: 1,
+                width: 3,
+            },
+        ]];
+        assert_eq!(get_max_dimension(&strokes), (5, 7, 2));
+
+        // A lone width-0 point yields `max_width` 0 rather than wrapping to u16::MAX.
+        let zero = vec![vec![Point {
+            x: 2,
+            y: 4,
+            width: 0,
+        }]];
+        assert_eq!(get_max_dimension(&zero), (2, 4, 0));
     }
 }

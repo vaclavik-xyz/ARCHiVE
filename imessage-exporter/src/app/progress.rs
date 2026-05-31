@@ -14,12 +14,11 @@ const BAR_FILL: char = '#';
 const BAR_ARROW: char = '>';
 const BAR_EMPTY: char = ' ';
 
-const HUMAN_COUNT_THRESHOLDS: [(u64, &str); 5] = [
+const HUMAN_COUNT_THRESHOLDS: [(u64, &str); 4] = [
     (1_000_000_000_000, "T"), // trillion
     (1_000_000_000, "B"),     // billion
     (1_000_000, "M"),         // million
     (1_000, "k"),             // thousand
-    (0, ""),                  // no suffix
 ];
 
 /// Format a number with comma separators

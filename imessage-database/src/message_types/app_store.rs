@@ -6,8 +6,10 @@ use plist::Value;
 
 use crate::{
     error::plist::PlistParseError,
-    message_types::variants::BalloonProvider,
-    util::plist::{get_string_from_dict, get_string_from_nested_dict},
+    message_types::variants::{BalloonProvider, HasUrl},
+    util::plist::{
+        get_string_from_dict, get_string_from_nested_dict, rich_link_metadata_and_nested,
+    },
 };
 
 /// This struct is not documented by Apple, but represents messages displayed as
@@ -30,7 +32,7 @@ pub struct AppStoreMessage<'a> {
 
 impl<'a> BalloonProvider<'a> for AppStoreMessage<'a> {
     fn from_map(payload: &'a Value) -> Result<Self, PlistParseError> {
-        if let Ok((app_metadata, body)) = AppStoreMessage::get_body_and_url(payload) {
+        if let Ok((body, app_metadata)) = rich_link_metadata_and_nested(payload, "specialization") {
             // Ensure the message is not a Music message
             if get_string_from_dict(app_metadata, "album").is_some() {
                 return Err(PlistParseError::WrongMessageType);
@@ -49,28 +51,21 @@ impl<'a> BalloonProvider<'a> for AppStoreMessage<'a> {
     }
 }
 
-impl<'a> AppStoreMessage<'a> {
-    /// Extract the main dictionary of data from the body of the payload
-    ///
-    /// App Store messages store the URL under `richLinkMetadata` like a normal URL, but has some
-    /// extra data stored under `specialization` that contains the linked App's metadata.
-    fn get_body_and_url(payload: &'a Value) -> Result<(&'a Value, &'a Value), PlistParseError> {
-        let base = payload
-            .as_dictionary()
-            .ok_or_else(|| {
-                PlistParseError::InvalidType("root".to_string(), "dictionary".to_string())
-            })?
-            .get("richLinkMetadata")
-            .ok_or_else(|| PlistParseError::MissingKey("richLinkMetadata".to_string()))?;
-        Ok((
-            base.as_dictionary()
-                .ok_or_else(|| {
-                    PlistParseError::InvalidType("root".to_string(), "dictionary".to_string())
-                })?
-                .get("specialization")
-                .ok_or_else(|| PlistParseError::MissingKey("specialization".to_string()))?,
-            base,
-        ))
+impl AppStoreMessage<'_> {
+    /// Resolve this message's URL via [`HasUrl::get_url`].
+    #[must_use]
+    pub fn get_url(&self) -> Option<&str> {
+        <Self as HasUrl>::get_url(self)
+    }
+}
+
+impl HasUrl for AppStoreMessage<'_> {
+    fn url(&self) -> Option<&str> {
+        self.url
+    }
+
+    fn original_url(&self) -> Option<&str> {
+        self.original_url
     }
 }
 
@@ -105,5 +100,50 @@ mod tests {
         };
 
         assert_eq!(balloon, expected);
+    }
+
+    #[test]
+    fn test_get_url() {
+        let balloon = AppStoreMessage {
+            url: Some("https://apps.apple.com/app/id1560298214"),
+            original_url: Some("https://apps.apple.com/original"),
+            app_name: None,
+            description: None,
+            platform: None,
+            genre: None,
+        };
+
+        assert_eq!(
+            balloon.get_url(),
+            Some("https://apps.apple.com/app/id1560298214")
+        );
+    }
+
+    #[test]
+    fn test_get_original_url() {
+        let balloon = AppStoreMessage {
+            url: None,
+            original_url: Some("https://apps.apple.com/original"),
+            app_name: None,
+            description: None,
+            platform: None,
+            genre: None,
+        };
+
+        assert_eq!(balloon.get_url(), Some("https://apps.apple.com/original"));
+    }
+
+    #[test]
+    fn test_get_no_url() {
+        let balloon = AppStoreMessage {
+            url: None,
+            original_url: None,
+            app_name: None,
+            description: None,
+            platform: None,
+            genre: None,
+        };
+
+        assert_eq!(balloon.get_url(), None);
     }
 }

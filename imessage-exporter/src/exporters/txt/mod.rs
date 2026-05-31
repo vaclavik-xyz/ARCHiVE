@@ -44,6 +44,8 @@ use view_model::{
 /// parent message's body. Top-level messages render at zero indent.
 const REPLY_INDENT: &str = "    ";
 
+const ATTACHMENT_MISSING_TEXT: &str = "Attachment missing!";
+
 pub struct TXT<'a> {
     /// Data that is setup from the application's runtime
     pub config: &'a Config,
@@ -281,10 +283,10 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                     }
                     Some(attachment) => match self.format_attachment(attachment, message, meta) {
                         AttachmentRender::Embedded(content) => content,
-                        AttachmentRender::MissingFilename => "Attachment missing!".to_string(),
+                        AttachmentRender::MissingFilename => ATTACHMENT_MISSING_TEXT.to_string(),
                         AttachmentRender::NamedFile(name) => name,
                     },
-                    None => "Attachment missing!".to_string(),
+                    None => ATTACHMENT_MISSING_TEXT.to_string(),
                 };
                 lines.push(line);
             } else {
@@ -400,7 +402,7 @@ impl PartBodyBuilder for TXT<'_> {
 
     fn body_attachment_missing(&self) -> Self::Body {
         PartBody::Line {
-            text: "Attachment missing!".to_string(),
+            text: ATTACHMENT_MISSING_TEXT.to_string(),
         }
     }
 
@@ -2603,6 +2605,28 @@ mod balloon_format_tests {
 
         let actual = exporter.format_app_store(&balloon);
         let expected = "app_name\ndescription\nplatform\ngenre\nurl";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_app_store_no_url_with_original_url() {
+        // Create exporter
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = AppStoreMessage {
+            url: None,
+            app_name: Some("app_name"),
+            original_url: Some("original_url"),
+            description: Some("description"),
+            platform: Some("platform"),
+            genre: Some("genre"),
+        };
+
+        let actual = exporter.format_app_store(&balloon);
+        let expected = "app_name\ndescription\nplatform\ngenre\noriginal_url";
 
         assert_eq!(actual, expected);
     }

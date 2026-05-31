@@ -7,7 +7,10 @@ use plist::Value;
 use crate::{
     error::plist::PlistParseError,
     message_types::variants::BalloonProvider,
-    util::plist::{get_string_from_dict, get_string_from_nested_dict, get_value_from_dict},
+    util::plist::{
+        get_string_from_dict, get_string_from_nested_dict, get_value_from_dict,
+        rich_link_metadata_and_nested,
+    },
 };
 
 /// This struct is not documented by Apple, but represents messages displayed as
@@ -30,7 +33,8 @@ pub struct MusicMessage<'a> {
 
 impl<'a> BalloonProvider<'a> for MusicMessage<'a> {
     fn from_map(payload: &'a Value) -> Result<Self, PlistParseError> {
-        if let Ok((music_metadata, body)) = MusicMessage::get_body_and_url(payload) {
+        if let Ok((body, music_metadata)) = rich_link_metadata_and_nested(payload, "specialization")
+        {
             // Ensure the message is a Music message
             if get_string_from_dict(music_metadata, "album").is_none() {
                 return Err(PlistParseError::WrongMessageType);
@@ -48,31 +52,6 @@ impl<'a> BalloonProvider<'a> for MusicMessage<'a> {
             });
         }
         Err(PlistParseError::NoPayload)
-    }
-}
-
-impl<'a> MusicMessage<'a> {
-    /// Extract the main dictionary of data from the body of the payload
-    ///
-    /// Apple Music stores the URL under `richLinkMetadata` like a normal URL, but has some
-    /// extra data stored under `specialization` that contains the track information.
-    fn get_body_and_url(payload: &'a Value) -> Result<(&'a Value, &'a Value), PlistParseError> {
-        let base = payload
-            .as_dictionary()
-            .ok_or_else(|| {
-                PlistParseError::InvalidType("root".to_string(), "dictionary".to_string())
-            })?
-            .get("richLinkMetadata")
-            .ok_or_else(|| PlistParseError::MissingKey("richLinkMetadata".to_string()))?;
-        Ok((
-            base.as_dictionary()
-                .ok_or_else(|| {
-                    PlistParseError::InvalidType("root".to_string(), "dictionary".to_string())
-                })?
-                .get("specialization")
-                .ok_or_else(|| PlistParseError::MissingKey("specialization".to_string()))?,
-            base,
-        ))
     }
 }
 

@@ -145,7 +145,7 @@ use crate::{
         variants::{Announcement, BalloonProvider, CustomBalloon, Tapback, TapbackAction, Variant},
     },
     tables::{
-        diagnostic::MessageDiagnostic,
+        diagnostic::{MessageDiagnostic, count_query, table_exists},
         messages::{
             body::{parse_body_legacy, parse_body_typedstream},
             models::{BubbleComponent, GroupAction, Service, SharedLocation},
@@ -298,8 +298,10 @@ impl Message {
     /// Message::run_diagnostic(&conn);
     /// ```
     pub fn run_diagnostic(db: &Connection) -> Result<MessageDiagnostic, TableError> {
-        let mut messages_without_chat = db.prepare(&format!(
-            "
+        let messages_without_chat = count_query(
+            db,
+            &format!(
+                "
             SELECT
                 COUNT(m.rowid)
             FROM
@@ -310,16 +312,13 @@ impl Message {
             ORDER BY
                 m.date
             "
-        ))?;
+            ),
+        )?;
 
-        let messages_without_chat = messages_without_chat
-            .query_row([], |r| r.get::<_, i64>(0))
-            .ok()
-            .and_then(|count| usize::try_from(count).ok())
-            .unwrap_or(0);
-
-        let mut messages_in_more_than_one_chat_q = db.prepare(&format!(
-            "
+        let messages_in_multiple_chats = count_query(
+            db,
+            &format!(
+                "
             SELECT
                 COUNT(*)
             FROM (
@@ -331,36 +330,30 @@ impl Message {
                 message_id
             HAVING c > 1);
             "
-        ))?;
+            ),
+        )?;
 
-        let messages_in_multiple_chats = messages_in_more_than_one_chat_q
-            .query_row([], |r| r.get::<_, i64>(0))
-            .ok()
-            .and_then(|count| usize::try_from(count).ok())
-            .unwrap_or(0);
-
-        let mut messages_count = db.prepare(&format!(
-            "
+        let total_messages = count_query(
+            db,
+            &format!(
+                "
             SELECT
                 COUNT(rowid)
             FROM
                 {MESSAGE}
             "
-        ))?;
-
-        let total_messages = messages_count
-            .query_row([], |r| r.get::<_, i64>(0))
-            .ok()
-            .and_then(|count| usize::try_from(count).ok())
-            .unwrap_or(0);
+            ),
+        )?;
 
         // Count recoverable (recently deleted) messages
-        let recoverable_messages = db
-            .prepare(&format!("SELECT COUNT(*) FROM {RECENTLY_DELETED}"))
-            .and_then(|mut s| s.query_row([], |r| r.get::<_, i64>(0)))
-            .ok()
-            .and_then(|count| usize::try_from(count).ok())
-            .unwrap_or(0);
+        let recoverable_messages = if table_exists(db, RECENTLY_DELETED)? {
+            Some(count_query(
+                db,
+                &format!("SELECT COUNT(*) FROM {RECENTLY_DELETED}"),
+            )?)
+        } else {
+            None
+        };
 
         // Get the date range of messages in the database
         let mut date_range = db.prepare(&format!("SELECT MIN(date), MAX(date) FROM {MESSAGE}"))?;
@@ -1515,5 +1508,62 @@ impl Message {
             components: vec![],
             edited_parts: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use rusqlite::Connection;
+
+    use crate::tables::messages::Message;
+
+    fn diagnostic_db() -> Connection {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "
+            CREATE TABLE message (
+                ROWID INTEGER PRIMARY KEY,
+                date INTEGER
+            );
+            CREATE TABLE chat_message_join (
+                chat_id INTEGER,
+                message_id INTEGER
+            );
+            INSERT INTO message (ROWID, date) VALUES (1, 10), (2, 20);
+            INSERT INTO chat_message_join (chat_id, message_id) VALUES (1, 1);
+            ",
+        )
+        .unwrap();
+        db
+    }
+
+    #[test]
+    fn diagnostic_omits_recoverable_count_when_table_is_missing() {
+        let db = diagnostic_db();
+
+        let diagnostic = Message::run_diagnostic(&db).unwrap();
+
+        assert_eq!(diagnostic.total_messages, 2);
+        assert_eq!(diagnostic.messages_without_chat, 1);
+        assert_eq!(diagnostic.recoverable_messages, None);
+    }
+
+    #[test]
+    fn diagnostic_counts_recoverable_messages_when_table_exists() {
+        let db = diagnostic_db();
+        db.execute_batch(
+            "
+            CREATE TABLE chat_recoverable_message_join (
+                chat_id INTEGER,
+                message_id INTEGER
+            );
+            INSERT INTO chat_recoverable_message_join (chat_id, message_id) VALUES (1, 2);
+            ",
+        )
+        .unwrap();
+
+        let diagnostic = Message::run_diagnostic(&db).unwrap();
+
+        assert_eq!(diagnostic.recoverable_messages, Some(1));
     }
 }

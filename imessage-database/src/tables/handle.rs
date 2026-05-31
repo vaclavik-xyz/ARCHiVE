@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use crate::{
     error::table::TableError,
     tables::{
-        diagnostic::HandleDiagnostic,
+        diagnostic::{HandleDiagnostic, column_exists, count_query},
         table::{Cacheable, HANDLE, ME, Table},
     },
 };
@@ -159,13 +159,10 @@ impl Handle {
             "WHERE person_centric_id NOT NULL"
         );
 
-        let handles_with_multiple_ids = if let Ok(mut rows) = db.prepare(query) {
-            rows.query_row([], |r| r.get::<_, i64>(0))
-                .ok()
-                .and_then(|count| usize::try_from(count).ok())
-                .unwrap_or(0)
+        let handles_with_multiple_ids = if column_exists(db, HANDLE, "person_centric_id")? {
+            Some(count_query(db, query)?)
         } else {
-            0
+            None
         };
 
         // Cache all handles
@@ -252,6 +249,7 @@ impl Handle {
 #[cfg(test)]
 mod tests {
     use crate::tables::handle::Handle;
+    use rusqlite::Connection;
     use std::collections::{HashMap, HashSet};
 
     #[test]
@@ -313,5 +311,51 @@ mod tests {
         assert_eq!(output_1, output_2);
         assert_eq!(output_1, output_3);
         assert_eq!(output_2, output_3);
+    }
+
+    #[test]
+    fn diagnostic_omits_person_centric_count_when_column_is_missing() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute(
+            "CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT NOT NULL)",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO handle (ROWID, id) VALUES (1, 'first'), (2, 'second')",
+            [],
+        )
+        .unwrap();
+
+        let diagnostic = Handle::run_diagnostic(&db).unwrap();
+
+        assert_eq!(diagnostic.total_handles, 3);
+        assert_eq!(diagnostic.handles_with_multiple_ids, None);
+    }
+
+    #[test]
+    fn diagnostic_counts_person_centric_ids_when_column_exists() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute(
+            "CREATE TABLE handle (
+                ROWID INTEGER PRIMARY KEY,
+                id TEXT NOT NULL,
+                person_centric_id TEXT
+            )",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO handle (ROWID, id, person_centric_id)
+             VALUES (1, 'first', 'person-1'),
+                    (2, 'second', 'person-1'),
+                    (3, 'third', 'person-2')",
+            [],
+        )
+        .unwrap();
+
+        let diagnostic = Handle::run_diagnostic(&db).unwrap();
+
+        assert_eq!(diagnostic.handles_with_multiple_ids, Some(2));
     }
 }
