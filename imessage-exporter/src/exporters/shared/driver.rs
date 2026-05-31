@@ -150,6 +150,13 @@ where
     }
 }
 
+fn advance_progress(pb: &ExportProgress, current_message: &mut u64) {
+    *current_message += 1;
+    if current_message.is_multiple_of(99) {
+        pb.set_position(*current_message);
+    }
+}
+
 /// Stream every message in the database, dispatching announcements and
 /// regular messages to `writer.format_announcement` /
 /// `writer.format_message_into`. Tapbacks, poll votes and poll updates are
@@ -199,7 +206,7 @@ where
         // Early escape if we try and render the same message GUID twice
         // See https://github.com/ReagentX/imessage-exporter/issues/135
         if msg.rowid == current_message_row {
-            current_message += 1;
+            advance_progress(&writer.state().pb, &mut current_message);
             continue;
         }
         current_message_row = msg.rowid;
@@ -207,7 +214,7 @@ where
         // Tapbacks, poll votes, and poll updates are rendered in context by
         // their parent messages, never at the top level, so we can skip them here
         if !msg.is_edited() && (msg.is_tapback() || msg.is_poll_vote() || msg.is_poll_update()) {
-            current_message += 1;
+            advance_progress(&writer.state().pb, &mut current_message);
             continue;
         }
 
@@ -236,10 +243,7 @@ where
                 }
             }
         }
-        current_message += 1;
-        if current_message % 99 == 0 {
-            writer.state().pb.set_position(current_message);
-        }
+        advance_progress(&writer.state().pb, &mut current_message);
     }
     writer.state().pb.finish();
 
