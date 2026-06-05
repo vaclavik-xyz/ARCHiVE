@@ -350,8 +350,7 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
     RangeResult::Effect(None)
 }
 
-/// Parse a data-detector unit conversion from the `__kIMDataDetectedAttributeName` payload,
-/// returning a [`TextEffect::Conversion`] when successful.
+/// Parse a data-detector unit conversion from the `__kIMDataDetectedAttributeName` payload.
 fn data_detected_unit<'a>(value: &Property<'a, 'a>) -> Option<Unit> {
     let data = as_nsdata(value)?;
 
