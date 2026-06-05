@@ -100,6 +100,28 @@ pub fn as_nsstring<'a>(property: &Property<'a, 'a>) -> Option<&'a str> {
     None
 }
 
+// MARK: Data
+/// Converts a `Property` to an `Option<&[u8]>` if it is `NSData`.
+#[inline(always)]
+pub fn as_nsdata<'a>(property: &Property<'a, 'a>) -> Option<&'a [u8]> {
+    if let Property::Group(group) = property
+        && let Some(Property::Object { name, data, .. }) = group.iter().next()
+        && name == "NSData"
+    {
+        for item in data {
+            if let Property::Group(group) = item {
+                for child in group {
+                    if let Property::Primitive(OutputData::Array(bytes)) = child {
+                        return Some(bytes);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 // MARK: Dict
 /// Converts a `Property` to a `PropertyIterator` if it is a `NSDictionary`.
 ///
