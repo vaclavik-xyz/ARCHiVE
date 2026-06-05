@@ -12,6 +12,7 @@ use std::{
 use fdlimit::raise_fd_limit;
 use fs2::available_space;
 use imessage_database::{
+    message_types::translation::Translation,
     tables::{
         attachment::Attachment,
         chat::Chat,
@@ -78,6 +79,25 @@ impl Config {
             }
             // No chat_id provided
             None => None,
+        }
+    }
+
+    /// Whether `message` has a cached translation (and is therefore worth
+    /// querying the database for it).
+    pub fn is_translated(&self, message: &Message) -> bool {
+        self.translated_messages.contains(&message.guid)
+    }
+
+    /// The cached [`Translation`] for `message`, gated on [`Self::is_translated`]
+    /// so untranslated messages never touch the database. A present-but-
+    /// unparseable payload surfaces as a [`RuntimeError`] rather than being
+    /// silently dropped, leaving the handling to the caller. The library's
+    /// error is translated to [`RuntimeError`] at this boundary.
+    pub fn translation_for(&self, message: &Message) -> Result<Option<Translation>, RuntimeError> {
+        if self.is_translated(message) {
+            Ok(message.get_translation(self.data_source.db())?)
+        } else {
+            Ok(None)
         }
     }
 
