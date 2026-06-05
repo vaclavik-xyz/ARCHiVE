@@ -157,12 +157,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
         message: &'a Message,
         attachments: &mut Vec<Attachment>,
     ) -> Result<String, RuntimeError> {
-        Ok(dispatch_app_balloon(
-            self,
-            message,
-            attachments,
-            self.config,
-        )?)
+        dispatch_app_balloon(self, message, attachments, self.config)
     }
 
     fn format_tapback(&self, msg: &Message) -> Result<String, RuntimeError> {
@@ -266,7 +261,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                     attr_text
                 }
             };
-            return self.text_body_with_translation(message, formatted);
+            return self.body_text_with_translation(message, formatted);
         }
 
         // Otherwise the run mixes text and/or attachments. Resolve attachment
@@ -296,7 +291,7 @@ impl<'a> MessageFormatter<'a> for TXT<'a> {
                 }
             }
         }
-        self.text_body_with_translation(message, lines.join("\n"))
+        self.body_text_with_translation(message, lines.join("\n"))
     }
 
     fn format_message_into(
@@ -446,18 +441,6 @@ impl TXT<'_> {
         }
     }
 
-    /// Render `original` as a plain text bubble, or, when the message is
-    /// translated, pair it with the translation.
-    fn text_body_with_translation(&self, message: &Message, original: String) -> PartBody {
-        if self.config.translated_messages.contains(&message.guid)
-            && let Ok(Some(translation)) = message.get_translation(self.config.data_source.db())
-        {
-            let safe_translated = self.body_escape(&translation.translated_text);
-            return self.body_text_translated(safe_translated, original);
-        }
-        self.body_text_bubble(original)
-    }
-
     /// Append `source` to `out`, prefixing every non-blank line with `prefix`.
     /// Blank lines (`"\n"` only) pass through unprefixed so the output has
     /// no trailing-whitespace artifacts.
@@ -490,7 +473,7 @@ mod tests {
         message_types::text_effects::TextEffect,
         tables::{
             messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
-            table::ME,
+            table::{FITNESS_RECEIVER, ME},
         },
         util::{dirs::home, platform::Platform},
     };
@@ -565,6 +548,33 @@ mod tests {
             .format_message_into(&message, RenderContext::TopLevel, &mut actual)
             .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\nHello world\n\n";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_fitness_receiver_rewrite() {
+        // A Fitness transcript message whose body begins with the
+        // `FITNESS_RECEIVER` sentinel must render as "You", matching HTML.
+        let options = Options::fake_options(ExportType::Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        // May 17, 2022  8:29:42 PM
+        message.date = 674526582885055488;
+        message.text = Some(format!("{FITNESS_RECEIVER} closed all three rings"));
+        message.is_from_me = true;
+        message.chat_id = Some(0);
+        message
+            .generate_text_legacy(config.data_source.db())
+            .unwrap();
+
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
+        let expected = "May 17, 2022  5:29:42 PM\nMe\nYou closed all three rings\n\n";
 
         assert_eq!(actual, expected);
     }
