@@ -4473,6 +4473,19 @@ mod text_effect_tests {
     }
 
     #[test]
+    fn can_format_html_address() {
+        // Create exporter
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let actual = exporter.format_address("1 Apple Park Way, Cupertino, CA 95014");
+        let expected = "<u>1 Apple Park Way, Cupertino, CA 95014</u>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_html_animated() {
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);

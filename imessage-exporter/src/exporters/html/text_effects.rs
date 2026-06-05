@@ -17,6 +17,7 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
             TextEffect::Mention(mentioned) => Cow::Owned(self.format_mention(text, mentioned)),
             TextEffect::Link(url) => Cow::Owned(self.format_link(text, url)),
             TextEffect::OTP => Cow::Owned(self.format_otp(text)),
+            TextEffect::Address => Cow::Owned(self.format_address(text)),
             TextEffect::Styles(styles) => Cow::Owned(self.format_styles(text, styles)),
             TextEffect::Animated(animation) => Cow::Owned(self.format_animated(text, animation)),
             TextEffect::Conversion(unit) => Cow::Owned(self.format_conversion(text, unit)),
@@ -35,6 +36,10 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
     }
 
     fn format_otp(&self, text: &str) -> String {
+        format!("<u>{text}</u>")
+    }
+
+    fn format_address(&self, text: &str) -> String {
         format!("<u>{text}</u>")
     }
 

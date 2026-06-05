@@ -19,6 +19,8 @@ pub enum TextEffect {
     Link(String),
     /// A one-time code, i.e. from a 2FA message
     OTP,
+    /// A detected postal address within the message text
+    Address,
     /// Traditional formatting styles
     ///
     /// The embedded data contains the formatting styles applied to the range.

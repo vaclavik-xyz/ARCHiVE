@@ -330,6 +330,9 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
         "__kIMDataDetectedAttributeName" => {
             return RangeResult::Effect(data_detected_unit(value).map(TextEffect::Conversion));
         }
+        "__kIMAddressAttributeName" => {
+            return RangeResult::Effect(Some(TextEffect::Address));
+        }
         "__kIMTextEffectAttributeName" => {
             if let Some(effect_id) = as_signed_integer(value) {
                 return RangeResult::Effect(Some(TextEffect::Animated(Animation::from_id(
@@ -501,6 +504,23 @@ mod typedstream_tests {
                 AttributedRange::text(15, 26, vec![TextEffect::Default]),
                 AttributedRange::text(26, 32, vec![TextEffect::Conversion(Unit::Weight)]),
             ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_detected_address() {
+        let (text, components) = parse_typedstream_fixture("Address");
+        assert_eq!(
+            text.as_deref(),
+            Some("1 Apple Park Way, Cupertino, CA 95014")
+        );
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                0,
+                37,
+                vec![TextEffect::Address]
+            )])]
         );
     }
 

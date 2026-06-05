@@ -233,6 +233,8 @@ pub(crate) trait TextEffectFormatter<'a> {
     fn format_link(&self, text: &str, url: &str) -> String;
     /// Format message text containing an [`OTP`](imessage_database::message_types::text_effects::text_effect::TextEffect::OTP)
     fn format_otp(&self, text: &str) -> String;
+    /// Format message text containing a detected [`Address`](imessage_database::message_types::text_effects::text_effect::TextEffect::Address)
+    fn format_address(&self, text: &str) -> String;
     /// Format message text containing a [`Conversion`](imessage_database::message_types::text_effects::text_effect::TextEffect::Conversion)
     fn format_conversion(&self, text: &str, unit: &Unit) -> String;
     /// Format message text containing some [`Styles`](imessage_database::message_types::text_effects::text_effect::TextEffect::Styles)
