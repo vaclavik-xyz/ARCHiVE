@@ -138,46 +138,13 @@ fn converted_media_type(
 mod dedup_tests {
     use std::{
         fs,
-        ops::Deref,
         path::{Path, PathBuf},
     };
 
     use imessage_database::tables::attachment::MediaType;
 
     use super::{AttachmentTarget, conversion_output_extensions, converted_media_type};
-    use crate::app::runtime::Config;
-
-    /// A unique, empty scratch directory that is removed when dropped, so a test
-    /// panicking before reaching cleanup does not leave it behind. Derefs to
-    /// [`Path`] so it can be used wherever the directory path is expected.
-    struct ScratchDir {
-        path: PathBuf,
-    }
-
-    impl ScratchDir {
-        fn new(label: &str) -> Self {
-            let path =
-                std::env::temp_dir().join(format!("ime-dedup-{}-{label}", std::process::id()));
-            // Clear any leftovers from an aborted run that reused this PID
-            let _ = fs::remove_dir_all(&path);
-            fs::create_dir_all(&path).unwrap();
-            Self { path }
-        }
-    }
-
-    impl Deref for ScratchDir {
-        type Target = Path;
-
-        fn deref(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for ScratchDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
+    use crate::app::{runtime::Config, test_dir::unique_test_dir};
 
     /// An [`AttachmentTarget`] pointing at `dir`; `source` is unused by
     /// [`AttachmentTarget::existing_copy`], so a placeholder is fine.
@@ -191,7 +158,7 @@ mod dedup_tests {
 
     #[test]
     fn raw_copy_returns_path_and_leaves_mime() {
-        let dir = ScratchDir::new("raw");
+        let dir = unique_test_dir("raw");
         let mut attachment = Config::fake_attachment();
         attachment.rowid = 7;
         attachment.filename = Some("x/y/photo.heic".to_string());
@@ -205,7 +172,7 @@ mod dedup_tests {
 
     #[test]
     fn converted_image_rebuilds_jpeg_mime() {
-        let dir = ScratchDir::new("image");
+        let dir = unique_test_dir("image");
         let mut attachment = Config::fake_attachment();
         attachment.rowid = 7;
         attachment.filename = Some("x/y/photo.heic".to_string());
@@ -219,7 +186,7 @@ mod dedup_tests {
 
     #[test]
     fn converted_sticker_rebuilds_png_mime() {
-        let dir = ScratchDir::new("sticker");
+        let dir = unique_test_dir("sticker");
         let mut attachment = Config::fake_attachment();
         attachment.rowid = 7;
         attachment.filename = Some("x/y/sticker.heic".to_string());
@@ -234,7 +201,7 @@ mod dedup_tests {
 
     #[test]
     fn converted_audio_keeps_audio_category() {
-        let dir = ScratchDir::new("audio");
+        let dir = unique_test_dir("audio");
         let mut attachment = Config::fake_attachment();
         attachment.rowid = 7;
         attachment.filename = Some("x/y/voice.caf".to_string());
@@ -248,7 +215,7 @@ mod dedup_tests {
 
     #[test]
     fn converted_video_keeps_video_category() {
-        let dir = ScratchDir::new("video");
+        let dir = unique_test_dir("video");
         let mut attachment = Config::fake_attachment();
         attachment.rowid = 7;
         attachment.filename = Some("x/y/clip.mov".to_string());
@@ -264,7 +231,7 @@ mod dedup_tests {
     fn already_compatible_extension_is_left_as_raw() {
         // `jpeg` is also a conversion output, so this pins that the source
         // extension is probed first and the media type is left unchanged.
-        let dir = ScratchDir::new("compatible");
+        let dir = unique_test_dir("compatible");
         let mut attachment = Config::fake_attachment();
         attachment.rowid = 7;
         attachment.filename = Some("x/y/photo.jpeg".to_string());
@@ -280,7 +247,7 @@ mod dedup_tests {
     fn source_extension_wins_when_both_exist() {
         // Mixed-mode re-export: both the raw and converted outputs are present.
         // The source extension is matched first and the mime is left unchanged.
-        let dir = ScratchDir::new("both");
+        let dir = unique_test_dir("both");
         let mut attachment = Config::fake_attachment();
         attachment.rowid = 7;
         attachment.filename = Some("x/y/photo.heic".to_string());
@@ -295,7 +262,7 @@ mod dedup_tests {
 
     #[test]
     fn directory_attachment_matches_bare_rowid() {
-        let dir = ScratchDir::new("directory");
+        let dir = unique_test_dir("directory");
         let mut attachment = Config::fake_attachment();
         attachment.rowid = 7;
         attachment.filename = Some("x/y/bundle".to_string());
@@ -309,7 +276,7 @@ mod dedup_tests {
 
     #[test]
     fn no_existing_copy_returns_none() {
-        let dir = ScratchDir::new("none");
+        let dir = unique_test_dir("none");
         let mut attachment = Config::fake_attachment();
         attachment.rowid = 7;
         attachment.filename = Some("x/y/photo.heic".to_string());
