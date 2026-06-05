@@ -156,6 +156,6 @@ pub fn decrypt_file(backup: &Backup, from: &Path) -> Result<PathBuf, RuntimeErro
             // Ensure we remove the temporary file later
             Ok(temp_dir)
         }
-        Err(why) => Err(RuntimeError::BackupError(why)),
+        Err(why) => Err(why.into()),
     }
 }

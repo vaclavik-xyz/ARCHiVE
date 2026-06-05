@@ -25,7 +25,7 @@ use imessage_database::{
 
 use crate::{
     app::{error::RuntimeError, runtime::Config},
-    exporters::shared::part::AttachmentResolver,
+    exporters::shared::{balloon::rewrite_fitness_receiver, part::AttachmentResolver},
 };
 
 /// Where a message sits in the rendered conversation hierarchy. Each exporter
@@ -186,6 +186,15 @@ pub(crate) trait PartBodyBuilder {
     fn body_text_bubble(&self, content: String) -> Self::Body;
     /// Translated text content
     fn body_text_translated(&self, translated: String, original: String) -> Self::Body;
+    /// Render `original` as a text bubble, pairing it with the message's
+    /// translation when one applies.
+    fn body_text_with_translation(&self, message: &Message, original: String) -> Self::Body {
+        if let Ok(Some(translation)) = self.config().translation_for(message) {
+            let safe_translated = self.body_escape(&translation.translated_text);
+            return self.body_text_translated(safe_translated, original);
+        }
+        self.body_text_bubble(rewrite_fitness_receiver(original))
+    }
     /// Edited text content
     fn body_text_edited(&self, content: String) -> Self::Body;
     /// Attachment content, generally by reference to an external file
