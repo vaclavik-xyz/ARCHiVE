@@ -470,7 +470,7 @@ mod tests {
         exporters::formatter::{AttachmentRender, MessageFormatter, RenderContext},
     };
     use imessage_database::{
-        message_types::text_effects::TextEffect,
+        message_types::text_effects::text_effect::TextEffect,
         tables::{
             messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
             table::{FITNESS_RECEIVER, ME},
@@ -3037,7 +3037,9 @@ mod balloon_format_tests {
 #[cfg(test)]
 mod text_effect_tests {
     use imessage_database::{
-        message_types::text_effects::{Animation, Style, TextEffect, Unit},
+        message_types::text_effects::{
+            animation::Animation, style::Style, text_effect::TextEffect, unit::Unit,
+        },
         tables::messages::models::{AttributedRange, BubbleComponent},
     };
 
@@ -3200,7 +3202,7 @@ mod edited_tests {
     use imessage_database::{
         message_types::{
             edited::{EditStatus, EditedMessage, EditedMessagePart},
-            text_effects::TextEffect,
+            text_effects::text_effect::TextEffect,
         },
         tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
     };

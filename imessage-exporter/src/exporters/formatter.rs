@@ -11,7 +11,7 @@ use imessage_database::{
         music::MusicMessage,
         placemark::PlacemarkMessage,
         polls::Poll,
-        text_effects::{Animation, Style, TextEffect, Unit},
+        text_effects::{animation::Animation, style::Style, text_effect::TextEffect, unit::Unit},
         url::URLMessage,
     },
     tables::{
@@ -227,16 +227,16 @@ pub(crate) trait PartBodyBuilder {
 pub(crate) trait TextEffectFormatter<'a> {
     /// Format a specific [`TextEffect`]
     fn format_effect(&'a self, text: &'a str, effect: &'a TextEffect) -> Cow<'a, str>;
-    /// Format message text containing a [`Mention`](imessage_database::message_types::text_effects::TextEffect::Mention)
+    /// Format message text containing a [`Mention`](imessage_database::message_types::text_effects::text_effect::TextEffect::Mention)
     fn format_mention(&self, text: &str, mentioned: &str) -> String;
-    /// Format message text containing a [`Link`](imessage_database::message_types::text_effects::TextEffect::Link)
+    /// Format message text containing a [`Link`](imessage_database::message_types::text_effects::text_effect::TextEffect::Link)
     fn format_link(&self, text: &str, url: &str) -> String;
-    /// Format message text containing an [`OTP`](imessage_database::message_types::text_effects::TextEffect::OTP)
+    /// Format message text containing an [`OTP`](imessage_database::message_types::text_effects::text_effect::TextEffect::OTP)
     fn format_otp(&self, text: &str) -> String;
-    /// Format message text containing a [`Conversion`](imessage_database::message_types::text_effects::TextEffect::Conversion)
+    /// Format message text containing a [`Conversion`](imessage_database::message_types::text_effects::text_effect::TextEffect::Conversion)
     fn format_conversion(&self, text: &str, unit: &Unit) -> String;
-    /// Format message text containing some [`Styles`](imessage_database::message_types::text_effects::TextEffect::Styles)
+    /// Format message text containing some [`Styles`](imessage_database::message_types::text_effects::text_effect::TextEffect::Styles)
     fn format_styles(&self, text: &str, styles: &[Style]) -> String;
-    /// Format [`Animated`](imessage_database::message_types::text_effects::TextEffect::Animated) message text
+    /// Format [`Animated`](imessage_database::message_types::text_effects::text_effect::TextEffect::Animated) message text
     fn format_animated(&self, text: &str, animation: &Animation) -> String;
 }

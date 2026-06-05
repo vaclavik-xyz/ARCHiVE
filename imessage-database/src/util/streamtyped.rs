@@ -48,7 +48,7 @@ const END_PATTERN: [u8; 2] = [0x0086, 0x0084];
 /// Will have a `body()` of:
 ///
 /// ```
-/// use imessage_database::message_types::text_effects::TextEffect;
+/// use imessage_database::message_types::text_effects::text_effect::TextEffect;
 /// use imessage_database::tables::messages::{models::{AttributedRange, BubbleComponent, AttachmentMeta}};
 ///
 /// let result = vec![

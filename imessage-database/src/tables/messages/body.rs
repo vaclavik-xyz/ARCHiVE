@@ -4,6 +4,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    io::Cursor,
     sync::LazyLock,
 };
 
@@ -12,11 +13,11 @@ use crabstep::{PropertyIterator, deserializer::iter::Property};
 use crate::{
     message_types::{
         edited::{EditStatus, EditedMessage},
-        text_effects::{Animation, Style, TextEffect, Unit},
+        text_effects::{animation::Animation, style::Style, text_effect::TextEffect, unit::Unit},
     },
     tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
     util::typedstream::{
-        as_ns_dictionary, as_nsstring, as_nsurl, as_signed_integer, as_type_length_pair,
+        as_ns_dictionary, as_nsdata, as_nsstring, as_nsurl, as_signed_integer, as_type_length_pair,
     },
 };
 
@@ -326,6 +327,9 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
         "__kIMCalendarEventAttributeName" => {
             return RangeResult::Effect(Some(TextEffect::Conversion(Unit::Timezone)));
         }
+        "__kIMDataDetectedAttributeName" => {
+            return RangeResult::Effect(data_detected_unit(value).map(TextEffect::Conversion));
+        }
         "__kIMTextEffectAttributeName" => {
             if let Some(effect_id) = as_signed_integer(value) {
                 return RangeResult::Effect(Some(TextEffect::Animated(Animation::from_id(
@@ -344,6 +348,21 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
     }
 
     RangeResult::Effect(None)
+}
+
+/// Parse a data-detector unit conversion from the `__kIMDataDetectedAttributeName` payload.
+fn data_detected_unit<'a>(value: &Property<'a, 'a>) -> Option<Unit> {
+    let data = as_nsdata(value)?;
+
+    const UNIT_MARKERS: [&[u8]; 4] = [b"PhysicalAmount", b"Currency", b"Money", b"Unit"];
+    if !UNIT_MARKERS
+        .iter()
+        .any(|m| data.windows(m.len()).any(|w| w == *m))
+    {
+        return None;
+    }
+    let plist = plist::Value::from_reader(Cursor::new(data)).ok()?;
+    Unit::from_data_detected_plist(&plist)
 }
 
 // MARK: Fallback
@@ -411,7 +430,9 @@ mod typedstream_tests {
     use crate::{
         message_types::{
             edited::{EditStatus, EditedEvent, EditedMessage, EditedMessagePart},
-            text_effects::{Animation, Style, TextEffect, Unit},
+            text_effects::{
+                animation::Animation, style::Style, text_effect::TextEffect, unit::Unit,
+            },
         },
         tables::messages::{
             Message,
@@ -459,6 +480,69 @@ mod typedstream_tests {
                     3,
                     meta("34D71074-FBCF-4E4A-BB53-54CE92660C22"),
                 )
+            ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_data_detected_conversions() {
+        let (text, components) = parse_typedstream_fixture("CurrencyTemperatureVolumeWeight");
+        assert_eq!(
+            text.as_deref(),
+            Some("$100\n\n75℉\n\n1L of water\n\n225lbs")
+        );
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::text(0, 6, vec![TextEffect::Default]),
+                AttributedRange::text(6, 11, vec![TextEffect::Conversion(Unit::Temperature)]),
+                AttributedRange::text(11, 13, vec![TextEffect::Default]),
+                AttributedRange::text(13, 15, vec![TextEffect::Conversion(Unit::Volume)]),
+                AttributedRange::text(15, 26, vec![TextEffect::Default]),
+                AttributedRange::text(26, 32, vec![TextEffect::Conversion(Unit::Weight)]),
+            ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_all_unit_conversions() {
+        let (text, components) = parse_typedstream_fixture("AllUnits");
+        assert_eq!(
+            text.as_deref(),
+            Some(
+                "40° angle\n120 sqft\n100 USD\n12 miles\n1 gallon\n2:00\n25 watts\n1000hp\n65 mph\n25 mpg\n12 bar\n70℉\n12 PDT\n225 lbs"
+            )
+        );
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::text(
+                    0,
+                    4,
+                    vec![TextEffect::Conversion(Unit::Unknown(
+                        "celsius-fahrenheit-degree".to_string()
+                    ))]
+                ), // "40°"
+                AttributedRange::text(4, 11, vec![TextEffect::Default]), // " angle\n"
+                AttributedRange::text(11, 19, vec![TextEffect::Conversion(Unit::Area)]), // "120 sqft"
+                AttributedRange::text(19, 28, vec![TextEffect::Default]), // "\n100 USD\n"
+                AttributedRange::text(28, 36, vec![TextEffect::Conversion(Unit::Distance)]), // "12 miles"
+                AttributedRange::text(36, 37, vec![TextEffect::Default]),                    // "\n"
+                AttributedRange::text(37, 45, vec![TextEffect::Conversion(Unit::Volume)]), // "1 gallon"
+                AttributedRange::text(45, 46, vec![TextEffect::Default]),                  // "\n"
+                AttributedRange::text(46, 50, vec![TextEffect::Conversion(Unit::Timezone)]), // "2:00"
+                AttributedRange::text(50, 51, vec![TextEffect::Default]),                    // "\n"
+                AttributedRange::text(51, 59, vec![TextEffect::Conversion(Unit::Power)]), // "25 watts"
+                AttributedRange::text(59, 67, vec![TextEffect::Default]), // "\n1000hp\n"
+                AttributedRange::text(67, 73, vec![TextEffect::Conversion(Unit::Speed)]), // "65 mph"
+                AttributedRange::text(73, 74, vec![TextEffect::Default]),                 // "\n"
+                AttributedRange::text(74, 80, vec![TextEffect::Conversion(Unit::FuelEfficiency)]), // "25 mpg"
+                AttributedRange::text(80, 81, vec![TextEffect::Default]), // "\n"
+                AttributedRange::text(81, 87, vec![TextEffect::Conversion(Unit::Pressure)]), // "12 bar"
+                AttributedRange::text(87, 88, vec![TextEffect::Default]),                    // "\n"
+                AttributedRange::text(88, 93, vec![TextEffect::Conversion(Unit::Temperature)]), // "70℉"
+                AttributedRange::text(93, 101, vec![TextEffect::Default]), // "\n12 PDT\n"
+                AttributedRange::text(101, 108, vec![TextEffect::Conversion(Unit::Weight)]), // "225 lbs"
             ])]
         );
     }
@@ -1867,7 +1951,7 @@ mod typedstream_tests {
 #[cfg(test)]
 mod legacy_tests {
     use crate::{
-        message_types::text_effects::TextEffect,
+        message_types::text_effects::text_effect::TextEffect,
         tables::messages::{
             Message,
             body::parse_body_legacy,

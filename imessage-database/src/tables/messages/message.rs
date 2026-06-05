@@ -140,7 +140,7 @@ use crate::{
         edited::{EditStatus, EditedMessage},
         expressives::{BubbleEffect, Expressive, ScreenEffect},
         polls::Poll,
-        text_effects::TextEffect,
+        text_effects::text_effect::TextEffect,
         translation::Translation,
         variants::{Announcement, BalloonProvider, CustomBalloon, Tapback, TapbackAction, Variant},
     },

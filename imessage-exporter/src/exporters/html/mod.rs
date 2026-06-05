@@ -32,7 +32,7 @@ use crate::{
 
 use imessage_database::{
     message_types::{
-        edited::EditedMessage, sticker::StickerDecoration, text_effects::TextEffect,
+        edited::EditedMessage, sticker::StickerDecoration, text_effects::text_effect::TextEffect,
         variants::Announcement,
     },
     tables::{
@@ -865,7 +865,7 @@ mod tests {
     };
 
     use imessage_database::{
-        message_types::text_effects::TextEffect,
+        message_types::text_effects::text_effect::TextEffect,
         tables::{
             messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
             table::{FITNESS_RECEIVER, ME},
@@ -4348,7 +4348,9 @@ mod text_effect_tests {
     use std::borrow::Cow;
 
     use imessage_database::{
-        message_types::text_effects::{Animation, Style, TextEffect, Unit},
+        message_types::text_effects::{
+            animation::Animation, style::Style, text_effect::TextEffect, unit::Unit,
+        },
         tables::messages::models::{AttributedRange, BubbleComponent},
     };
 
@@ -4934,7 +4936,7 @@ mod edited_tests {
     use imessage_database::{
         message_types::{
             edited::{EditStatus, EditedEvent, EditedMessage, EditedMessagePart},
-            text_effects::{Style, TextEffect},
+            text_effects::{style::Style, text_effect::TextEffect},
         },
         tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
     };

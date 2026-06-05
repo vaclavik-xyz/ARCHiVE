@@ -229,7 +229,7 @@ impl EditedMessage {
 #[cfg(test)]
 mod test_parser {
     use crate::message_types::edited::{EditStatus, EditedEvent, EditedMessagePart};
-    use crate::message_types::text_effects::{Style, TextEffect};
+    use crate::message_types::text_effects::{style::Style, text_effect::TextEffect};
     use crate::message_types::{edited::EditedMessage, variants::BalloonProvider};
     use crate::tables::messages::models::{AttributedRange, BubbleComponent};
 
@@ -611,7 +611,7 @@ mod test_gen {
     use std::env::current_dir;
     use std::fs::File;
 
-    use crate::message_types::text_effects::{Style, TextEffect};
+    use crate::message_types::text_effects::{style::Style, text_effect::TextEffect};
     use crate::message_types::{edited::EditedMessage, variants::BalloonProvider};
     use crate::tables::messages::models::{AttributedRange, BubbleComponent};
 

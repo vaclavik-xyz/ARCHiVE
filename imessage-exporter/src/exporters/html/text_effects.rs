@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 
-use imessage_database::message_types::text_effects::{Animation, Style, TextEffect, Unit};
+use imessage_database::message_types::text_effects::{
+    animation::Animation, style::Style, text_effect::TextEffect, unit::Unit,
+};
 
 use crate::{
     app::sanitizers::sanitize_html,

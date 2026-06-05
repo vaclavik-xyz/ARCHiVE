@@ -7,7 +7,7 @@ use std::fmt::{Display, Formatter, Result};
 use crabstep::deserializer::iter::Property;
 
 use crate::{
-    message_types::text_effects::TextEffect,
+    message_types::text_effects::text_effect::TextEffect,
     tables::messages::message::Message,
     util::typedstream::{as_float, as_nsstring},
 };
@@ -109,7 +109,7 @@ impl Display for Service<'_> {
 /// parses into a single run of 3 ranges:
 ///
 /// ```
-/// use imessage_database::message_types::text_effects::TextEffect;
+/// use imessage_database::message_types::text_effects::text_effect::TextEffect;
 /// use imessage_database::tables::messages::models::{AttributedRange, BubbleComponent};
 ///
 /// let result = vec![BubbleComponent::Run(vec![
