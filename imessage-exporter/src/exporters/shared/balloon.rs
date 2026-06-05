@@ -1,5 +1,5 @@
 use imessage_database::{
-    error::{message::MessageError, plist::PlistParseError},
+    error::plist::PlistParseError,
     message_types::{
         app::{AppMessage, CheckInKind},
         digital_touch,
@@ -15,7 +15,10 @@ use imessage_database::{
     util::{dates::format, plist::parse_ns_keyed_archiver},
 };
 
-use crate::{app::runtime::Config, exporters::formatter::BalloonFormatter};
+use crate::{
+    app::{error::RuntimeError, runtime::Config},
+    exporters::formatter::BalloonFormatter,
+};
 
 // MARK: Dispatch
 
@@ -27,12 +30,10 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
     message: &Message,
     attachments: &mut Vec<Attachment>,
     config: &Config,
-) -> Result<String, MessageError> {
+) -> Result<String, RuntimeError> {
     // First, determine if is a balloon message; if it is not, bail out early
     let Variant::App(balloon) = message.variant() else {
-        return Err(MessageError::PlistParseError(
-            PlistParseError::WrongMessageType,
-        ));
+        return Err(PlistParseError::WrongMessageType.into());
     };
 
     // Handwritten messages use a different payload type
@@ -41,9 +42,7 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
     {
         return match HandwrittenMessage::from_payload(&payload) {
             Ok(bubble) => Ok(formatter.format_handwriting(message, &bubble)),
-            Err(why) => Err(MessageError::PlistParseError(
-                PlistParseError::HandwritingError(why),
-            )),
+            Err(why) => Err(PlistParseError::HandwritingError(why).into()),
         };
     }
 
@@ -53,9 +52,7 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
     {
         return match digital_touch::from_payload(&payload) {
             Some(bubble) => Ok(formatter.format_digital_touch(message, &bubble)),
-            None => Err(MessageError::PlistParseError(
-                PlistParseError::DigitalTouchError,
-            )),
+            None => Err(PlistParseError::DigitalTouchError.into()),
         };
     }
 
@@ -64,7 +61,7 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
         let poll = message.as_poll(config.data_source.db())?;
         return match poll {
             Some(poll) => Ok(formatter.format_poll(&poll)),
-            None => Err(MessageError::PlistParseError(PlistParseError::PollError)),
+            None => Err(PlistParseError::PollError.into()),
         };
     }
 
@@ -75,7 +72,7 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
         if message.is_url() && message.text.is_some() {
             return Ok(formatter.format_url(message, &URLMessage::default()));
         }
-        return Err(MessageError::PlistParseError(PlistParseError::NoPayload));
+        return Err(PlistParseError::NoPayload.into());
     };
 
     let parsed = parse_ns_keyed_archiver(&payload)?;
@@ -104,12 +101,10 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
                 | CustomBalloon::Handwriting
                 | CustomBalloon::DigitalTouch
                 | CustomBalloon::URL => {
-                    return Err(MessageError::PlistParseError(
-                        PlistParseError::WrongMessageType,
-                    ));
+                    return Err(PlistParseError::WrongMessageType.into());
                 }
             },
-            Err(why) => return Err(MessageError::PlistParseError(why)),
+            Err(why) => return Err(why.into()),
         }
     };
 
