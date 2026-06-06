@@ -7,53 +7,54 @@ use super::{
     style::Style,
 };
 
-/// Text effect container
+/// Formatting or detected-data marker attached to a message text range.
 ///
-/// Message text may contain any number of traditional styles or one animation.
+/// Each [`AttributedRange`](crate::tables::messages::models::AttributedRange)
+/// carries zero or more of these values. Sender-applied formatting, links, and
+/// automatically detected entities all flow through this enum.
 ///
 /// Read more about text styles [here](https://www.apple.com/newsroom/2024/06/ios-18-makes-iphone-more-personal-capable-and-intelligent-than-ever/).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TextEffect {
-    /// Default, unstyled text
+    /// Explicit marker for unstyled text.
     Default,
     /// A [mentioned](https://support.apple.com/guide/messages/mention-a-person-icht306ee34b/mac) contact in the conversation
     ///
-    /// The embedded data contains information about the mentioned contact.
+    /// The string is the identifier stored by Messages for the mentioned
+    /// participant.
     Mention(String),
-    /// A clickable link, i.e. `https://`, `tel:`, `mailto:`, and others
+    /// Clickable link assigned to the text range.
     ///
-    /// The embedded data contains the url.
+    /// The string is the URL payload, including schemes such as `https:`,
+    /// `tel:`, or `mailto:`.
     Link(String),
-    /// A one-time code, i.e. from a 2FA message
+    /// One-time code detected in the message text.
     OTP,
-    /// A detected postal address within the message text
+    /// Postal address detected in the message text.
     ///
-    /// The embedded data contains the address components. It is boxed because
-    /// [`DetectedAddress`] is large relative to the other variants, which would
-    /// otherwise inflate every `TextEffect` to its size.
+    /// Boxed because [`DetectedAddress`] is large enough to otherwise set the
+    /// size of every `TextEffect`.
     Address(Box<DetectedAddress>),
-    /// Traditional formatting styles
+    /// Traditional text formatting styles.
     ///
-    /// The embedded data contains the formatting styles applied to the range.
+    /// Multiple styles on the same text range are grouped here.
     Styles(Vec<Style>),
-    /// Animation applied to the text
+    /// Animation applied to the text.
     ///
-    /// The embedded data contains the animation applied to the range.
+    /// Messages stores at most one animation on a text range.
     Animated(Animation),
-    /// Conversions that can be applied to text
-    ///
-    /// The embedded data contains the unit that the range represents.
+    /// Unit or timezone conversion detected in the message text.
     Conversion(Unit),
-    /// A detected monetary amount within the message text
+    /// Monetary amount detected in the message text.
     ///
-    /// The embedded data contains the currency symbol and amount.
+    /// Carries the detector's symbol and amount strings.
     Currency(DetectedCurrency),
-    /// A detected package-tracking number within the message text
+    /// Package-tracking number detected in the message text.
     ///
-    /// The embedded data contains the carrier and tracking number.
+    /// Carries the carrier when `DataDetectorsCore` resolved one.
     Tracking(ShipmentTracking),
-    /// A detected flight reference within the message text
+    /// Flight reference detected in the message text.
     ///
-    /// The embedded data contains the airline and flight number.
+    /// Carries the airline code when available plus the flight number.
     Flight(Flight),
 }

@@ -1,14 +1,14 @@
-/// Traditional text effect container
+/// Traditional formatting style applied to a message text range.
 ///
 /// Read more about text styles [here](https://www.apple.com/newsroom/2024/06/ios-18-makes-iphone-more-personal-capable-and-intelligent-than-ever/).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Style {
-    /// **Bold** styled text
+    /// **Bold** text
     Bold,
-    /// *Italic* styled text
+    /// *Italic* text
     Italic,
-    /// ~~Strikethrough~~ styled text
+    /// ~~Strikethrough~~ text
     Strikethrough,
-    /// <u>Underline</u> styled text
+    /// <u>Underline</u> text
     Underline,
 }

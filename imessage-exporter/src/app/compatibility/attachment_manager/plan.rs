@@ -10,8 +10,8 @@ use super::target::AttachmentTarget;
 pub(crate) enum Plan {
     /// Copying is disabled; nothing to do.
     Skip,
-    /// A prior reference already produced the output at `path`; reuse it. When
-    /// it was a conversion, `media_type` carries the converted type to record.
+    /// Existing output at `path` should be reused. When it was a conversion,
+    /// `media_type` carries the converted type to record.
     Reuse {
         path: PathBuf,
         media_type: Option<MediaType<'static>>,

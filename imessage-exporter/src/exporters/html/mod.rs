@@ -329,13 +329,10 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             return sanitize_html(text).into_owned();
         }
 
-        // Create events for attribute starts and ends
         let mut events = Vec::new();
 
-        // Create events for each text range, marking start and end positions. The
-        // ID is the index of the range in the list. Attachment ranges carry no
-        // text of their own (their slice is the `\u{FFFC}` placeholder), so they
-        // are skipped here and rendered separately.
+        // Text ranges become start/end events. Attachment ranges carry no text
+        // of their own, so they are rendered separately.
         for (attr_id, attr) in ranges.iter().enumerate() {
             if attr.attachment.is_some() {
                 continue;
@@ -344,7 +341,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             events.push((attr.end, EventType::End(attr_id)));
         }
 
-        // Sort events by position, with ends before starts at the same position
+        // End events run before start events at the same byte position.
         events.sort_by(|a, b| {
             a.0.cmp(&b.0).then_with(|| match (&a.1, &b.1) {
                 (EventType::End(_), EventType::Start(_, _)) => Less,
@@ -354,7 +351,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
         });
 
         let mut result = String::new();
-        // The currently active attributes, stored as (attribute ID, effects)
+        // Active attribute IDs and their effects.
         let mut active_attrs = Vec::new();
         let mut last_pos = events.first().map_or(0, |(pos, _)| *pos);
 
@@ -883,13 +880,11 @@ mod tests {
 
     #[test]
     fn can_get_time_valid() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         // let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
-        // Create fake message
         let mut message = Config::fake_message();
         // May 17, 2022  8:29:42 PM
         message.date = 674526582885055488;
@@ -909,12 +904,10 @@ mod tests {
 
     #[test]
     fn can_get_time_invalid() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
-        // Create fake message
         let mut message = Config::fake_message();
         // May 17, 2022  9:30:31 PM
         message.date = 674530231992568192;
@@ -930,7 +923,6 @@ mod tests {
 
     #[test]
     fn can_format_html_from_me_normal() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -983,7 +975,6 @@ mod tests {
 
     #[test]
     fn can_format_html_message_with_html() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -1009,7 +1000,6 @@ mod tests {
 
     #[test]
     fn can_format_html_from_me_normal_deleted() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -1035,7 +1025,6 @@ mod tests {
 
     #[test]
     fn can_format_html_from_me_normal_read() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -1062,7 +1051,6 @@ mod tests {
 
     #[test]
     fn can_format_html_from_them_normal() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config
@@ -1091,7 +1079,6 @@ mod tests {
 
     #[test]
     fn can_format_html_from_them_normal_read() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config
@@ -1124,7 +1111,6 @@ mod tests {
 
     #[test]
     fn can_format_html_from_them_custom_name_read() {
-        // Create exporter
         let mut options = Options::fake_options(ExportType::Html);
         options.custom_name = Some("Name".to_string());
         let mut config = Config::fake_app(options);
@@ -1158,7 +1144,6 @@ mod tests {
 
     #[test]
     fn can_format_html_shareplay() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1182,7 +1167,6 @@ mod tests {
 
     #[test]
     fn can_format_html_announcement() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1206,7 +1190,6 @@ mod tests {
 
     #[test]
     fn can_format_html_announcement_custom_name() {
-        // Create exporter
         let mut options = Options::fake_options(ExportType::Html);
         options.custom_name = Some("Name".to_string());
         let mut config = Config::fake_app(options);
@@ -1567,7 +1550,6 @@ mod tests {
 
     #[test]
     fn can_format_html_group_removed() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1595,7 +1577,6 @@ mod tests {
 
     #[test]
     fn can_format_html_group_removed_other() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1626,7 +1607,6 @@ mod tests {
 
     #[test]
     fn can_format_html_group_changed_number() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1655,7 +1635,6 @@ mod tests {
 
     #[test]
     fn can_format_html_group_added() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1683,7 +1662,6 @@ mod tests {
 
     #[test]
     fn can_format_html_group_left() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1707,7 +1685,6 @@ mod tests {
 
     #[test]
     fn can_format_html_group_icon_removed() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1732,7 +1709,6 @@ mod tests {
 
     #[test]
     fn can_format_html_group_icon_added() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1757,7 +1733,6 @@ mod tests {
 
     #[test]
     fn can_format_html_chat_background_removed() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1782,7 +1757,6 @@ mod tests {
 
     #[test]
     fn can_format_html_chat_background_added() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1807,7 +1781,6 @@ mod tests {
 
     #[test]
     fn can_format_html_audio_message_kept() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1830,7 +1803,6 @@ mod tests {
 
     #[test]
     fn can_format_html_tapback_me() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1852,7 +1824,6 @@ mod tests {
 
     #[test]
     fn can_format_html_tapback_them() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config
@@ -1876,7 +1847,6 @@ mod tests {
 
     #[test]
     fn can_format_html_tapback_custom_emoji() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config
@@ -1902,7 +1872,6 @@ mod tests {
 
     #[test]
     fn can_format_html_tapback_custom_sticker() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config
@@ -1927,7 +1896,6 @@ mod tests {
 
     #[test]
     fn can_format_html_tapback_custom_sticker_exists() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config
@@ -1956,7 +1924,6 @@ mod tests {
 
     #[test]
     fn can_format_html_tapback_custom_sticker_removed() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config
@@ -1982,7 +1949,6 @@ mod tests {
 
     #[test]
     fn can_format_html_started_sharing_location_me() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2005,7 +1971,6 @@ mod tests {
 
     #[test]
     fn can_format_html_stopped_sharing_location_me() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2028,7 +1993,6 @@ mod tests {
 
     #[test]
     fn can_format_html_started_sharing_location_them() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2052,7 +2016,6 @@ mod tests {
 
     #[test]
     fn can_format_html_stopped_sharing_location_them() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2076,7 +2039,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_macos() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2096,7 +2058,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_macos_invalid_disabled() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2115,7 +2076,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_macos_invalid_clone() {
-        // Create exporter
         let mut options = Options::fake_options(ExportType::Html);
         options.attachment_manager.mode = AttachmentManagerMode::Clone;
 
@@ -2136,7 +2096,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_ios() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let mut config = Config::fake_app(options);
         config.options.no_lazy = true;
@@ -2157,7 +2116,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_ios_invalid_disabled() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2176,7 +2134,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_ios_invalid_clone() {
-        // Create exporter
         let mut options = Options::fake_options(ExportType::Html);
         options.attachment_manager.mode = AttachmentManagerMode::Clone;
 
@@ -2197,7 +2154,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_folder() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2232,7 +2188,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_text_download() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2258,7 +2213,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_application_download() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2284,7 +2238,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_other_media_type() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2309,7 +2262,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_unknown() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -2336,7 +2288,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_sticker() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
 
         let config = Config::fake_app(options);
@@ -2370,7 +2321,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_sticker_genmoji() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
 
         let config = Config::fake_app(options);
@@ -2405,7 +2355,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_sticker_app() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
 
         let config = Config::fake_app(options);
@@ -3403,7 +3352,6 @@ mod tests {
 
     #[test]
     fn can_format_html_attachment_audio_transcript() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3433,7 +3381,6 @@ mod tests {
 
     #[test]
     fn can_format_html_single_url_no_bundle_id() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3473,7 +3420,6 @@ mod tests {
 
     #[test]
     fn can_format_html_translated_message() {
-        // Create exporter
         let mut options = Options::fake_options(ExportType::Html);
         options.attachment_manager.mode = AttachmentManagerMode::Clone;
 
@@ -3523,7 +3469,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_url() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3548,7 +3493,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_url_no_lazy() {
-        // Create exporter
         let mut options = Options::fake_options(Html);
         options.no_lazy = true;
         let config = Config::fake_app(options);
@@ -3574,7 +3518,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_music() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3596,7 +3539,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_music_lyrics() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3639,7 +3581,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_collaboration() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3661,7 +3602,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_apple_pay() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3713,7 +3653,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_fitness() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3739,7 +3678,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_slideshow() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3765,7 +3703,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_find_my() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3817,7 +3754,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_check_in_timer() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3843,7 +3779,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_check_in_timer_late() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3869,7 +3804,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_accepted_check_in() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3895,7 +3829,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_app_store() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3917,7 +3850,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_app_store_no_url_with_original_url() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3939,7 +3871,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_placemark() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -3970,7 +3901,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_poll() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4036,7 +3966,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_generic_app() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4368,7 +4297,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_default() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4381,7 +4309,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_mention() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4394,7 +4321,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_link() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4407,7 +4333,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_otp() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4420,7 +4345,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_style_single() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4433,7 +4357,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_style_multiple() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4446,7 +4369,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_style_all() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4467,7 +4389,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_conversion() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4480,7 +4401,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_address() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4625,7 +4545,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_mention_end_to_end() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4654,7 +4573,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_otp_end_to_end() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4682,7 +4600,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_link_end_to_end() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4713,7 +4630,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_conversion_end_to_end() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4742,7 +4658,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_text_effect_end_to_end() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4781,7 +4696,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_text_styles_end_to_end() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4825,7 +4739,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_text_styles_single_end_to_end() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4859,7 +4772,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_text_styles_mixed_end_to_end() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4889,7 +4801,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_text_styled_plain_link() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4924,7 +4835,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_text_styled_emoji_bold_underline() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -4954,7 +4864,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_html_text_styled_overlapping_ranges() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -5024,12 +4933,10 @@ mod edited_tests {
 
     #[test]
     fn can_format_html_edited_with_formatting() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
-        // Create edited message data
         let edited_message = EditedMessage {
             parts: vec![EditedMessagePart {
                 status: EditStatus::Edited,
@@ -5093,7 +5000,6 @@ mod edited_tests {
 
     #[test]
     fn can_format_html_conversion_final_unsent() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -5164,7 +5070,6 @@ mod edited_tests {
 
     #[test]
     fn can_format_html_conversion_no_edits() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
@@ -5213,7 +5118,6 @@ mod edited_tests {
 
     #[test]
     fn can_format_html_conversion_fully_unsent() {
-        // Create exporter
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();

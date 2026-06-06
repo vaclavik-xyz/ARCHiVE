@@ -1,22 +1,22 @@
 use std::fmt::Display;
 
 // MARK: Mode
-/// Represents different ways the app can interact with attachment data
+/// Attachment handling mode.
 #[derive(Debug, PartialEq, Eq, Default)]
 pub enum AttachmentManagerMode {
-    /// Do not copy attachments
+    /// Do not copy attachments.
     #[default]
     Disabled,
-    /// Copy and convert image attachments to more compatible formats using a [`Converter`](crate::app::compatibility::models::Converter)
+    /// Copy and convert image attachments to more compatible formats using a [`Converter`](crate::app::compatibility::models::Converter).
     Basic,
-    /// Copy attachments without converting; preserves quality but may not display correctly in all browsers
+    /// Copy attachments without converting them.
     Clone,
-    /// Copy and convert all attachments to more compatible formats using a [`Converter`](crate::app::compatibility::models::Converter)
+    /// Copy and convert all supported attachment types using a [`Converter`](crate::app::compatibility::models::Converter).
     Full,
 }
 
 impl AttachmentManagerMode {
-    /// Create an instance of the enum given user input
+    /// Parse an attachment handling mode from CLI input.
     pub fn from_cli(copy_state: &str) -> Option<Self> {
         match copy_state.to_lowercase().as_str() {
             "disabled" => Some(Self::Disabled),

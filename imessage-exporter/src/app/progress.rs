@@ -63,7 +63,7 @@ pub struct ExportProgress {
 }
 
 impl ExportProgress {
-    /// Creates a new hidden progress bar. Pass `enabled = false` to make
+    /// Build a hidden progress bar. Pass `enabled = false` to make
     /// every subsequent method call a no-op.
     pub fn new(enabled: bool) -> Self {
         Self {
@@ -75,7 +75,7 @@ impl ExportProgress {
         }
     }
 
-    /// Starts the progress bar with the specified total length
+    /// Start the progress bar with the specified total length.
     pub fn start(&self, length: i64) {
         if !self.enabled {
             return;
@@ -86,7 +86,7 @@ impl ExportProgress {
         self.draw();
     }
 
-    /// Sets the progress bar to default style (clears any busy message)
+    /// Clear any busy message and draw the default progress style.
     pub fn set_default_style(&self) {
         if !self.enabled {
             return;
@@ -95,7 +95,7 @@ impl ExportProgress {
         self.draw();
     }
 
-    /// Sets the progress bar to busy style with a message
+    /// Draw the busy progress style with a message.
     pub fn set_busy_style(&self, message: String) {
         if !self.enabled {
             return;
@@ -104,7 +104,7 @@ impl ExportProgress {
         self.draw();
     }
 
-    /// Sets the position of the progress bar
+    /// Set the progress bar position.
     pub fn set_position(&self, pos: u64) {
         if !self.enabled {
             return;

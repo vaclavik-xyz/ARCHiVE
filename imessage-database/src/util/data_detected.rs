@@ -1,5 +1,5 @@
 /*!
- Helpers for navigating Apple's `DDScannerResult` data-detector payloads.
+ Navigation helpers for Apple's `DDScannerResult` archives.
 
  These payloads are [`NSKeyedArchiver`](crate::util::plist) archives produced by
  the private `DataDetectorsCore` framework and stored inline in a message's
@@ -11,7 +11,7 @@
  nested results ([`children`](ScannerResult::children)).
 
  [`ScannerResult`] is a lazy, borrowing cursor over one node of that tree. The
- individual semantic types parse themselves from a node via [`FromScannerResult`].
+ semantic detector types parse themselves from a node via [`FromScannerResult`].
 */
 
 use std::io::Cursor;
@@ -21,15 +21,13 @@ use plist::{Dictionary, Value};
 
 use crate::util::typedstream::as_nsdata;
 
-/// The maximum depth the scanner-result walk descends before giving up.
+/// Maximum scanner-result depth before traversal stops.
 ///
 /// `NSKeyedArchiver` graphs are deduplicated by `UID` and may contain reference
-/// cycles, so the recursion is bounded to keep a malformed or hostile payload
-/// from looping forever.
+/// cycles, so recursion is bounded for malformed payloads.
 const MAX_DEPTH: usize = 8;
 
-/// A borrowing, lazily-resolved cursor over a single node in a `DDScannerResult`
-/// tree.
+/// Borrowing, lazily-resolved cursor over one `DDScannerResult` tree node.
 ///
 /// Fields are stored as `UID` indices into the archive's `$objects` table and
 /// resolved on access, so constructing or walking a `ScannerResult` allocates
@@ -45,7 +43,7 @@ pub struct ScannerResult<'a> {
 }
 
 impl<'a> ScannerResult<'a> {
-    /// Resolve the root scanner result from a parsed data-detector archive.
+    /// Resolve the root scanner result from a parsed detector archive.
     ///
     /// The root index is stored under `$top.dd-result` (falling back to
     /// `$top.root`) and points into the archive's `$objects` table.
@@ -83,8 +81,8 @@ impl<'a> ScannerResult<'a> {
         self.field_string("MS")
     }
 
-    /// The child results nested under this one (the `SR` array), depth-bounded
-    /// so cyclic archives terminate.
+    /// Child results from the `SR` array, depth-bounded so cyclic archives
+    /// terminate.
     pub fn children(&self) -> impl Iterator<Item = ScannerResult<'a>> + '_ {
         self.child_indices()
             .unwrap_or_default()
@@ -124,12 +122,12 @@ impl<'a> ScannerResult<'a> {
     }
 }
 
-/// A type that can be parsed from a [`ScannerResult`] node.
+/// Type that can recognize itself from a [`ScannerResult`] node.
 ///
 /// Returning `None` means "this node is not of the implementing type," which is
 /// an expected outcome rather than an error.
 pub trait FromScannerResult: Sized {
-    /// Byte markers gating a cheap pre-filter on the raw payload.
+    /// Byte markers used to reject impossible payloads before plist parsing.
     ///
     /// When non-empty, [`from_attribute`](Self::from_attribute) parses the
     /// payload only if it contains at least one of these byte sequences. This
@@ -139,11 +137,11 @@ pub trait FromScannerResult: Sized {
     /// empty (the default).
     const MARKERS: &[&[u8]] = &[];
 
-    /// Attempt to parse `Self` from a scanner-result node.
+    /// Parse `Self` from a scanner-result node, or return `None` on mismatch.
     fn from_scanner_result(result: &ScannerResult<'_>) -> Option<Self>;
 
-    /// Parse `Self` from a typedstream attribute value carrying a
-    /// `DDScannerResult` archive (an `NSData`/`NSMutableData` blob).
+    /// Parse `Self` from a typedstream attribute carrying a `DDScannerResult`
+    /// archive (`NSData` or `NSMutableData`).
     ///
     /// Returns `None` when the value is not data, fails the
     /// [`MARKERS`](Self::MARKERS) pre-filter, is not a valid archive, or does
@@ -162,7 +160,7 @@ pub trait FromScannerResult: Sized {
     }
 }
 
-/// Read a `plist` `UID` as a `usize` index into the `$objects` table.
+/// Interpret a plist `UID` as an index into the `$objects` table.
 fn uid_index(value: &Value) -> Option<usize> {
     Some(value.as_uid()?.get() as usize)
 }

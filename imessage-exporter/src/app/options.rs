@@ -1,5 +1,5 @@
 /*!
- Represents CLI options and validation logic.
+ CLI option parsing and validation.
 */
 
 use std::path::PathBuf;
@@ -22,7 +22,7 @@ use crate::app::{
 };
 
 // MARK: Constants
-/// Default export directory name
+/// Default export directory name.
 pub const DEFAULT_OUTPUT_DIR: &str = "imessage_export";
 
 // CLI Arg Names
@@ -57,41 +57,41 @@ pub const ABOUT: &str = concat!(
 // MARK: Options
 #[derive(PartialEq, Eq)]
 pub struct Options {
-    /// Path to database file
+    /// Database file or iOS backup root.
     pub db_path: PathBuf,
-    /// Custom path to attachments
+    /// Custom root for attachment lookup.
     pub attachment_root: Option<String>,
-    /// The attachment manager type used to copy files
+    /// Attachment copy/conversion manager.
     pub attachment_manager: AttachmentManager,
-    /// If true, emit diagnostic information to stdout
+    /// Whether to emit diagnostic information to stdout.
     pub diagnostic: bool,
-    /// The type of file we are exporting data to
+    /// Selected export format.
     pub export_type: Option<ExportType>,
-    /// Where the app will save exported data
+    /// Directory where exported data is written.
     pub export_path: PathBuf,
-    /// Query context describing SQL query filters
+    /// SQL query filters.
     pub query_context: QueryContext,
-    /// If true, do not include `loading="lazy"` in HTML exports
+    /// Whether to omit `loading="lazy"` in HTML exports.
     pub no_lazy: bool,
-    /// Custom name for database owner in output
+    /// Custom name for the database owner in output.
     pub custom_name: Option<String>,
-    /// If true, use the database owner's caller ID instead of "Me"
+    /// Whether to use the database owner's caller ID instead of `Me`.
     pub use_caller_id: bool,
-    /// The database source's platform
+    /// Database source platform.
     pub platform: Platform,
-    /// If true, disable the free disk space check
+    /// Whether to disable the free disk space check.
     pub ignore_disk_space: bool,
-    /// An optional filter for conversation participants
+    /// Participant-name filter for conversations.
     pub conversation_filter: Option<String>,
-    /// An optional password for encrypted backups
+    /// Password for encrypted backups.
     pub cleartext_password: Option<String>,
-    /// An optional path to a custom contacts database
+    /// Custom contacts database path.
     pub contacts_path: Option<PathBuf>,
-    /// If false, suppress the export progress bar regardless of TTY state
+    /// Whether to show the export progress bar when the terminal supports it.
     pub show_progress: bool,
 }
 
-// Override Debug default impl to avoid printing the cleartext password if it's set
+// Redact the cleartext backup password from debug output.
 impl std::fmt::Debug for Options {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Options")
@@ -264,7 +264,7 @@ impl Options {
             }
         }
 
-        // Warn the user that custom contacts database path have no effect on iOS backups
+        // Custom contacts paths do not affect encrypted iOS backup extraction.
         if contacts_path.is_some() && platform == Platform::iOS {
             eprintln!(
                 "Option --{OPTION_CUSTOM_CONTACTS_DB_PATH} is enabled, but the platform is {}, so the path will have no effect!",
@@ -305,7 +305,7 @@ impl Options {
         })
     }
 
-    /// Generate a path to the database based on the currently selected platform
+    /// Return the database path for the selected platform.
     pub fn get_db_path(&self) -> PathBuf {
         match self.platform {
             Platform::iOS => self.db_path.join(DEFAULT_PATH_IOS),
@@ -314,9 +314,10 @@ impl Options {
     }
 }
 
-/// Ensure export path is empty or does not contain files of the existing export type
+/// Resolve and validate the export directory.
 ///
-/// We have to allocate a `PathBuf` here because it can be created from data owned by this function in the default state
+/// When an export type is selected, the directory must not already contain
+/// files with that extension.
 fn validate_path(
     export_path: Option<&String>,
     export_type: Option<&ExportType>,
@@ -557,7 +558,6 @@ mod arg_tests {
 
     #[test]
     fn can_build_option_diagnostic_flag() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-d"]);
 
@@ -589,7 +589,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_diagnostic_flag_with_export_type() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-d", "-f", "txt"]);
         assert!(Options::from_args(&args).is_err());
@@ -597,7 +596,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_diagnostic_flag_with_export_path() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-d", "-o", "~/test"]);
         assert!(Options::from_args(&args).is_err());
@@ -605,7 +603,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_diagnostic_flag_with_attachment_manager() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-d", "-c", "basic"]);
         assert!(Options::from_args(&args).is_err());
@@ -613,7 +610,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_diagnostic_flag_with_start_date() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-d", "-s", "2020-01-01"]);
         assert!(Options::from_args(&args).is_err());
@@ -621,7 +617,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_diagnostic_flag_with_end() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-d", "-e", "2020-01-01"]);
         assert!(Options::from_args(&args).is_err());
@@ -629,7 +624,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_diagnostic_flag_with_caller_id() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-d", "-i"]);
         assert!(Options::from_args(&args).is_err());
@@ -640,7 +634,6 @@ mod arg_tests {
         let dir = unique_test_dir("build-option-export-html");
         let dir_str = dir.to_string_lossy().into_owned();
 
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-f", "html", "-o", &dir_str]);
 
@@ -672,7 +665,6 @@ mod arg_tests {
 
     #[test]
     fn can_build_option_export_txt_no_lazy() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-f", "txt", "-l"]);
 
@@ -704,7 +696,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_attachment_manager_no_export_type() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-c", "clone"]);
         assert!(Options::from_args(&args).is_err());
@@ -712,7 +703,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_export_path_no_export_type() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-o", "~/test"]);
         assert!(Options::from_args(&args).is_err());
@@ -720,7 +710,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_start_date_path_no_export_type() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-s", "2020-01-01"]);
         assert!(Options::from_args(&args).is_err());
@@ -728,7 +717,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_end_date_path_no_export_type() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-e", "2020-01-01"]);
         assert!(Options::from_args(&args).is_err());
@@ -736,7 +724,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_invalid_date() {
-        // Get matches from sample args
         let command = get_command();
         let args =
             command.get_matches_from(["imessage-exporter", "-f", "html", "-e", "2020-32-32"]);
@@ -745,7 +732,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_invalid_platform() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-a", "iPad"]);
         assert!(Options::from_args(&args).is_err());
@@ -753,7 +739,6 @@ mod arg_tests {
 
     #[test]
     fn can_build_option_valid_platform() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-a", "ios", "-f", "txt"]);
 
@@ -785,7 +770,6 @@ mod arg_tests {
 
     #[test]
     fn can_build_option_ios_password() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from([
             "imessage-exporter",
@@ -825,7 +809,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_macos_password() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from([
             "imessage-exporter",
@@ -841,7 +824,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_invalid_export_type() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-f", "pdf"]);
         assert!(Options::from_args(&args).is_err());
@@ -849,7 +831,6 @@ mod arg_tests {
 
     #[test]
     fn can_build_option_custom_name() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-f", "txt", "-m", "Name"]);
 
@@ -881,7 +862,6 @@ mod arg_tests {
 
     #[test]
     fn can_build_option_caller_id() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-f", "txt", "-i"]);
 
@@ -913,7 +893,6 @@ mod arg_tests {
 
     #[test]
     fn can_build_option_contact_filter() {
-        // Get matches from sample args
         let command = get_command();
         let args =
             command.get_matches_from(["imessage-exporter", "-t", "steve@apple.com", "-f", "txt"]);
@@ -946,7 +925,6 @@ mod arg_tests {
 
     #[test]
     fn can_build_option_full() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-f", "txt", "-c", "full"]);
 
@@ -978,7 +956,6 @@ mod arg_tests {
 
     #[test]
     fn can_build_option_clone() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-f", "txt", "-c", "clone"]);
 
@@ -1010,7 +987,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_custom_name_and_caller_id() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-f", "txt", "-m", "Name", "-i"]);
         assert!(Options::from_args(&args).is_err());
@@ -1018,7 +994,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_caller_id_no_export() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-i"]);
         assert!(Options::from_args(&args).is_err());
@@ -1026,7 +1001,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_custom_name_no_export() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-m", "Name"]);
         assert!(Options::from_args(&args).is_err());
@@ -1034,7 +1008,6 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_contact_filter_no_export() {
-        // Get matches from sample args
         let command = get_command();
         let args = command.get_matches_from(["imessage-exporter", "-t", "steve@apple.com"]);
         assert!(Options::from_args(&args).is_err());

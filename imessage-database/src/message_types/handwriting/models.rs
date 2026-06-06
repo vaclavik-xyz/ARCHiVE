@@ -18,26 +18,26 @@ use protobuf::Message;
 /// `com.apple.Handwriting.HandwritingProvider`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct HandwrittenMessage {
-    /// Unique identifier for the handwritten message
+    /// Unique identifier for the handwritten message.
     pub id: String,
-    /// Timestamp for when the handwritten message was created, stored as a unix timestamp with an epoch of `2001-01-01 00:00:00` in the local time zone
+    /// Timestamp for when the handwritten message was created, stored as a unix timestamp with an epoch of `2001-01-01 00:00:00` in the local time zone.
     pub created_at: i64,
-    /// Height of the handwritten message in pixels
+    /// Render height in pixels.
     pub height: u16,
-    /// Width of the handwritten message in pixels
+    /// Render width in pixels.
     pub width: u16,
-    /// Collection of strokes that make up the handwritten image
+    /// Strokes that make up the handwritten image.
     pub strokes: Vec<Vec<Point>>,
 }
 
-/// Represents a point along a handwritten line.
+/// Point along a handwritten line.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Point {
-    /// X-coordinate of the point
+    /// X-coordinate of the point.
     pub x: u16,
-    /// Y-coordinate of the point
+    /// Y-coordinate of the point.
     pub y: u16,
-    /// Width of the stroke at this point
+    /// Stroke width at this point.
     pub width: u16,
 }
 
@@ -58,7 +58,7 @@ impl HandwrittenMessage {
         })
     }
 
-    /// Renders the handwriting message as an `svg` graphic.
+    /// Render the handwriting message as SVG.
     #[must_use]
     pub fn render_svg(&self) -> String {
         let mut svg = String::new();
@@ -86,7 +86,7 @@ impl HandwrittenMessage {
         svg
     }
 
-    /// Renders the handwriting message as an ASCII graphic with a maximum height.
+    /// Render the handwriting message as ASCII with a maximum height.
     #[must_use]
     pub fn render_ascii(&self, max_height: usize) -> String {
         // Create a blank canvas filled with spaces
@@ -111,7 +111,6 @@ impl HandwrittenMessage {
             });
         }
 
-        // Convert the canvas to a string
         let mut output = String::with_capacity(h * (w + 1));
         for row in canvas {
             for &ch in &row {
@@ -160,7 +159,7 @@ fn draw_point(canvas: &mut [Vec<char>], x: i64, y: i64) {
     }
 }
 
-/// Generates svg lines from an array of strokes.
+/// Write SVG polylines for the parsed strokes.
 fn generate_strokes(svg: &mut String, strokes: &[Vec<Point>]) {
     for stroke in strokes {
         if stroke.is_empty() {
@@ -186,7 +185,7 @@ fn generate_strokes(svg: &mut String, strokes: &[Vec<Point>]) {
     }
 }
 
-/// Group points along a stroke together by width
+/// Group adjacent stroke points by width.
 fn group_points(stroke: &[Point]) -> Vec<(u16, Vec<&Point>)> {
     let mut groups = vec![];
     if stroke.is_empty() {
@@ -247,7 +246,7 @@ fn resize(v: u16, box_size: u16, max_v: u16) -> u16 {
         .unwrap_or(0) as u16
 }
 
-/// Iterates through each point in each stroke and extracts the maximum `x`, `y`, and `width` values.
+/// Return the maximum `x`, `y`, and stroke-width values across all strokes.
 fn get_max_dimension(strokes: &[Vec<Point>]) -> (u16, u16, u16) {
     strokes.iter().flat_map(|stroke| stroke.iter()).fold(
         (0, 0, 0),
@@ -261,7 +260,7 @@ fn get_max_dimension(strokes: &[Vec<Point>]) -> (u16, u16, u16) {
     )
 }
 
-/// Parses raw stroke data into an array of strokes.
+/// Parse raw stroke bytes into point groups.
 fn parse_strokes(msg: &BaseMessage) -> Result<Vec<Vec<Point>>, HandwritingError> {
     let data = decompress_strokes(msg)?;
 
@@ -299,7 +298,7 @@ fn parse_strokes(msg: &BaseMessage) -> Result<Vec<Vec<Point>>, HandwritingError>
     Ok(strokes)
 }
 
-/// Decompresses raw stroke data and verifies length.
+/// Decompress raw stroke bytes and verify the expected length.
 fn decompress_strokes(msg: &BaseMessage) -> Result<Vec<u8>, HandwritingError> {
     let data = match msg.Handwriting.Compression.enum_value_or_default() {
         Compression::None => msg.Handwriting.Strokes.clone(),
@@ -337,7 +336,7 @@ fn decompress_strokes(msg: &BaseMessage) -> Result<Vec<u8>, HandwritingError> {
     Ok(data)
 }
 
-/// Parses the drawing size from the protobuf message.
+/// Parse drawing dimensions from the protobuf frame.
 fn parse_dimensions(msg: &BaseMessage) -> Result<(u16, u16), HandwritingError> {
     let rect = &msg.Handwriting.Frame;
     if rect.len() != 8 {
@@ -349,7 +348,7 @@ fn parse_dimensions(msg: &BaseMessage) -> Result<(u16, u16), HandwritingError> {
     ))
 }
 
-/// Converts coordinate bytes to an u16.
+/// Decode a signed coordinate stored in two bytes.
 fn parse_coordinates(b1: u8, b2: u8) -> u16 {
     u16::from_le_bytes([b1, b2]) ^ 0x8000
 }

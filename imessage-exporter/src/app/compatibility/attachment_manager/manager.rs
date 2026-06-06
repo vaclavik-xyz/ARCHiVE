@@ -75,7 +75,7 @@ impl AttachmentManager {
     }
 
     // MARK: Handwriting
-    /// Handle a handwriting message, optionally writing it to an SVG file
+    /// Write a handwriting message as SVG when attachment output is enabled.
     pub fn handle_handwriting(
         &self,
         message: &Message,
@@ -90,8 +90,7 @@ impl AttachmentManager {
             let sub_dir = config.conversation_attachment_path(message.chat_id);
             to.push(sub_dir);
 
-            // Add the filename
-            // Each handwriting has a unique id, so cache then all in the same place
+            // Each handwriting payload has a unique ID.
             to.push(&handwriting.id);
 
             // Set the new file's extension to svg
@@ -125,9 +124,9 @@ impl AttachmentManager {
     /// Decide what to do for an attachment without performing any decryption or
     /// conversion.
     ///
-    /// The returned [`Plan`] records whether a prior reference already produced
-    /// the output, so callers can act on a pure reuse (e.g. suppress a
-    /// conversion progress indicator) before [`execute`](Self::execute)ing it.
+    /// The returned [`Plan`] records whether an existing output can be reused,
+    /// so callers can suppress conversion progress before
+    /// [`execute`](Self::execute) runs it.
     pub(crate) fn plan(
         &self,
         message: &Message,
@@ -144,9 +143,8 @@ impl AttachmentManager {
             });
         };
 
-        // If the same attachment was referenced more than once, i.e. in a reply
-        // or response that we render twice, it was reloaded fresh from the DB, so
-        // the prior copy on disk is the only record that it was handled.
+        // Repeated references reload a fresh attachment row, so the on-disk
+        // output is the durable reuse signal.
         if let Some((path, media_type)) = target.existing_copy(attachment) {
             return Ok(Plan::Reuse { path, media_type });
         }

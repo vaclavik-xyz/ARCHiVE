@@ -1,13 +1,13 @@
 use crate::util::data_detected::{FromScannerResult, ScannerResult};
 
-/// A detected postal address within message text.
+/// Postal address metadata emitted for a detected range in message text.
 ///
 /// Apple's `DataDetectorsCore` framework tags addresses under the
 /// `__kIMAddressAttributeName` attribute as a `FullAddress` [`ScannerResult`]
 /// whose children decompose the match into its components. The tree is nested:
 /// `StreetNumber` and `StreetName` sit under `Street`, and `CountryCode` sits
-/// under `Country`. Every component is read straight from the payload, so the
-/// structured fields are available without re-parsing the message text.
+/// under `Country`. This means the structured fields can be read from the
+/// archived detector payload instead of inferred from the original text.
 ///
 /// Only [`full`](Self::full) is guaranteed; the remaining components are present
 /// only when the detector resolved them (e.g. a bare street with no city).
@@ -38,7 +38,7 @@ pub struct DetectedAddress {
 }
 
 impl FromScannerResult for DetectedAddress {
-    /// Parse an address from a `FullAddress` scanner result.
+    /// Accept only `FullAddress` scanner results and extract the useful fields.
     ///
     /// Walks the direct children for `Street`, `City`, `State`, `ZipCode`, and
     /// `Country`, descending into `Street` for the number/name split and into
@@ -104,7 +104,7 @@ mod tests {
     use super::DetectedAddress;
     use crate::util::data_detected::{FromScannerResult, ScannerResult};
 
-    /// Parse an address from a raw data-detector plist fixture, end to end.
+    /// Exercise the real archived payload before building a `DetectedAddress`.
     fn parse_address(plist: &Value) -> Option<DetectedAddress> {
         ScannerResult::root(plist).and_then(|result| DetectedAddress::from_scanner_result(&result))
     }

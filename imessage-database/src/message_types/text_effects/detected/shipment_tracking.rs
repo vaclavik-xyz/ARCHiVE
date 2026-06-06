@@ -1,12 +1,13 @@
 use crate::util::data_detected::{FromScannerResult, ScannerResult};
 
-/// A detected package-tracking number within message text.
+/// Package-tracking metadata emitted for a detected range in message text.
 ///
 /// Apple's `DataDetectorsCore` framework tags tracking numbers under the shared
 /// `__kIMDataDetectedAttributeName` attribute as a `TrackingNumber`
 /// [`ScannerResult`]. The number is the result's matched text, and the carrier
 /// is expressed as the *type* of the sole nested result (`UPS`, `DHL`, `USPS`,
-/// `FedEx`, …), so it is read from that child's kind rather than a value field.
+/// `FedEx`, etc.), so it is read from that child's kind rather than a value
+/// field.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ShipmentTracking {
     /// The carrier, taken from the nested result's type, e.g. `UPS`.
@@ -20,8 +21,8 @@ pub struct ShipmentTracking {
 }
 
 impl FromScannerResult for ShipmentTracking {
-    /// Tracking numbers arrive via the shared `__kIMDataDetectedAttributeName`
-    /// attribute, so payloads are pre-filtered before parsing.
+    /// Tracking numbers use the shared data-detector attribute, so the raw
+    /// payload is checked for `TrackingNumber` before plist parsing.
     const MARKERS: &[&[u8]] = &[b"TrackingNumber"];
 
     fn from_scanner_result(result: &ScannerResult<'_>) -> Option<Self> {
@@ -59,8 +60,6 @@ mod tests {
 
     #[test]
     fn parses_ups_tracking() {
-        // The carrier comes from the nested result's type, the number from the
-        // root's matched text.
         assert_eq!(
             parse("TrackingUps.plist"),
             Some(ShipmentTracking {

@@ -1,5 +1,5 @@
 /*
- Routines for working with `typedstream` data, focussing specifically on [`NSAttributedString`](https://developer.apple.com/documentation/foundation/nsattributedstring).
+ Routines for working with `typedstream` data, focusing on [`NSAttributedString`](https://developer.apple.com/documentation/foundation/nsattributedstring) payloads from `message.attributedBody`.
 */
 
 use std::{
@@ -30,9 +30,7 @@ use crate::{
 };
 
 // MARK: Constants
-/// `NSDictionary` keys that are used to identify attachment metadata
-/// If any of these keys are present in the message body, it is considered an attachment
-/// and the `AttachmentMeta` struct will be populated with the relevant data.
+/// `NSDictionary` keys that identify attachment metadata on a body range.
 static ATTACHMENT_META_KEYS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     HashSet::from([
         "__kIMFileTransferGUIDAttributeName",
@@ -42,48 +40,45 @@ static ATTACHMENT_META_KEYS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "IMAudioTranscription",
     ])
 });
-/// Character found in message body text that indicates attachment position
+/// Character that marks an attachment position in body text.
 const ATTACHMENT_CHAR: char = '\u{FFFC}';
-/// Character found in message body text that indicates app message position
+/// Character that marks an app-message position in body text.
 const APP_CHAR: char = '\u{FFFD}';
-/// A collection of characters that represent non-text content within body text
+/// Non-text replacement characters in body text.
 const REPLACEMENT_CHARS: [char; 2] = [ATTACHMENT_CHAR, APP_CHAR];
 
-/// Indicates the outcome of parsing an attributed range: either an optional text effect or a style change.
+/// Attribute parser output for one key/value pair on an attributed range.
 #[derive(Debug, PartialEq)]
 pub enum RangeResult {
+    /// A complete text effect, or `None` when the key was not handled.
     Effect(Option<TextEffect>),
+    /// A style marker that will be merged into [`TextEffect::Styles`].
     Style(Style),
 }
 
-/// The result of parsing a message body, containing its components and optional plain text.
+/// Parsed attributed body content.
 #[derive(Debug, PartialEq)]
 pub struct ParseResult {
+    /// Bubble components reconstructed from attributed ranges.
     pub components: Vec<BubbleComponent>,
+    /// Plain message text, when present in the typedstream payload.
     pub text: Option<String>,
 }
 
 // MARK: Logic
-/// Logic to use deserialized `typedstream` data to parse the message body
+/// Parse a deserialized `typedstream` attributed body.
 ///
-/// Parses `typedstream` components and optional edited parts into message body components and text.
+/// The parser reads the [`NSAttributedString`](https://developer.apple.com/documentation/foundation/nsattributedstring) text, converts UTF-16 range
+/// offsets to byte offsets, builds [`AttributedRange`]s for text effects,
+/// styles, and inline attachments, then groups ranges into
+/// [`BubbleComponent::Run`] values by message part. Unsent edit parts are
+/// inserted as retracted components.
 ///
-/// Takes an optional [`PropertyIterator`] over `typedstream` data and optional edited parts,
-/// returning `Some(ParseResult)` when parsing yields components, otherwise `None`.
-///
-/// # Parameters
-///
-/// - `components`: Iterator over `typedstream` properties representing an `NSAttributedString`.
-/// - `edited_parts`: Optional edited message parts to mark unsent components.
-///
-/// # Returns
-///
-/// `Option<ParseResult>` containing parsed components and text, or `None` if no components found.
+/// Returns `None` only when no text was read and no components were produced.
 pub fn parse_body_typedstream<'a>(
     components: Option<PropertyIterator<'a, 'a>>,
     edited_parts: Option<&'a EditedMessage>,
 ) -> Option<ParseResult> {
-    // Create the output data
     let mut message_text = None;
 
     // Flat list of attributed ranges paired with their
@@ -93,12 +88,11 @@ pub fn parse_body_typedstream<'a>(
 
     // Format ranges are only stored once and then referenced by order of
     // appearance, so we cache them to reapply styles and attributes. The key is
-    // the range ID; the value is the previously built range plus its part
-    // index. A cache hit means an identical attribute dictionary, hence an
-    // identical part index, so reusing the cached part is sound.
+    // the range ID; the value is the cached range plus its part index. A cache
+    // hit means an identical attribute dictionary, hence an identical part
+    // index, so reusing the cached part is sound.
     let mut format_range_cache: HashMap<i64, (AttributedRange, i64)> = HashMap::with_capacity(4);
 
-    // Start to iterate over the ranges
     let mut current_range_id;
     let mut current_start;
     let mut current_end = 0;
@@ -218,9 +212,7 @@ fn utf16_idx(text: &str, idx: usize, map: &[usize]) -> usize {
 
 /// Builds a single [`AttributedRange`] from one typedstream range's
 /// `NSDictionary`, walking *every* key so attachment metadata, text effects,
-/// styles, and the inline-emoji hint are all captured on the same range
-/// (unlike the previous parser, which early-exited on the first attachment-meta
-/// key and dropped its siblings).
+/// styles, and the inline-emoji hint are all captured on the same range.
 ///
 /// Returns the range together with its `__kIMMessagePartAttributeName` index
 /// (or `-1` when the attribute is absent), which the caller uses to group
@@ -275,7 +267,6 @@ fn build_range<'a>(
             "__kIMEmojiImageAttributeName" => {
                 emoji_image = as_signed_integer(&value) == Some(1);
             }
-            // Determine the text effects or styles based on the key name
             _ => match get_text_effects(key_name, &value) {
                 RangeResult::Effect(Some(text_effect)) => effects.push(text_effect),
                 RangeResult::Style(style) => styles.push(style),
@@ -284,14 +275,13 @@ fn build_range<'a>(
         }
     }
 
-    // A text range with no effects still gets the explicit `Default` marker
-    // (mirrors the historical behavior). Attachment ranges keep an empty
-    // effects vec unless a real effect actually applied to them.
+    // A text range with no effects still gets the explicit `Default` marker.
+    // Attachment ranges keep an empty effects vec unless a real effect applied.
     if attachment.is_none() && effects.is_empty() && styles.is_empty() {
         effects.push(TextEffect::Default);
     }
 
-    // Styles ride along inside `effects` as a single `Styles(..)` entry, as before.
+    // Styles are represented as a single `TextEffect::Styles` entry.
     if !styles.is_empty() {
         effects.push(TextEffect::Styles(styles));
     }
@@ -328,8 +318,8 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
             return RangeResult::Effect(Some(TextEffect::Conversion(Unit::Timezone)));
         }
         "__kIMDataDetectedAttributeName" => {
-            // The data-detector attribute is a union of result types; try each
-            // handled type in turn. Per-type `MARKERS` make the misses cheap.
+            // This attribute carries unrelated detector payloads. Per-type
+            // markers let negative probes return before plist deserialization.
             return RangeResult::Effect(
                 Unit::from_attribute(value)
                     .map(TextEffect::Conversion)
@@ -356,7 +346,7 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
                 ))));
             }
         }
-        // Collect style attributes for later processing
+        // Styles are collected and merged into one `TextEffect::Styles` value.
         "__kIMTextBoldAttributeName" => return RangeResult::Style(Style::Bold),
         "__kIMTextUnderlineAttributeName" => return RangeResult::Style(Style::Underline),
         "__kIMTextItalicAttributeName" => return RangeResult::Style(Style::Italic),
@@ -370,13 +360,11 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
 }
 
 // MARK: Fallback
-/// Fallback logic to parse the body from the message string content
+/// Parse body components from the plain message string.
 pub(crate) fn parse_body_legacy(text: &Option<String>) -> Vec<BubbleComponent> {
     let mut out_v = vec![];
-    // Naive logic for when `typedstream` component parsing fails. We have no
-    // part indexes here, so each text segment and each attachment becomes its
-    // own single-range `Run`, preserving the per-segment bubble boundaries the
-    // previous shape produced.
+    // There are no part indexes in the fallback string path, so each text
+    // segment and each attachment becomes its own single-range `Run`.
     match text {
         Some(text) => {
             let mut start: usize = 0;
