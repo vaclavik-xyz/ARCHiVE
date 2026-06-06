@@ -1,14 +1,14 @@
 /*!
- Structured entities detected within message body text by Apple's
- `DataDetectorsCore` framework.
+ Structured entities Apple detects inside message body text.
 
- Unlike the sender-applied formatting in the parent module ([`animation`] and
- [`style`]), each of these types is recognized automatically from the message
- text and parses itself from a `DDScannerResult` payload via
- [`FromScannerResult`](crate::util::data_detected::FromScannerResult).
+ These differ from sender-applied formatting in the parent module
+ ([`animation`] and [`style`]): the message text triggers
+ `DataDetectorsCore`, which stores a `DDScannerResult` archive on the
+ attributed range. Each type owns the parser for the corresponding detector
+ shape via [`FromScannerResult`](crate::util::data_detected::FromScannerResult).
 
- [`animation`]: super::animation
- [`style`]: super::style
+ [`animation`]: crate::message_types::text_effects::animation
+ [`style`]: crate::message_types::text_effects::style
 */
 
 /// Detected postal addresses.
