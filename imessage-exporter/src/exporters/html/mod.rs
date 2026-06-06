@@ -4350,7 +4350,10 @@ mod text_effect_tests {
     use imessage_database::{
         message_types::text_effects::{
             animation::Animation,
-            detected::{address::DetectedAddress, unit::Unit},
+            detected::{
+                address::DetectedAddress, currency::DetectedCurrency, flight::Flight,
+                shipment_tracking::ShipmentTracking, unit::Unit,
+            },
             style::Style,
             text_effect::TextEffect,
         },
@@ -4495,6 +4498,57 @@ mod text_effect_tests {
         };
         let actual = exporter.format_address("1 Apple Park Way, Cupertino, CA 95014", &address);
         let expected = "<u>1 Apple Park Way, Cupertino, CA 95014</u>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_currency() {
+        // Create exporter
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let currency = DetectedCurrency {
+            symbol: "$".to_string(),
+            amount: "16".to_string(),
+        };
+        let actual = exporter.format_currency("$16", &currency);
+        let expected = "<u>$16</u>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_tracking() {
+        // Create exporter
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let tracking = ShipmentTracking {
+            carrier: Some("UPS".to_string()),
+            number: "1Z999AA10123456784".to_string(),
+        };
+        let actual = exporter.format_tracking("1Z999AA10123456784", &tracking);
+        let expected = "<u>1Z999AA10123456784</u>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_flight() {
+        // Create exporter
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let flight = Flight {
+            airline: Some("AS".to_string()),
+            number: "1111".to_string(),
+        };
+        let actual = exporter.format_flight("AS 1111", &flight);
+        let expected = "<u>AS 1111</u>";
 
         assert_eq!(actual, expected);
     }

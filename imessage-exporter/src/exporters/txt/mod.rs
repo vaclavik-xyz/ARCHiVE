@@ -3038,7 +3038,13 @@ mod balloon_format_tests {
 mod text_effect_tests {
     use imessage_database::{
         message_types::text_effects::{
-            animation::Animation, detected::unit::Unit, style::Style, text_effect::TextEffect,
+            animation::Animation,
+            detected::{
+                currency::DetectedCurrency, flight::Flight, shipment_tracking::ShipmentTracking,
+                unit::Unit,
+            },
+            style::Style,
+            text_effect::TextEffect,
         },
         tables::messages::models::{AttributedRange, BubbleComponent},
     };
@@ -3192,6 +3198,57 @@ mod text_effect_tests {
             .format_message_into(&message, RenderContext::TopLevel, &mut actual)
             .unwrap();
         let expected = "May 17, 2022  5:29:42 PM\nMe\n8:00 pm\n\n";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_detected_effects_are_unformatted() {
+        let options = Options::fake_options(ExportType::Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let mut message = Config::fake_message();
+        // May 17, 2022  8:29:42 PM
+        message.date = 674526582885055488;
+        message.text = Some("$16 1Z999AA10123456784 AS 1111".to_string());
+        message.is_from_me = true;
+        message.chat_id = Some(0);
+
+        message.components = vec![BubbleComponent::Run(vec![
+            AttributedRange::text(
+                0,
+                3,
+                vec![TextEffect::Currency(DetectedCurrency {
+                    symbol: "$".to_string(),
+                    amount: "16".to_string(),
+                })],
+            ),
+            AttributedRange::text(3, 4, vec![TextEffect::Default]),
+            AttributedRange::text(
+                4,
+                22,
+                vec![TextEffect::Tracking(ShipmentTracking {
+                    carrier: Some("UPS".to_string()),
+                    number: "1Z999AA10123456784".to_string(),
+                })],
+            ),
+            AttributedRange::text(22, 23, vec![TextEffect::Default]),
+            AttributedRange::text(
+                23,
+                30,
+                vec![TextEffect::Flight(Flight {
+                    airline: Some("AS".to_string()),
+                    number: "1111".to_string(),
+                })],
+            ),
+        ])];
+
+        let mut actual = String::new();
+        exporter
+            .format_message_into(&message, RenderContext::TopLevel, &mut actual)
+            .unwrap();
+        let expected = "May 17, 2022  5:29:42 PM\nMe\n$16 1Z999AA10123456784 AS 1111\n\n";
 
         assert_eq!(actual, expected);
     }
