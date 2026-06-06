@@ -1,39 +1,40 @@
-/// Animated text effect container
+/// Animation applied to a message text range.
 ///
 /// A message's [`typedstream`](crate::util::typedstream) contains an [`i64`] identifier under the key `__kIMTextEffectAttributeName`.
 ///
 /// Read more about text styles [here](https://www.apple.com/newsroom/2024/06/ios-18-makes-iphone-more-personal-capable-and-intelligent-than-ever/).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Animation {
-    /// Denoted by an ID of `5`
+    /// Identifier `5`.
     Big,
-    /// Denoted by an ID of `11`
+    /// Identifier `11`.
     Small,
-    /// Denoted by an ID of `9`
+    /// Identifier `9`.
     Shake,
-    /// Denoted by an ID of `8`
+    /// Identifier `8`.
     Nod,
-    /// Denoted by an ID of `12`
+    /// Identifier `12`.
     Explode,
-    /// Denoted by an ID of `4`
+    /// Identifier `4`.
     Ripple,
-    /// Denoted by an ID of `6`
+    /// Identifier `6`.
     Bloom,
-    /// Denoted by an ID of `10`
+    /// Identifier `10`.
     Jitter,
-    /// A new identifier not currently supported
+    /// Identifier not mapped by this crate.
     Unknown(i64),
 }
 
 impl Animation {
-    /// Get the animation from its ID given in a message's [`typedstream`](crate::util::typedstream) data, under the `__kIMTextEffectAttributeName` key.
+    /// Map the `__kIMTextEffectAttributeName` integer to an animation.
     ///
     /// # Example:
     ///
     /// ```
     /// use imessage_database::message_types::text_effects::animation::Animation;
     ///
-    /// let animation = Animation::from_id(5); // Animation::Big
+    /// assert_eq!(Animation::from_id(5), Animation::Big);
+    /// assert_eq!(Animation::from_id(42), Animation::Unknown(42));
     /// ```
     #[must_use]
     pub fn from_id(value: i64) -> Self {

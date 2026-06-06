@@ -1,13 +1,11 @@
 /*!
- Contains various types of text effects that can be applied to message body text.
+ Formatting and detector metadata attached to message body text.
 */
 
 /// Animated text effects.
 pub mod animation;
-/// Structured entities detected within message text (currency, addresses,
-/// units, flights, package tracking).
 pub mod detected;
 /// Traditional text styles.
 pub mod style;
-/// Text effect container.
+/// Text effect enum.
 pub mod text_effect;

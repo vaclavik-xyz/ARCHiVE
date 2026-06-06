@@ -1,6 +1,6 @@
 use crate::util::data_detected::{FromScannerResult, ScannerResult};
 
-/// A detected monetary amount within message text.
+/// Monetary amount metadata emitted for a detected range in message text.
 ///
 /// Apple's `DataDetectorsCore` framework tags currency mentions (e.g. `$16`,
 /// `$10k`, `$199.98`, or `5 dollars`) under the `__kIMMoneyAttributeName`
@@ -23,7 +23,7 @@ pub struct DetectedCurrency {
 }
 
 impl FromScannerResult for DetectedCurrency {
-    /// Parse a currency from a `Money` scanner result.
+    /// Accept only `Money` scanner results and split the detector's match.
     ///
     /// The symbol is the matched text of the nested `Currency` result; the
     /// amount is the `Money` result's matched text with that symbol removed.
@@ -44,13 +44,12 @@ impl FromScannerResult for DetectedCurrency {
 }
 
 impl DetectedCurrency {
-    /// Recover the bare amount by stripping the currency `symbol` from the full
-    /// matched text.
+    /// Remove the detected currency `symbol` from the full matched text.
     ///
     /// The symbol always appears as either a prefix (`$16`) or a suffix
     /// (`5 dollars`) of the match, so removing it and trimming surrounding
-    /// whitespace yields the amount. A symbol that is neither (not observed in
-    /// practice) leaves the matched text intact rather than dropping it.
+    /// whitespace yields the amount. If the symbol is elsewhere, the matched
+    /// text is preserved instead of dropping the amount.
     fn amount_without_symbol(matched: &str, symbol: &str) -> String {
         matched
             .strip_prefix(symbol)
@@ -91,8 +90,8 @@ mod tests {
 
     #[test]
     fn amount_unstrippable_symbol_returns_match() {
-        // Defensive: a symbol that is neither prefix nor suffix leaves the
-        // matched text intact rather than dropping it.
+        // Unexpected symbol positions keep the original match instead of
+        // dropping the amount.
         assert_eq!(DetectedCurrency::amount_without_symbol("16", "$"), "16");
     }
 }

@@ -4,17 +4,18 @@
 
 use crabstep::{OutputData, PropertyIterator, deserializer::iter::Property};
 
-/// Represents a range pair that contains a type index and a length.
+/// Pair used by attributed-body ranges: attribute dictionary index plus UTF-16
+/// range length.
 #[derive(Debug)]
 pub struct TypeLengthPair {
-    /// The type index of the property.
+    /// Index of the attribute dictionary referenced by this range.
     pub type_index: i64,
-    /// The length of the text affected by the referenced property.
+    /// Length of the range in UTF-16 code units.
     pub length: u64,
 }
 
 // MARK: Type Length
-/// Converts a `Property` to a range pair used to denote a type index and a length.
+/// Extract a [`TypeLengthPair`] from a two-integer typedstream group.
 #[inline(always)]
 pub fn as_type_length_pair(property: &Property<'_, '_>) -> Option<TypeLengthPair> {
     if let Property::Group(group) = property {
@@ -32,7 +33,7 @@ pub fn as_type_length_pair(property: &Property<'_, '_>) -> Option<TypeLengthPair
 }
 
 // MARK: i64
-/// Converts a `Property` to an `Option<i64>` if it is a signed integer or similar structure.
+/// Extract a signed integer from a primitive value or wrapped `NSNumber`.
 #[must_use]
 #[inline(always)]
 pub fn as_signed_integer(property: &Property<'_, '_>) -> Option<i64> {
@@ -50,7 +51,7 @@ pub fn as_signed_integer(property: &Property<'_, '_>) -> Option<i64> {
 }
 
 // MARK: u64
-/// Converts a `Property` to an `Option<u64>` if it is an unsigned integer or similar structure.
+/// Extract an unsigned integer from a primitive value or wrapped `NSNumber`.
 #[must_use]
 #[inline(always)]
 pub fn as_unsigned_integer(property: &Property<'_, '_>) -> Option<u64> {
@@ -68,7 +69,7 @@ pub fn as_unsigned_integer(property: &Property<'_, '_>) -> Option<u64> {
 }
 
 // MARK: f64
-/// Converts a `Property` to an `Option<f64>` if it is a double or similar numeric structure.
+/// Extract a double from a primitive value or wrapped `NSNumber`.
 #[must_use]
 #[inline(always)]
 pub fn as_float(property: &Property<'_, '_>) -> Option<f64> {
@@ -86,7 +87,7 @@ pub fn as_float(property: &Property<'_, '_>) -> Option<f64> {
 }
 
 // MARK: String
-/// Converts a `Property` to an `Option<&str>` if it is a `NSString` or similar structure.
+/// Extract a string from `NSString`, `NSMutableString`, or `NSAttributedString`.
 #[inline(always)]
 pub fn as_nsstring<'a>(property: &Property<'a, 'a>) -> Option<&'a str> {
     if let Property::Group(group) = property
@@ -101,8 +102,7 @@ pub fn as_nsstring<'a>(property: &Property<'a, 'a>) -> Option<&'a str> {
 }
 
 // MARK: Data
-/// Converts a `Property` to an `Option<&[u8]>` if it is `NSData` or its mutable
-/// subclass `NSMutableData`.
+/// Return the raw bytes carried by an `NSData` or `NSMutableData` property.
 #[inline(always)]
 pub fn as_nsdata<'a>(property: &Property<'a, 'a>) -> Option<&'a [u8]> {
     if let Property::Group(group) = property
@@ -124,7 +124,7 @@ pub fn as_nsdata<'a>(property: &Property<'a, 'a>) -> Option<&'a [u8]> {
 }
 
 // MARK: Dict
-/// Converts a `Property` to a `PropertyIterator` if it is a `NSDictionary`.
+/// Extract the key/value iterator from an `NSDictionary`.
 ///
 /// Returns the iterator **by value** (the lazy group yields owned properties).
 #[inline(always)]
@@ -139,8 +139,7 @@ pub fn as_ns_dictionary<'a>(property: &Property<'a, 'a>) -> Option<PropertyItera
 }
 
 // MARK: NSURL
-/// Given a resolved `Property`, walks two levels of nested groups under an
-/// `NSURL`→`NSString` and returns the inner `&str`.
+/// Extract the string payload from an `NSURL` encoded as a nested `NSString`.
 #[inline(always)]
 pub fn as_nsurl<'a>(property: &Property<'a, 'a>) -> Option<&'a str> {
     // Only care about the top-level group.

@@ -1,46 +1,42 @@
 use crate::util::data_detected::{FromScannerResult, ScannerResult};
 
-/// Unit conversion text effect container
+/// Unit conversion dimension detected in message text.
+///
+/// `DataDetectorsCore` stores concrete unit names in the detector payload
+/// (`fahrenheit`, `mile per hour`, `gallon-imperial`, etc.). The parser groups
+/// those names into these broader dimensions and preserves unmapped names as
+/// [`Unknown`](Self::Unknown).
 ///
 /// Read more about unit conversions [here](https://www.macrumors.com/how-to/convert-currencies-temperatures-more-ios-16/).
-///
-/// The recognized unit identifiers are emitted verbatim by Apple's private
-/// `DataDetectorsCore` framework. The full vocabulary was read from the
-/// framework binary's `__cstring` section on macOS 26.5 (`arm64e`) via:
-///
-/// ```text
-///   dyld_info -section __TEXT __cstring \
-///     /System/Library/PrivateFrameworks/DataDetectorsCore.framework/DataDetectorsCore
-/// ```
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Unit {
-    /// Angle conversion
+    /// Angle unit.
     Angle,
-    /// Area conversion
+    /// Area unit.
     Area,
-    /// Distance conversion
+    /// Distance unit.
     Distance,
-    /// Duration conversion
+    /// Duration unit.
     Duration,
-    /// Energy conversion
+    /// Energy unit.
     Energy,
-    /// Fuel efficiency conversion
+    /// Fuel efficiency unit.
     FuelEfficiency,
-    /// Power conversion
+    /// Power unit.
     Power,
-    /// Pressure conversion
+    /// Pressure unit.
     Pressure,
-    /// Speed conversion
+    /// Speed unit.
     Speed,
-    /// Temperature conversion
+    /// Temperature unit.
     Temperature,
-    /// Timezone conversion
+    /// Timezone conversion marker.
     Timezone,
-    /// Volume conversion
+    /// Volume unit.
     Volume,
-    /// Weight conversion
+    /// Weight unit.
     Weight,
-    /// A detected unit whose name did not map to any dimension above
+    /// Unit name that did not map to any known dimension.
     ///
     /// The embedded data is the raw unit name emitted by `DataDetectorsCore`,
     /// preserved verbatim.
@@ -48,12 +44,12 @@ pub enum Unit {
 }
 
 impl FromScannerResult for Unit {
-    /// Units arrive via the shared `__kIMDataDetectedAttributeName` attribute, so
-    /// payloads are pre-filtered to those naming a physical amount before parsing.
+    /// Units use the shared data-detector attribute, so the raw payload is
+    /// checked for physical-amount markers before plist parsing.
     const MARKERS: &[&[u8]] = &[b"PhysicalAmount", b"Unit"];
 
-    /// A unit conversion is either a bare `Unit` result or a `PhysicalAmount`
-    /// wrapping one; any other scanner-result type is not a unit.
+    /// A conversion is either a bare `Unit` result or a `PhysicalAmount` that
+    /// wraps one; any other scanner-result type is a negative match.
     fn from_scanner_result(result: &ScannerResult<'_>) -> Option<Self> {
         match result.kind()? {
             "Unit" => Self::from_unit_name(result.value()?),
@@ -66,8 +62,6 @@ impl FromScannerResult for Unit {
 }
 
 impl Unit {
-    /// See [`Unit`] enum docs for source detail on internal strings.
-    ///
     /// Currency and timezone conversions are detected through other channels
     /// (the scanner-result type and `__kIMCalendarEventAttributeName`), so they
     /// do not appear here. Imperial units arrive as `<base>-imperial`, so the
@@ -112,7 +106,7 @@ mod tests {
     use super::Unit;
     use crate::util::data_detected::{FromScannerResult, ScannerResult};
 
-    /// Parse a unit from a raw data-detector plist fixture, end to end.
+    /// Exercise the real archived payload before mapping it to a unit.
     fn parse_unit(plist: &Value) -> Option<Unit> {
         ScannerResult::root(plist).and_then(|result| Unit::from_scanner_result(&result))
     }

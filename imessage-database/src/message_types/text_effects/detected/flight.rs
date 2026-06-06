@@ -1,6 +1,6 @@
 use crate::util::data_detected::{FromScannerResult, ScannerResult};
 
-/// A detected flight reference within message text.
+/// Flight metadata emitted for a detected range in message text.
 ///
 /// Apple's `DataDetectorsCore` framework tags flights under the shared
 /// `__kIMDataDetectedAttributeName` attribute as a `FlightInformation`
@@ -19,8 +19,8 @@ pub struct Flight {
 }
 
 impl FromScannerResult for Flight {
-    /// Flights arrive via the shared `__kIMDataDetectedAttributeName` attribute,
-    /// so payloads are pre-filtered before parsing.
+    /// Flights use the shared data-detector attribute, so the raw payload is
+    /// checked for `FlightInformation` before plist parsing.
     const MARKERS: &[&[u8]] = &[b"FlightInformation"];
 
     fn from_scanner_result(result: &ScannerResult<'_>) -> Option<Self> {
@@ -69,7 +69,6 @@ mod tests {
 
     #[test]
     fn parses_flight_with_airline_code() {
-        // The `AirlineCode` match is already the IATA code, with no value.
         assert_eq!(
             parse("FlightCode.plist"),
             Some(Flight {
@@ -81,7 +80,6 @@ mod tests {
 
     #[test]
     fn prefers_airline_code_value_over_name() {
-        // The `AirlineCode` match is the airline name; the value holds the code.
         assert_eq!(
             parse("FlightNamedAirline.plist"),
             Some(Flight {
