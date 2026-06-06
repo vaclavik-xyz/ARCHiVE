@@ -757,7 +757,7 @@ impl Message {
         matches!(self.variant(), Variant::App(CustomBalloon::DigitalTouch))
     }
 
-    /// `true` when the message is a [`Poll`](crate::message_types::polls::Poll).
+    /// `true` when the message is a [`Poll`].
     #[must_use]
     pub fn is_poll(&self) -> bool {
         matches!(self.variant(), Variant::App(CustomBalloon::Polls))
