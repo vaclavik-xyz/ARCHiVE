@@ -4349,7 +4349,8 @@ mod text_effect_tests {
 
     use imessage_database::{
         message_types::text_effects::{
-            animation::Animation, style::Style, text_effect::TextEffect, unit::Unit,
+            address::DetectedAddress, animation::Animation, style::Style, text_effect::TextEffect,
+            unit::Unit,
         },
         tables::messages::models::{AttributedRange, BubbleComponent},
     };
@@ -4479,7 +4480,18 @@ mod text_effect_tests {
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
-        let actual = exporter.format_address("1 Apple Park Way, Cupertino, CA 95014");
+        let address = DetectedAddress {
+            full: "1 Apple Park Way, Cupertino, CA 95014".to_string(),
+            street: Some("1 Apple Park Way".to_string()),
+            street_number: Some("1".to_string()),
+            street_name: Some("Apple Park Way".to_string()),
+            city: Some("Cupertino".to_string()),
+            state: Some("CA".to_string()),
+            zip: Some("95014".to_string()),
+            country: None,
+            country_code: None,
+        };
+        let actual = exporter.format_address("1 Apple Park Way, Cupertino, CA 95014", &address);
         let expected = "<u>1 Apple Park Way, Cupertino, CA 95014</u>";
 
         assert_eq!(actual, expected);

@@ -1,4 +1,7 @@
-use super::{animation::Animation, currency::DetectedCurrency, style::Style, unit::Unit};
+use super::{
+    address::DetectedAddress, animation::Animation, currency::DetectedCurrency, style::Style,
+    unit::Unit,
+};
 
 /// Text effect container
 ///
@@ -20,7 +23,11 @@ pub enum TextEffect {
     /// A one-time code, i.e. from a 2FA message
     OTP,
     /// A detected postal address within the message text
-    Address,
+    ///
+    /// The embedded data contains the address components. It is boxed because
+    /// [`DetectedAddress`] is large relative to the other variants, which would
+    /// otherwise inflate every `TextEffect` to its size.
+    Address(Box<DetectedAddress>),
     /// Traditional formatting styles
     ///
     /// The embedded data contains the formatting styles applied to the range.

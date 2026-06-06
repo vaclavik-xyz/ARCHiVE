@@ -12,8 +12,8 @@ use imessage_database::{
         placemark::PlacemarkMessage,
         polls::Poll,
         text_effects::{
-            animation::Animation, currency::DetectedCurrency, style::Style,
-            text_effect::TextEffect, unit::Unit,
+            address::DetectedAddress, animation::Animation, currency::DetectedCurrency,
+            style::Style, text_effect::TextEffect, unit::Unit,
         },
         url::URLMessage,
     },
@@ -237,7 +237,7 @@ pub(crate) trait TextEffectFormatter<'a> {
     /// Format message text containing an [`OTP`](imessage_database::message_types::text_effects::text_effect::TextEffect::OTP)
     fn format_otp(&self, text: &str) -> String;
     /// Format message text containing a detected [`Address`](imessage_database::message_types::text_effects::text_effect::TextEffect::Address)
-    fn format_address(&self, text: &str) -> String;
+    fn format_address(&self, text: &str, address: &DetectedAddress) -> String;
     /// Format message text containing a [`Conversion`](imessage_database::message_types::text_effects::text_effect::TextEffect::Conversion)
     fn format_conversion(&self, text: &str, unit: &Unit) -> String;
     /// Format message text containing a detected [`Currency`](imessage_database::message_types::text_effects::text_effect::TextEffect::Currency)

@@ -48,6 +48,10 @@ pub enum Unit {
 }
 
 impl FromScannerResult for Unit {
+    /// Units arrive via the shared `__kIMDataDetectedAttributeName` attribute, so
+    /// payloads are pre-filtered to those naming a physical amount before parsing.
+    const MARKERS: &[&[u8]] = &[b"PhysicalAmount", b"Unit"];
+
     /// A unit conversion is either a bare `Unit` result or a `PhysicalAmount`
     /// wrapping one; any other scanner-result type is not a unit.
     fn from_scanner_result(result: &ScannerResult<'_>) -> Option<Self> {

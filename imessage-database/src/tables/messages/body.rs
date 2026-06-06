@@ -4,7 +4,6 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    io::Cursor,
     sync::LazyLock,
 };
 
@@ -14,14 +13,14 @@ use crate::{
     message_types::{
         edited::{EditStatus, EditedMessage},
         text_effects::{
-            animation::Animation, currency::DetectedCurrency, style::Style,
-            text_effect::TextEffect, unit::Unit,
+            address::DetectedAddress, animation::Animation, currency::DetectedCurrency,
+            style::Style, text_effect::TextEffect, unit::Unit,
         },
     },
     tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
-    util::data_detected::{FromScannerResult, ScannerResult},
+    util::data_detected::FromScannerResult,
     util::typedstream::{
-        as_ns_dictionary, as_nsdata, as_nsstring, as_nsurl, as_signed_integer, as_type_length_pair,
+        as_ns_dictionary, as_nsstring, as_nsurl, as_signed_integer, as_type_length_pair,
     },
 };
 
@@ -332,13 +331,19 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
             return RangeResult::Effect(Some(TextEffect::Conversion(Unit::Timezone)));
         }
         "__kIMDataDetectedAttributeName" => {
-            return RangeResult::Effect(data_detected_unit(value).map(TextEffect::Conversion));
+            return RangeResult::Effect(Unit::from_attribute(value).map(TextEffect::Conversion));
         }
         "__kIMMoneyAttributeName" => {
-            return RangeResult::Effect(data_detected_currency(value).map(TextEffect::Currency));
+            return RangeResult::Effect(
+                DetectedCurrency::from_attribute(value).map(TextEffect::Currency),
+            );
         }
         "__kIMAddressAttributeName" => {
-            return RangeResult::Effect(Some(TextEffect::Address));
+            return RangeResult::Effect(
+                DetectedAddress::from_attribute(value)
+                    .map(Box::new)
+                    .map(TextEffect::Address),
+            );
         }
         "__kIMTextEffectAttributeName" => {
             if let Some(effect_id) = as_signed_integer(value) {
@@ -358,31 +363,6 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
     }
 
     RangeResult::Effect(None)
-}
-
-/// Parse a data-detector unit conversion from the `__kIMDataDetectedAttributeName` payload.
-fn data_detected_unit<'a>(value: &Property<'a, 'a>) -> Option<Unit> {
-    let data = as_nsdata(value)?;
-
-    const UNIT_MARKERS: [&[u8]; 2] = [b"PhysicalAmount", b"Unit"];
-    if !UNIT_MARKERS
-        .iter()
-        .any(|m| data.windows(m.len()).any(|w| w == *m))
-    {
-        return None;
-    }
-    let plist = plist::Value::from_reader(Cursor::new(data)).ok()?;
-    Unit::from_scanner_result(&ScannerResult::root(&plist)?)
-}
-
-/// Parse a detected currency from the `__kIMMoneyAttributeName` payload.
-///
-/// Unlike [`data_detected_unit`], no byte pre-filter is needed: this attribute
-/// is dedicated to money, so every payload is a `Money` scanner result.
-fn data_detected_currency<'a>(value: &Property<'a, 'a>) -> Option<DetectedCurrency> {
-    let data = as_nsdata(value)?;
-    let plist = plist::Value::from_reader(Cursor::new(data)).ok()?;
-    DetectedCurrency::from_scanner_result(&ScannerResult::root(&plist)?)
 }
 
 // MARK: Fallback
@@ -451,8 +431,8 @@ mod typedstream_tests {
         message_types::{
             edited::{EditStatus, EditedEvent, EditedMessage, EditedMessagePart},
             text_effects::{
-                animation::Animation, currency::DetectedCurrency, style::Style,
-                text_effect::TextEffect, unit::Unit,
+                address::DetectedAddress, animation::Animation, currency::DetectedCurrency,
+                style::Style, text_effect::TextEffect, unit::Unit,
             },
         },
         tables::messages::{
@@ -537,7 +517,17 @@ mod typedstream_tests {
             vec![BubbleComponent::Run(vec![AttributedRange::text(
                 0,
                 37,
-                vec![TextEffect::Address]
+                vec![TextEffect::Address(Box::new(DetectedAddress {
+                    full: "1 Apple Park Way, Cupertino, CA 95014".to_string(),
+                    street: Some("1 Apple Park Way".to_string()),
+                    street_number: Some("1".to_string()),
+                    street_name: Some("Apple Park Way".to_string()),
+                    city: Some("Cupertino".to_string()),
+                    state: Some("CA".to_string()),
+                    zip: Some("95014".to_string()),
+                    country: None,
+                    country_code: None,
+                }))]
             )])]
         );
     }

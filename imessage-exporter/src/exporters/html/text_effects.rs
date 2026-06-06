@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use imessage_database::message_types::text_effects::{
-    animation::Animation, currency::DetectedCurrency, style::Style, text_effect::TextEffect,
-    unit::Unit,
+    address::DetectedAddress, animation::Animation, currency::DetectedCurrency, style::Style,
+    text_effect::TextEffect, unit::Unit,
 };
 
 use crate::{
@@ -18,7 +18,7 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
             TextEffect::Mention(mentioned) => Cow::Owned(self.format_mention(text, mentioned)),
             TextEffect::Link(url) => Cow::Owned(self.format_link(text, url)),
             TextEffect::OTP => Cow::Owned(self.format_otp(text)),
-            TextEffect::Address => Cow::Owned(self.format_address(text)),
+            TextEffect::Address(address) => Cow::Owned(self.format_address(text, address)),
             TextEffect::Styles(styles) => Cow::Owned(self.format_styles(text, styles)),
             TextEffect::Animated(animation) => Cow::Owned(self.format_animated(text, animation)),
             TextEffect::Conversion(unit) => Cow::Owned(self.format_conversion(text, unit)),
@@ -41,7 +41,7 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
         format!("<u>{text}</u>")
     }
 
-    fn format_address(&self, text: &str) -> String {
+    fn format_address(&self, text: &str, _: &DetectedAddress) -> String {
         format!("<u>{text}</u>")
     }
 

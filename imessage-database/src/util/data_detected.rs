@@ -14,7 +14,12 @@
  individual semantic types parse themselves from a node via [`FromScannerResult`].
 */
 
+use std::io::Cursor;
+
+use crabstep::deserializer::iter::Property;
 use plist::{Dictionary, Value};
+
+use crate::util::typedstream::as_nsdata;
 
 /// The maximum depth the scanner-result walk descends before giving up.
 ///
@@ -124,8 +129,37 @@ impl<'a> ScannerResult<'a> {
 /// Returning `None` means "this node is not of the implementing type," which is
 /// an expected outcome rather than an error.
 pub trait FromScannerResult: Sized {
+    /// Byte markers gating a cheap pre-filter on the raw payload.
+    ///
+    /// When non-empty, [`from_attribute`](Self::from_attribute) parses the
+    /// payload only if it contains at least one of these byte sequences. This
+    /// skips deserializing results from the shared `__kIMDataDetectedAttributeName`
+    /// attribute that cannot be `Self`, since that attribute carries every
+    /// data-detector type. Types parsed from a dedicated attribute leave this
+    /// empty (the default).
+    const MARKERS: &[&[u8]] = &[];
+
     /// Attempt to parse `Self` from a scanner-result node.
     fn from_scanner_result(result: &ScannerResult<'_>) -> Option<Self>;
+
+    /// Parse `Self` from a typedstream attribute value carrying a
+    /// `DDScannerResult` archive (an `NSData`/`NSMutableData` blob).
+    ///
+    /// Returns `None` when the value is not data, fails the
+    /// [`MARKERS`](Self::MARKERS) pre-filter, is not a valid archive, or does
+    /// not represent a `Self`.
+    fn from_attribute<'p>(value: &Property<'p, 'p>) -> Option<Self> {
+        let data = as_nsdata(value)?;
+        if !Self::MARKERS.is_empty()
+            && !Self::MARKERS
+                .iter()
+                .any(|marker| data.windows(marker.len()).any(|window| window == *marker))
+        {
+            return None;
+        }
+        let plist = Value::from_reader(Cursor::new(data)).ok()?;
+        Self::from_scanner_result(&ScannerResult::root(&plist)?)
+    }
 }
 
 /// Read a `plist` `UID` as a `usize` index into the `$objects` table.
