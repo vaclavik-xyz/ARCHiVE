@@ -71,7 +71,6 @@ impl Unit {
 
         let result = objects.get(idx)?.as_dictionary()?;
         match Self::string_from_uid(objects, result.get("T")?)? {
-            "CurrencyAmount" | "MoneyAmount" => Some(Self::Currency),
             "Unit" => Self::from_unit_name(Self::string_from_uid(objects, result.get("V")?)?),
             "PhysicalAmount" => Self::child_results(objects, result.get("SR")?)?
                 .iter()
