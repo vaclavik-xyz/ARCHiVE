@@ -103,60 +103,52 @@ pub fn parse_body_typedstream<'a>(
     let mut current_start;
     let mut current_end = 0;
 
-    if let Some(mut components) = components {
-        // The first component is the text itself
-        if let Some(text) = components.next().as_ref().and_then(as_nsstring) {
-            message_text = Some(text.to_string());
-            // We want to index into the message text, so we need a table to align
-            // Apple's indexes with the actual chars, not the bytes
-            let utf16_to_byte: Vec<usize> = build_utf16_to_byte_map(text);
+    // The first component is the text itself
+    if let Some(mut components) = components
+        && let Some(text) = components.next().as_ref().and_then(as_nsstring)
+    {
+        message_text = Some(text.to_string());
 
-            while let Some(property) = components.next() {
-                // The first part of the range represents the index in the format cache
-                // the second part is the length of the range in UTF-16 code units
-                if let Some(range) = as_type_length_pair(&property) {
-                    current_start = current_end;
-                    current_end += range.length as usize;
-                    current_range_id = range.type_index;
+        // We want to index into the message text, so we need a table to align
+        // Apple's indexes with the actual chars, not the bytes
+        let utf16_to_byte: Vec<usize> = build_utf16_to_byte_map(text);
 
-                    let built = format_range_cache
-                        .get(&current_range_id)
-                        .cloned()
-                        // Try to reuse a cached range. Only text ranges are
-                        // reusable; attachment ranges carry occurrence-specific
-                        // metadata (e.g. the file-transfer GUID), so they are
-                        // always rebuilt from their own dictionary.
-                        .and_then(|(mut cached, part)| {
-                            if cached.attachment.is_none() {
-                                cached.start = utf16_idx(text, current_start, &utf16_to_byte);
-                                cached.end = utf16_idx(text, current_end, &utf16_to_byte);
-                                return Some((cached, part));
-                            }
-                            None
-                        })
-                        // If that failed, build a new range from the next dictionary.
-                        .or_else(|| {
-                            components
-                                .next()
-                                .as_ref()
-                                .and_then(as_ns_dictionary)
-                                .and_then(|dict| {
-                                    build_range(
-                                        dict,
-                                        text,
-                                        current_start,
-                                        current_end,
-                                        &utf16_to_byte,
-                                    )
+        while let Some(property) = components.next() {
+            // The first part of the range represents the index in the format cache
+            // the second part is the length of the range in UTF-16 code units
+            if let Some(range) = as_type_length_pair(&property) {
+                current_start = current_end;
+                current_end += range.length as usize;
+                current_range_id = range.type_index;
+
+                let built = format_range_cache
+                    .get(&current_range_id)
+                    .cloned()
+                    // Only text ranges are reusable; attachment ranges carry
+                    // occurrence-specific metadata such as file-transfer GUIDs.
+                    .and_then(|(mut cached, part)| {
+                        if cached.attachment.is_none() {
+                            cached.start = utf16_idx(text, current_start, &utf16_to_byte);
+                            cached.end = utf16_idx(text, current_end, &utf16_to_byte);
+                            return Some((cached, part));
+                        }
+                        None
+                    })
+                    .or_else(|| {
+                        components
+                            .next()
+                            .as_ref()
+                            .and_then(as_ns_dictionary)
+                            .and_then(|dict| {
+                                build_range(dict, text, current_start, current_end, &utf16_to_byte)
                                     .inspect(|built| {
                                         format_range_cache.insert(current_range_id, built.clone());
                                     })
-                                })
-                        });
+                            })
+                    });
 
-                    if let Some(built) = built {
-                        ranges.push(built);
-                    }
+                if let Some(built) = built {
+                    ranges.push(built);
                 }
             }
         }
