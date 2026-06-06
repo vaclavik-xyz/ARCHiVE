@@ -17,16 +17,16 @@ use crate::app::{
 };
 
 pub struct DataSource {
-    /// The connection we use to query the database
+    /// Messages database connection.
     ///
     /// This is wrapped in `Option` to allow for taking/dropping it when cleaning up temporary files,
     /// but should always be `Some` during normal operation.
     messages_connection: Option<Connection>,
-    /// Index of contacts, mapping emails and phone numbers to name data
+    /// Contacts index keyed by email and phone number.
     ///
     /// If construction fails, this will be an empty index, and a warning will be logged.
     pub contacts_index: ContactsIndex,
-    /// An optional encrypted iOS backup
+    /// Encrypted iOS backup when one was opened.
     pub backup: Option<Backup>,
     /// Path to a temporary decrypted messages database that this `DataSource` owns and
     /// must clean up on drop. `None` when the messages database is a real on-disk file
@@ -35,7 +35,7 @@ pub struct DataSource {
 }
 
 impl DataSource {
-    /// Create a new `DataSource` from the provided Options
+    /// Build the data source described by the provided options.
     ///
     /// Options constructor determines the platform and database location logic already,
     /// so this just uses that to create the appropriate connections and indexes.
@@ -101,7 +101,7 @@ impl DataSource {
         }
     }
 
-    /// Construct a `ContactsIndex`, if possible, logging a warning if the construction fails
+    /// Build a contacts index, logging a warning on failure.
     fn get_contacts_index(path: Option<&Path>) -> Option<ContactsIndex> {
         match ContactsIndex::build(path) {
             Ok(index) => Some(index),
@@ -114,7 +114,7 @@ impl DataSource {
         }
     }
 
-    /// Get the current database connection, if it is alive
+    /// Return the active Messages database connection.
     ///
     /// # Panics
     ///
@@ -159,7 +159,6 @@ mod tests {
 
     #[test]
     fn test_data_source_from_macos() {
-        // Create fake options for macOS
         let mut options = Options::fake_options(ExportType::Txt);
         options.platform = Platform::macOS;
 

@@ -1,5 +1,5 @@
 /*!
- Contains data structures used to describe file converters and associated types.
+ Attachment converter selection.
 */
 
 use std::{
@@ -8,12 +8,12 @@ use std::{
 };
 
 pub trait Converter {
-    /// Determine the converter type for the current shell environment
+    /// Detect the converter available in the current shell environment.
     fn determine() -> Option<Self>
     where
         Self: Sized;
 
-    /// The name of the program the current variant represents
+    /// Program name for this converter.
     fn name(&self) -> &'static str
     where
         Self: Sized;
@@ -63,10 +63,11 @@ impl AudioType {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-/// Program used to convert/encode images
+/// Program used to convert or encode images.
 pub enum ImageConverter {
-    /// macOS Builtin
+    /// macOS built-in image converter.
     Sips,
+    /// ImageMagick.
     Imagemagick,
 }
 
@@ -97,10 +98,11 @@ impl Display for ImageConverter {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-/// Program used to convert/encode audio
+/// Program used to convert or encode audio.
 pub enum AudioConverter {
-    /// macOS Builtin
+    /// macOS built-in audio converter.
     AfConvert,
+    /// FFmpeg.
     Ffmpeg,
 }
 
@@ -131,8 +133,9 @@ impl Display for AudioConverter {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-/// Program used to convert/encode videos
+/// Program used to convert or encode video.
 pub enum VideoConverter {
+    /// FFmpeg.
     Ffmpeg,
 }
 
@@ -158,19 +161,19 @@ impl Display for VideoConverter {
     }
 }
 
-/// Define supported hardware-based H.264 encoders
+/// Hardware H.264 encoder supported by FFmpeg.
 #[derive(Debug, PartialEq, Eq)]
 pub enum HardwareEncoder {
-    /// NVIDIA GPU-accelerated H.264 encoder (`NVENC`)
+    /// NVIDIA GPU-accelerated H.264 encoder (`NVENC`).
     Nvenc,
-    /// Intel Quick Sync Video H.264 encoder (`QSV`)
+    /// Intel Quick Sync Video H.264 encoder (`QSV`).
     Qsv,
-    /// Apple `VideoToolbox` H.264 encoder on macOS
+    /// Apple `VideoToolbox` H.264 encoder on macOS.
     VideoToolbox,
 }
 
 impl HardwareEncoder {
-    /// Detect best available hardware encoder in priority order
+    /// Detect the best available hardware encoder in priority order.
     pub fn detect() -> Option<Self> {
         if let Ok(output) = Command::new("ffmpeg")
             .args(["-hide_banner", "-encoders"])
@@ -190,7 +193,7 @@ impl HardwareEncoder {
         None
     }
 
-    /// The name used by ffmpeg for this encoder
+    /// FFmpeg codec name for this encoder.
     pub fn codec_name(&self) -> &'static str {
         match self {
             HardwareEncoder::Nvenc => "h264_nvenc",
@@ -200,7 +203,7 @@ impl HardwareEncoder {
     }
 }
 
-/// Determine if a shell program exists on the system
+/// `true` when a shell program exists on the system.
 #[cfg(not(target_family = "windows"))]
 fn exists(name: &str) -> bool {
     Command::new("which")
@@ -210,7 +213,7 @@ fn exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Determine if a shell program exists on the system
+/// `true` when a shell program exists on the system.
 #[cfg(target_family = "windows")]
 fn exists(name: &str) -> bool {
     Command::new("where")

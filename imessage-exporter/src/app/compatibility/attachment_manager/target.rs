@@ -64,21 +64,20 @@ impl AttachmentTarget {
         path
     }
 
-    /// Locate an output a prior reference already wrote, if any.
+    /// Locate an existing output for this attachment, if any.
     ///
     /// The rowid is unique within the conversation directory, so any file there
-    /// whose stem is the rowid is necessarily a prior copy of this attachment.
+    /// whose stem is the rowid belongs to this attachment.
     /// The source extension is probed first: [`copy_raw`](crate::app::compatibility::converters::common::copy_raw)
     /// (Clone mode, unconvertible types, and the fallback used when a converter
     /// fails) writes `<rowid>.<source_ext>` and leaves the media type unchanged.
     /// If that is absent, a converter must have run, so the conversion outputs
     /// are probed and the media type is rebuilt from the matched extension.
     ///
-    /// The mode is deliberately not consulted, so a mixed-mode re-export into a
-    /// directory that already holds output from a previous run can match a stale
-    /// sibling; a clean export is exact. A conversion that keeps failing
-    /// (leaving only its raw fallback on disk) is served from that copy rather
-    /// than retried on every reference.
+    /// The mode is deliberately not consulted, so reusing an export directory
+    /// across modes can reuse an existing sibling. A clean export is exact. A
+    /// conversion that keeps failing and only leaves a raw copy is served from
+    /// that copy rather than retried on every reference.
     ///
     /// Returns the path to reuse and the media type to record; a [`None`] media
     /// type leaves the attachment's existing media type unchanged.
@@ -86,14 +85,14 @@ impl AttachmentTarget {
         &self,
         attachment: &Attachment,
     ) -> Option<(PathBuf, Option<MediaType<'static>>)> {
-        // A raw copy keeps the source extension (or no extension for a directory)
+        // A raw copy keeps the source extension, or no extension for a directory.
         let candidate = self.raw_path(attachment);
         if candidate.exists() {
             return Some((candidate, None));
         }
 
-        // A converter only writes the converted extension, so a hit here means
-        // the source was converted; rebuild the media type from that extension
+        // A converted copy uses the converted extension, so rebuild the media
+        // type from that extension.
         let mime_type = attachment.mime_type();
         for &ext in conversion_output_extensions(&mime_type) {
             let converted = candidate.with_extension(ext);

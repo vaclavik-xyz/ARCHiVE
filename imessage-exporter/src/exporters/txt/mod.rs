@@ -488,12 +488,10 @@ mod tests {
 
     #[test]
     fn can_get_time_valid() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
-        // Create fake message
         let mut message = Config::fake_message();
         // May 17, 2022  8:29:42 PM
         message.date = 674526582885055488;
@@ -510,12 +508,10 @@ mod tests {
 
     #[test]
     fn can_get_time_invalid() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
-        // Create fake message
         let mut message = Config::fake_message();
         // May 17, 2022  9:30:31 PM
         message.date = 674530231992568192;
@@ -528,7 +524,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_from_me_normal() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -644,7 +639,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_from_me_normal_deleted() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -670,7 +664,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_from_me_normal_read() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -698,7 +691,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_from_them_normal() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config
@@ -727,7 +719,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_from_them_normal_read() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config
@@ -760,7 +751,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_from_them_custom_name_read() {
-        // Create exporter
         let mut options = Options::fake_options(ExportType::Txt);
         options.custom_name = Some("Name".to_string());
         let mut config = Config::fake_app(options);
@@ -794,7 +784,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_shareplay() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -818,7 +807,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_announcement() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -841,7 +829,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_announcement_custom_name() {
-        // Create exporter
         let mut options = Options::fake_options(ExportType::Txt);
         options.custom_name = Some("Name".to_string());
         let mut config = Config::fake_app(options);
@@ -920,7 +907,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_group_removed() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -948,7 +934,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_group_removed_other() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -979,7 +964,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_group_changed_number() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1008,7 +992,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_group_added() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1036,7 +1019,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_group_left() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1060,7 +1042,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_group_icon_removed() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1085,7 +1066,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_group_icon_added() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1110,7 +1090,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_chat_background_removed() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1135,7 +1114,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_chat_background_added() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1160,7 +1138,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_audio_message_kept() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1183,7 +1160,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_tapback_me() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.participants.insert(0, Name::fake_name(ME));
@@ -1205,7 +1181,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_tapback_them() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config
@@ -1230,7 +1205,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_tapback_custom_emoji() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config
@@ -1255,7 +1229,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_tapback_custom_sticker() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config
@@ -1280,7 +1253,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_tapback_custom_sticker_exists() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config
@@ -1310,7 +1282,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_tapback_custom_sticker_removed() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config
@@ -1336,7 +1307,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_started_sharing_location_me() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -1359,7 +1329,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_stopped_sharing_location_me() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -1382,7 +1351,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_started_sharing_location_them() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -1406,7 +1374,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_stopped_sharing_location_them() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -1430,7 +1397,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_attachment_macos() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -1450,7 +1416,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_attachment_macos_invalid_disabled() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -1469,7 +1434,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_attachment_macos_invalid_clone() {
-        // Create exporter
         let mut options = Options::fake_options(ExportType::Txt);
         options.attachment_manager.mode = AttachmentManagerMode::Clone;
 
@@ -1490,7 +1454,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_attachment_ios() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.options.platform = Platform::iOS;
@@ -1511,7 +1474,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_attachment_ios_invalid_disabled() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let mut config = Config::fake_app(options);
         config.options.platform = Platform::iOS;
@@ -1532,7 +1494,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_attachment_ios_invalid_clone() {
-        // Create exporter
         let mut options = Options::fake_options(ExportType::Txt);
         options.attachment_manager.mode = AttachmentManagerMode::Clone;
 
@@ -1555,7 +1516,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_attachment_sticker() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
 
         let mut config = Config::fake_app(options);
@@ -1592,7 +1552,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_attachment_sticker_genmoji() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
 
         let mut config = Config::fake_app(options);
@@ -1630,7 +1589,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_attachment_sticker_app() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
 
         let mut config = Config::fake_app(options);
@@ -1901,7 +1859,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_attachment_audio_transcript() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -1929,7 +1886,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_single_url_no_bundle_id() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -1970,7 +1926,6 @@ mod tests {
 
     #[test]
     fn can_format_txt_translated_message() {
-        // Create exporter
         let mut options = Options::fake_options(ExportType::Txt);
         options.attachment_manager.mode = AttachmentManagerMode::Clone;
 
@@ -2216,7 +2171,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_url() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2241,7 +2195,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_music() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2263,7 +2216,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_music_lyrics() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2306,7 +2258,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_collaboration() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2328,7 +2279,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_apple_pay() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2354,7 +2304,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_fitness() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2380,7 +2329,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_slideshow() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2472,7 +2420,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_find_my() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2521,7 +2468,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_check_in_timer() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2547,7 +2493,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_check_in_timer_late() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2573,7 +2518,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_accepted_check_in() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2599,7 +2543,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_app_store() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2621,7 +2564,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_app_store_no_url_with_original_url() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2643,7 +2585,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_placemark() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2674,7 +2615,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_poll() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -2741,7 +2681,6 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_txt_generic_app() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -3057,7 +2996,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_txt_text_styles_mixed_end_to_end() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -3087,7 +3025,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_txt_text_styled_plain_link() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -3122,7 +3059,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_txt_text_styled_emoji_bold_underline() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -3152,7 +3088,6 @@ mod text_effect_tests {
 
     #[test]
     fn can_format_txt_text_styled_overlapping_ranges() {
-        // Create exporter
         let options = Options::fake_options(ExportType::Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -3272,7 +3207,6 @@ mod edited_tests {
 
     #[test]
     fn can_format_txt_conversion_final_unsent() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -3379,7 +3313,6 @@ mod edited_tests {
 
     #[test]
     fn can_format_txt_conversion_no_edits() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
@@ -3429,7 +3362,6 @@ mod edited_tests {
 
     #[test]
     fn can_format_txt_conversion_fully_unsent() {
-        // Create exporter
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
