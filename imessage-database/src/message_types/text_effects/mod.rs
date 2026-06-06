@@ -2,19 +2,12 @@
  Contains various types of text effects that can be applied to message body text.
 */
 
-/// Detected postal addresses.
-pub mod address;
 /// Animated text effects.
 pub mod animation;
-/// Detected currency amounts.
-pub mod currency;
-/// Detected flight references.
-pub mod flight;
-/// Detected package-tracking numbers.
-pub mod shipment_tracking;
+/// Structured entities detected within message text (currency, addresses,
+/// units, flights, package tracking).
+pub mod detected;
 /// Traditional text styles.
 pub mod style;
 /// Text effect container.
 pub mod text_effect;
-/// Unit conversion text effects.
-pub mod unit;

@@ -12,9 +12,13 @@ use imessage_database::{
         placemark::PlacemarkMessage,
         polls::Poll,
         text_effects::{
-            address::DetectedAddress, animation::Animation, currency::DetectedCurrency,
-            flight::Flight, shipment_tracking::ShipmentTracking, style::Style,
-            text_effect::TextEffect, unit::Unit,
+            animation::Animation,
+            detected::{
+                address::DetectedAddress, currency::DetectedCurrency, flight::Flight,
+                shipment_tracking::ShipmentTracking, unit::Unit,
+            },
+            style::Style,
+            text_effect::TextEffect,
         },
         url::URLMessage,
     },

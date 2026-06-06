@@ -3038,7 +3038,7 @@ mod balloon_format_tests {
 mod text_effect_tests {
     use imessage_database::{
         message_types::text_effects::{
-            animation::Animation, style::Style, text_effect::TextEffect, unit::Unit,
+            animation::Animation, detected::unit::Unit, style::Style, text_effect::TextEffect,
         },
         tables::messages::models::{AttributedRange, BubbleComponent},
     };

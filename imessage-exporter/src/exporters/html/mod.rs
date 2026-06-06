@@ -4349,8 +4349,10 @@ mod text_effect_tests {
 
     use imessage_database::{
         message_types::text_effects::{
-            address::DetectedAddress, animation::Animation, style::Style, text_effect::TextEffect,
-            unit::Unit,
+            animation::Animation,
+            detected::{address::DetectedAddress, unit::Unit},
+            style::Style,
+            text_effect::TextEffect,
         },
         tables::messages::models::{AttributedRange, BubbleComponent},
     };

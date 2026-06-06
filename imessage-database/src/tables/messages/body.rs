@@ -13,9 +13,13 @@ use crate::{
     message_types::{
         edited::{EditStatus, EditedMessage},
         text_effects::{
-            address::DetectedAddress, animation::Animation, currency::DetectedCurrency,
-            flight::Flight, shipment_tracking::ShipmentTracking, style::Style,
-            text_effect::TextEffect, unit::Unit,
+            animation::Animation,
+            detected::{
+                address::DetectedAddress, currency::DetectedCurrency, flight::Flight,
+                shipment_tracking::ShipmentTracking, unit::Unit,
+            },
+            style::Style,
+            text_effect::TextEffect,
         },
     },
     tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
@@ -439,8 +443,10 @@ mod typedstream_tests {
         message_types::{
             edited::{EditStatus, EditedEvent, EditedMessage, EditedMessagePart},
             text_effects::{
-                address::DetectedAddress, animation::Animation, currency::DetectedCurrency,
-                style::Style, text_effect::TextEffect, unit::Unit,
+                animation::Animation,
+                detected::{address::DetectedAddress, currency::DetectedCurrency, unit::Unit},
+                style::Style,
+                text_effect::TextEffect,
             },
         },
         tables::messages::{

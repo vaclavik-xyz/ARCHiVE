@@ -1,6 +1,10 @@
 use super::{
-    address::DetectedAddress, animation::Animation, currency::DetectedCurrency, flight::Flight,
-    shipment_tracking::ShipmentTracking, style::Style, unit::Unit,
+    animation::Animation,
+    detected::{
+        address::DetectedAddress, currency::DetectedCurrency, flight::Flight,
+        shipment_tracking::ShipmentTracking, unit::Unit,
+    },
+    style::Style,
 };
 
 /// Text effect container
