@@ -330,6 +330,9 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
         "__kIMDataDetectedAttributeName" => {
             return RangeResult::Effect(data_detected_unit(value).map(TextEffect::Conversion));
         }
+        "__kIMMoneyAttributeName" => {
+            return RangeResult::Effect(Some(TextEffect::Conversion(Unit::Currency)));
+        }
         "__kIMAddressAttributeName" => {
             return RangeResult::Effect(Some(TextEffect::Address));
         }
@@ -357,7 +360,7 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
 fn data_detected_unit<'a>(value: &Property<'a, 'a>) -> Option<Unit> {
     let data = as_nsdata(value)?;
 
-    const UNIT_MARKERS: [&[u8]; 4] = [b"PhysicalAmount", b"Currency", b"Money", b"Unit"];
+    const UNIT_MARKERS: [&[u8]; 2] = [b"PhysicalAmount", b"Unit"];
     if !UNIT_MARKERS
         .iter()
         .any(|m| data.windows(m.len()).any(|w| w == *m))
@@ -521,6 +524,37 @@ mod typedstream_tests {
                 37,
                 vec![TextEffect::Address]
             )])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_detected_currency() {
+        // Real inline currency detection: `__kIMMoneyAttributeName` whose payload
+        // has NO `MoneyAmount` scanner type (the "other" structure, ~79/167 of
+        // real messages) — so presence, not payload parsing, is the signal.
+        let (text, components) = parse_typedstream_fixture("Currency");
+        assert_eq!(text.as_deref(), Some("My burrito was $16"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::text(0, 15, vec![TextEffect::Default]),
+                AttributedRange::text(15, 18, vec![TextEffect::Conversion(Unit::Currency)]),
+            ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_detected_currency_money_amount() {
+        // `__kIMMoneyAttributeName` whose payload DOES carry a `MoneyAmount`
+        // scanner type (~88/167). The marker treats it identically.
+        let (text, components) = parse_typedstream_fixture("CurrencyMoneyAmount");
+        assert_eq!(text.as_deref(), Some("$15/mo"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::text(0, 3, vec![TextEffect::Conversion(Unit::Currency)]),
+                AttributedRange::text(3, 6, vec![TextEffect::Default]),
+            ])]
         );
     }
 
