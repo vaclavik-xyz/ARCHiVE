@@ -8,6 +8,10 @@ pub mod address;
 pub mod animation;
 /// Detected currency amounts.
 pub mod currency;
+/// Detected flight references.
+pub mod flight;
+/// Detected package-tracking numbers.
+pub mod shipment_tracking;
 /// Traditional text styles.
 pub mod style;
 /// Text effect container.

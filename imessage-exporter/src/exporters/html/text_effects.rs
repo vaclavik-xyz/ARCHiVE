@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use imessage_database::message_types::text_effects::{
-    address::DetectedAddress, animation::Animation, currency::DetectedCurrency, style::Style,
-    text_effect::TextEffect, unit::Unit,
+    address::DetectedAddress, animation::Animation, currency::DetectedCurrency, flight::Flight,
+    shipment_tracking::ShipmentTracking, style::Style, text_effect::TextEffect, unit::Unit,
 };
 
 use crate::{
@@ -23,6 +23,8 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
             TextEffect::Animated(animation) => Cow::Owned(self.format_animated(text, animation)),
             TextEffect::Conversion(unit) => Cow::Owned(self.format_conversion(text, unit)),
             TextEffect::Currency(currency) => Cow::Owned(self.format_currency(text, currency)),
+            TextEffect::Tracking(tracking) => Cow::Owned(self.format_tracking(text, tracking)),
+            TextEffect::Flight(flight) => Cow::Owned(self.format_flight(text, flight)),
         }
     }
 
@@ -50,6 +52,14 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
     }
 
     fn format_currency(&self, text: &str, _: &DetectedCurrency) -> String {
+        format!("<u>{text}</u>")
+    }
+
+    fn format_tracking(&self, text: &str, _: &ShipmentTracking) -> String {
+        format!("<u>{text}</u>")
+    }
+
+    fn format_flight(&self, text: &str, _: &Flight) -> String {
         format!("<u>{text}</u>")
     }
 

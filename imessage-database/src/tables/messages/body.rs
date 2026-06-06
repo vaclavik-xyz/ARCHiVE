@@ -14,7 +14,8 @@ use crate::{
         edited::{EditStatus, EditedMessage},
         text_effects::{
             address::DetectedAddress, animation::Animation, currency::DetectedCurrency,
-            style::Style, text_effect::TextEffect, unit::Unit,
+            flight::Flight, shipment_tracking::ShipmentTracking, style::Style,
+            text_effect::TextEffect, unit::Unit,
         },
     },
     tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
@@ -331,7 +332,14 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
             return RangeResult::Effect(Some(TextEffect::Conversion(Unit::Timezone)));
         }
         "__kIMDataDetectedAttributeName" => {
-            return RangeResult::Effect(Unit::from_attribute(value).map(TextEffect::Conversion));
+            // The data-detector attribute is a union of result types; try each
+            // handled type in turn. Per-type `MARKERS` make the misses cheap.
+            return RangeResult::Effect(
+                Unit::from_attribute(value)
+                    .map(TextEffect::Conversion)
+                    .or_else(|| ShipmentTracking::from_attribute(value).map(TextEffect::Tracking))
+                    .or_else(|| Flight::from_attribute(value).map(TextEffect::Flight)),
+            );
         }
         "__kIMMoneyAttributeName" => {
             return RangeResult::Effect(

@@ -1,6 +1,6 @@
 use super::{
-    address::DetectedAddress, animation::Animation, currency::DetectedCurrency, style::Style,
-    unit::Unit,
+    address::DetectedAddress, animation::Animation, currency::DetectedCurrency, flight::Flight,
+    shipment_tracking::ShipmentTracking, style::Style, unit::Unit,
 };
 
 /// Text effect container
@@ -44,4 +44,12 @@ pub enum TextEffect {
     ///
     /// The embedded data contains the currency symbol and amount.
     Currency(DetectedCurrency),
+    /// A detected package-tracking number within the message text
+    ///
+    /// The embedded data contains the carrier and tracking number.
+    Tracking(ShipmentTracking),
+    /// A detected flight reference within the message text
+    ///
+    /// The embedded data contains the airline and flight number.
+    Flight(Flight),
 }
