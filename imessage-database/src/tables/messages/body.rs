@@ -436,7 +436,10 @@ mod typedstream_tests {
             edited::{EditStatus, EditedEvent, EditedMessage, EditedMessagePart},
             text_effects::{
                 animation::Animation,
-                detected::{address::DetectedAddress, currency::DetectedCurrency, unit::Unit},
+                detected::{
+                    address::DetectedAddress, currency::DetectedCurrency, flight::Flight,
+                    shipment_tracking::ShipmentTracking, unit::Unit,
+                },
                 style::Style,
                 text_effect::TextEffect,
             },
@@ -575,6 +578,40 @@ mod typedstream_tests {
                 ),
                 AttributedRange::text(3, 6, vec![TextEffect::Default]),
             ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_detected_tracking() {
+        let (text, components) = parse_typedstream_fixture("Tracking");
+        assert_eq!(text.as_deref(), Some("1Z999AA10123456784"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                0,
+                18,
+                vec![TextEffect::Tracking(ShipmentTracking {
+                    carrier: Some("UPS".to_string()),
+                    number: "1Z999AA10123456784".to_string(),
+                })]
+            )])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_detected_flight() {
+        let (text, components) = parse_typedstream_fixture("Flight");
+        assert_eq!(text.as_deref(), Some("AS 1111"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                0,
+                7,
+                vec![TextEffect::Flight(Flight {
+                    airline: Some("AS".to_string()),
+                    number: "1111".to_string(),
+                })]
+            )])]
         );
     }
 
