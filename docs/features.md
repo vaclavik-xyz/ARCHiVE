@@ -34,8 +34,13 @@ This tool targets the current latest public release for Messages.app. It may wor
     - [Mentions](https://support.apple.com/guide/messages/mention-a-person-icht306ee34b/mac)
     - Hyperlinks
     - OTP/2FA
-    - Unit Conversions
     - [Animations and Styles](https://support.apple.com/guide/iphone/style-and-animate-messages-iphe5c5af4d4/ios)
+    - Data detectors, parsed from `DDScannerResult` payloads:
+      - Unit and timezone conversions
+      - Currency amounts (symbol and amount)
+      - Postal addresses (street, city, state, postal code, and country)
+      - Package tracking (carrier and tracking number)
+      - Flights (airline and flight number)
 - Edited and Unsent messages
   - Detects if messages components were edited or unsent
     - [Edited messages](https://support.apple.com/guide/iphone/unsend-and-edit-messages-iphe67195653/ios)
@@ -89,6 +94,7 @@ This tool targets the current latest public release for Messages.app. It may wor
   - Sticker effects are annotated in all exports
   - Sticker tapbacks are also supported
   - Genmoji are displayed with their prompt descriptions
+  - Inline stickers (Memoji, Genmoji, and custom stickers placed within the message text) render inline in HTML exports, scaled like jumbo emoji (larger when only a few are present)
 - Apple Pay
   - Displays Apple Pay transaction (source, amount, type) messages
 - URL previews
