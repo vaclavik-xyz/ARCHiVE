@@ -13,7 +13,10 @@ use crabstep::{PropertyIterator, deserializer::iter::Property};
 use crate::{
     message_types::{
         edited::{EditStatus, EditedMessage},
-        text_effects::{animation::Animation, style::Style, text_effect::TextEffect, unit::Unit},
+        text_effects::{
+            animation::Animation, currency::DetectedCurrency, style::Style,
+            text_effect::TextEffect, unit::Unit,
+        },
     },
     tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
     util::data_detected::{FromScannerResult, ScannerResult},
@@ -332,7 +335,7 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
             return RangeResult::Effect(data_detected_unit(value).map(TextEffect::Conversion));
         }
         "__kIMMoneyAttributeName" => {
-            return RangeResult::Effect(Some(TextEffect::Conversion(Unit::Currency)));
+            return RangeResult::Effect(data_detected_currency(value).map(TextEffect::Currency));
         }
         "__kIMAddressAttributeName" => {
             return RangeResult::Effect(Some(TextEffect::Address));
@@ -370,6 +373,16 @@ fn data_detected_unit<'a>(value: &Property<'a, 'a>) -> Option<Unit> {
     }
     let plist = plist::Value::from_reader(Cursor::new(data)).ok()?;
     Unit::from_scanner_result(&ScannerResult::root(&plist)?)
+}
+
+/// Parse a detected currency from the `__kIMMoneyAttributeName` payload.
+///
+/// Unlike [`data_detected_unit`], no byte pre-filter is needed: this attribute
+/// is dedicated to money, so every payload is a `Money` scanner result.
+fn data_detected_currency<'a>(value: &Property<'a, 'a>) -> Option<DetectedCurrency> {
+    let data = as_nsdata(value)?;
+    let plist = plist::Value::from_reader(Cursor::new(data)).ok()?;
+    DetectedCurrency::from_scanner_result(&ScannerResult::root(&plist)?)
 }
 
 // MARK: Fallback
@@ -438,7 +451,8 @@ mod typedstream_tests {
         message_types::{
             edited::{EditStatus, EditedEvent, EditedMessage, EditedMessagePart},
             text_effects::{
-                animation::Animation, style::Style, text_effect::TextEffect, unit::Unit,
+                animation::Animation, currency::DetectedCurrency, style::Style,
+                text_effect::TextEffect, unit::Unit,
             },
         },
         tables::messages::{
@@ -536,7 +550,14 @@ mod typedstream_tests {
             components,
             vec![BubbleComponent::Run(vec![
                 AttributedRange::text(0, 15, vec![TextEffect::Default]),
-                AttributedRange::text(15, 18, vec![TextEffect::Conversion(Unit::Currency)]),
+                AttributedRange::text(
+                    15,
+                    18,
+                    vec![TextEffect::Currency(DetectedCurrency {
+                        symbol: "$".to_string(),
+                        amount: "16".to_string(),
+                    })]
+                ),
             ])]
         );
     }
@@ -548,7 +569,14 @@ mod typedstream_tests {
         assert_eq!(
             components,
             vec![BubbleComponent::Run(vec![
-                AttributedRange::text(0, 3, vec![TextEffect::Conversion(Unit::Currency)]),
+                AttributedRange::text(
+                    0,
+                    3,
+                    vec![TextEffect::Currency(DetectedCurrency {
+                        symbol: "$".to_string(),
+                        amount: "15".to_string(),
+                    })]
+                ),
                 AttributedRange::text(3, 6, vec![TextEffect::Default]),
             ])]
         );

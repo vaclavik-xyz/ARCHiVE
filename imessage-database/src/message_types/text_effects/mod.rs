@@ -4,6 +4,8 @@
 
 /// Animated text effects.
 pub mod animation;
+/// Detected currency amounts.
+pub mod currency;
 /// Traditional text styles.
 pub mod style;
 /// Text effect container.

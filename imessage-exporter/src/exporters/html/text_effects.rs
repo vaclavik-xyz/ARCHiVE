@@ -1,7 +1,8 @@
 use std::borrow::Cow;
 
 use imessage_database::message_types::text_effects::{
-    animation::Animation, style::Style, text_effect::TextEffect, unit::Unit,
+    animation::Animation, currency::DetectedCurrency, style::Style, text_effect::TextEffect,
+    unit::Unit,
 };
 
 use crate::{
@@ -21,6 +22,7 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
             TextEffect::Styles(styles) => Cow::Owned(self.format_styles(text, styles)),
             TextEffect::Animated(animation) => Cow::Owned(self.format_animated(text, animation)),
             TextEffect::Conversion(unit) => Cow::Owned(self.format_conversion(text, unit)),
+            TextEffect::Currency(currency) => Cow::Owned(self.format_currency(text, currency)),
         }
     }
 
@@ -44,6 +46,10 @@ impl<'a> TextEffectFormatter<'a> for HTML<'a> {
     }
 
     fn format_conversion(&self, text: &str, _: &Unit) -> String {
+        format!("<u>{text}</u>")
+    }
+
+    fn format_currency(&self, text: &str, _: &DetectedCurrency) -> String {
         format!("<u>{text}</u>")
     }
 

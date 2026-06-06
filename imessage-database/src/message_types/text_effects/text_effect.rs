@@ -1,4 +1,4 @@
-use super::{animation::Animation, style::Style, unit::Unit};
+use super::{animation::Animation, currency::DetectedCurrency, style::Style, unit::Unit};
 
 /// Text effect container
 ///
@@ -33,4 +33,8 @@ pub enum TextEffect {
     ///
     /// The embedded data contains the unit that the range represents.
     Conversion(Unit),
+    /// A detected monetary amount within the message text
+    ///
+    /// The embedded data contains the currency symbol and amount.
+    Currency(DetectedCurrency),
 }

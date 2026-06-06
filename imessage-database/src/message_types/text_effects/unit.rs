@@ -18,8 +18,6 @@ pub enum Unit {
     Angle,
     /// Area conversion
     Area,
-    /// Currency conversion
-    Currency,
     /// Distance conversion
     Distance,
     /// Duration conversion

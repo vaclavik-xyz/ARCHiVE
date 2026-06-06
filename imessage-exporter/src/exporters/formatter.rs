@@ -11,7 +11,10 @@ use imessage_database::{
         music::MusicMessage,
         placemark::PlacemarkMessage,
         polls::Poll,
-        text_effects::{animation::Animation, style::Style, text_effect::TextEffect, unit::Unit},
+        text_effects::{
+            animation::Animation, currency::DetectedCurrency, style::Style,
+            text_effect::TextEffect, unit::Unit,
+        },
         url::URLMessage,
     },
     tables::{
@@ -237,6 +240,8 @@ pub(crate) trait TextEffectFormatter<'a> {
     fn format_address(&self, text: &str) -> String;
     /// Format message text containing a [`Conversion`](imessage_database::message_types::text_effects::text_effect::TextEffect::Conversion)
     fn format_conversion(&self, text: &str, unit: &Unit) -> String;
+    /// Format message text containing a detected [`Currency`](imessage_database::message_types::text_effects::text_effect::TextEffect::Currency)
+    fn format_currency(&self, text: &str, currency: &DetectedCurrency) -> String;
     /// Format message text containing some [`Styles`](imessage_database::message_types::text_effects::text_effect::TextEffect::Styles)
     fn format_styles(&self, text: &str, styles: &[Style]) -> String;
     /// Format [`Animated`](imessage_database::message_types::text_effects::text_effect::TextEffect::Animated) message text
