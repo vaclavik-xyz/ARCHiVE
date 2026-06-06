@@ -16,6 +16,7 @@ use crate::{
         text_effects::{animation::Animation, style::Style, text_effect::TextEffect, unit::Unit},
     },
     tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
+    util::data_detected::{FromScannerResult, ScannerResult},
     util::typedstream::{
         as_ns_dictionary, as_nsdata, as_nsstring, as_nsurl, as_signed_integer, as_type_length_pair,
     },
@@ -368,7 +369,7 @@ fn data_detected_unit<'a>(value: &Property<'a, 'a>) -> Option<Unit> {
         return None;
     }
     let plist = plist::Value::from_reader(Cursor::new(data)).ok()?;
-    Unit::from_data_detected_plist(&plist)
+    Unit::from_scanner_result(&ScannerResult::root(&plist)?)
 }
 
 // MARK: Fallback
@@ -529,9 +530,6 @@ mod typedstream_tests {
 
     #[test]
     fn can_get_message_body_detected_currency() {
-        // Real inline currency detection: `__kIMMoneyAttributeName` whose payload
-        // has NO `MoneyAmount` scanner type (the "other" structure, ~79/167 of
-        // real messages) — so presence, not payload parsing, is the signal.
         let (text, components) = parse_typedstream_fixture("Currency");
         assert_eq!(text.as_deref(), Some("My burrito was $16"));
         assert_eq!(
@@ -545,8 +543,6 @@ mod typedstream_tests {
 
     #[test]
     fn can_get_message_body_detected_currency_money_amount() {
-        // `__kIMMoneyAttributeName` whose payload DOES carry a `MoneyAmount`
-        // scanner type (~88/167). The marker treats it identically.
         let (text, components) = parse_typedstream_fixture("CurrencyMoneyAmount");
         assert_eq!(text.as_deref(), Some("$15/mo"));
         assert_eq!(
