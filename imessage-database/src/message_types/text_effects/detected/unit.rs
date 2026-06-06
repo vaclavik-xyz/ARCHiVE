@@ -1,4 +1,4 @@
-use plist::Value;
+use crate::util::data_detected::{FromScannerResult, ScannerResult};
 
 /// Unit conversion text effect container
 ///
@@ -18,8 +18,6 @@ pub enum Unit {
     Angle,
     /// Area conversion
     Area,
-    /// Currency conversion
-    Currency,
     /// Distance conversion
     Distance,
     /// Duration conversion
@@ -49,55 +47,25 @@ pub enum Unit {
     Unknown(String),
 }
 
-impl Unit {
-    /// Parse a data-detector `NSKeyedArchiver` payload and extract the unit represented by the detector result.
-    #[must_use]
-    pub(crate) fn from_data_detected_plist(plist: &Value) -> Option<Self> {
-        let body = plist.as_dictionary()?;
-        let objects = body.get("$objects")?.as_array()?;
-        let top = body.get("$top")?.as_dictionary()?;
-        let root = top
-            .get("dd-result")
-            .or_else(|| top.get("root"))
-            .and_then(Self::uid_index)?;
+impl FromScannerResult for Unit {
+    /// Units arrive via the shared `__kIMDataDetectedAttributeName` attribute, so
+    /// payloads are pre-filtered to those naming a physical amount before parsing.
+    const MARKERS: &[&[u8]] = &[b"PhysicalAmount", b"Unit"];
 
-        Self::from_scanner_result(objects, root, 0)
-    }
-
-    fn from_scanner_result(objects: &[Value], idx: usize, depth: usize) -> Option<Self> {
-        if depth > 8 {
-            return None;
-        }
-
-        let result = objects.get(idx)?.as_dictionary()?;
-        match Self::string_from_uid(objects, result.get("T")?)? {
-            "CurrencyAmount" | "MoneyAmount" => Some(Self::Currency),
-            "Unit" => Self::from_unit_name(Self::string_from_uid(objects, result.get("V")?)?),
-            "PhysicalAmount" => Self::child_results(objects, result.get("SR")?)?
-                .iter()
-                .filter_map(Self::uid_index)
-                .find_map(|idx| Self::from_scanner_result(objects, idx, depth + 1)),
+    /// A unit conversion is either a bare `Unit` result or a `PhysicalAmount`
+    /// wrapping one; any other scanner-result type is not a unit.
+    fn from_scanner_result(result: &ScannerResult<'_>) -> Option<Self> {
+        match result.kind()? {
+            "Unit" => Self::from_unit_name(result.value()?),
+            "PhysicalAmount" => result
+                .children()
+                .find_map(|child| Self::from_scanner_result(&child)),
             _ => None,
         }
     }
+}
 
-    fn child_results<'a>(objects: &'a [Value], value: &Value) -> Option<&'a [Value]> {
-        objects
-            .get(Self::uid_index(value)?)?
-            .as_dictionary()?
-            .get("NS.objects")?
-            .as_array()
-            .map(Vec::as_slice)
-    }
-
-    fn string_from_uid<'a>(objects: &'a [Value], value: &Value) -> Option<&'a str> {
-        objects.get(Self::uid_index(value)?)?.as_string()
-    }
-
-    fn uid_index(value: &Value) -> Option<usize> {
-        Some(value.as_uid()?.get() as usize)
-    }
-
+impl Unit {
     /// See [`Unit`] enum docs for source detail on internal strings.
     ///
     /// Currency and timezone conversions are detected through other channels
@@ -142,6 +110,12 @@ mod tests {
     use plist::Value;
 
     use super::Unit;
+    use crate::util::data_detected::{FromScannerResult, ScannerResult};
+
+    /// Parse a unit from a raw data-detector plist fixture, end to end.
+    fn parse_unit(plist: &Value) -> Option<Unit> {
+        ScannerResult::root(plist).and_then(|result| Unit::from_scanner_result(&result))
+    }
 
     fn unit_property(name: &str) -> Value {
         let plist_path = current_dir()
@@ -161,14 +135,14 @@ mod tests {
             ("Weight.plist", Unit::Weight),
         ] {
             let plist = unit_property(fixture);
-            assert_eq!(Unit::from_data_detected_plist(&plist), Some(expected));
+            assert_eq!(parse_unit(&plist), Some(expected));
         }
     }
 
     #[test]
     fn ignores_data_detected_non_units() {
         let plist = unit_property("HttpURL.plist");
-        assert_eq!(Unit::from_data_detected_plist(&plist), None);
+        assert_eq!(parse_unit(&plist), None);
     }
 
     #[test]

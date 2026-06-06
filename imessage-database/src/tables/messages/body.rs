@@ -4,7 +4,6 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    io::Cursor,
     sync::LazyLock,
 };
 
@@ -13,11 +12,20 @@ use crabstep::{PropertyIterator, deserializer::iter::Property};
 use crate::{
     message_types::{
         edited::{EditStatus, EditedMessage},
-        text_effects::{animation::Animation, style::Style, text_effect::TextEffect, unit::Unit},
+        text_effects::{
+            animation::Animation,
+            detected::{
+                address::DetectedAddress, currency::DetectedCurrency, flight::Flight,
+                shipment_tracking::ShipmentTracking, unit::Unit,
+            },
+            style::Style,
+            text_effect::TextEffect,
+        },
     },
     tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
+    util::data_detected::FromScannerResult,
     util::typedstream::{
-        as_ns_dictionary, as_nsdata, as_nsstring, as_nsurl, as_signed_integer, as_type_length_pair,
+        as_ns_dictionary, as_nsstring, as_nsurl, as_signed_integer, as_type_length_pair,
     },
 };
 
@@ -95,60 +103,52 @@ pub fn parse_body_typedstream<'a>(
     let mut current_start;
     let mut current_end = 0;
 
-    if let Some(mut components) = components {
-        // The first component is the text itself
-        if let Some(text) = components.next().as_ref().and_then(as_nsstring) {
-            message_text = Some(text.to_string());
-            // We want to index into the message text, so we need a table to align
-            // Apple's indexes with the actual chars, not the bytes
-            let utf16_to_byte: Vec<usize> = build_utf16_to_byte_map(text);
+    // The first component is the text itself
+    if let Some(mut components) = components
+        && let Some(text) = components.next().as_ref().and_then(as_nsstring)
+    {
+        message_text = Some(text.to_string());
 
-            while let Some(property) = components.next() {
-                // The first part of the range represents the index in the format cache
-                // the second part is the length of the range in UTF-16 code units
-                if let Some(range) = as_type_length_pair(&property) {
-                    current_start = current_end;
-                    current_end += range.length as usize;
-                    current_range_id = range.type_index;
+        // We want to index into the message text, so we need a table to align
+        // Apple's indexes with the actual chars, not the bytes
+        let utf16_to_byte: Vec<usize> = build_utf16_to_byte_map(text);
 
-                    let built = format_range_cache
-                        .get(&current_range_id)
-                        .cloned()
-                        // Try to reuse a cached range. Only text ranges are
-                        // reusable; attachment ranges carry occurrence-specific
-                        // metadata (e.g. the file-transfer GUID), so they are
-                        // always rebuilt from their own dictionary.
-                        .and_then(|(mut cached, part)| {
-                            if cached.attachment.is_none() {
-                                cached.start = utf16_idx(text, current_start, &utf16_to_byte);
-                                cached.end = utf16_idx(text, current_end, &utf16_to_byte);
-                                return Some((cached, part));
-                            }
-                            None
-                        })
-                        // If that failed, build a new range from the next dictionary.
-                        .or_else(|| {
-                            components
-                                .next()
-                                .as_ref()
-                                .and_then(as_ns_dictionary)
-                                .and_then(|dict| {
-                                    build_range(
-                                        dict,
-                                        text,
-                                        current_start,
-                                        current_end,
-                                        &utf16_to_byte,
-                                    )
+        while let Some(property) = components.next() {
+            // The first part of the range represents the index in the format cache
+            // the second part is the length of the range in UTF-16 code units
+            if let Some(range) = as_type_length_pair(&property) {
+                current_start = current_end;
+                current_end += range.length as usize;
+                current_range_id = range.type_index;
+
+                let built = format_range_cache
+                    .get(&current_range_id)
+                    .cloned()
+                    // Only text ranges are reusable; attachment ranges carry
+                    // occurrence-specific metadata such as file-transfer GUIDs.
+                    .and_then(|(mut cached, part)| {
+                        if cached.attachment.is_none() {
+                            cached.start = utf16_idx(text, current_start, &utf16_to_byte);
+                            cached.end = utf16_idx(text, current_end, &utf16_to_byte);
+                            return Some((cached, part));
+                        }
+                        None
+                    })
+                    .or_else(|| {
+                        components
+                            .next()
+                            .as_ref()
+                            .and_then(as_ns_dictionary)
+                            .and_then(|dict| {
+                                build_range(dict, text, current_start, current_end, &utf16_to_byte)
                                     .inspect(|built| {
                                         format_range_cache.insert(current_range_id, built.clone());
                                     })
-                                })
-                        });
+                            })
+                    });
 
-                    if let Some(built) = built {
-                        ranges.push(built);
-                    }
+                if let Some(built) = built {
+                    ranges.push(built);
                 }
             }
         }
@@ -328,7 +328,26 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
             return RangeResult::Effect(Some(TextEffect::Conversion(Unit::Timezone)));
         }
         "__kIMDataDetectedAttributeName" => {
-            return RangeResult::Effect(data_detected_unit(value).map(TextEffect::Conversion));
+            // The data-detector attribute is a union of result types; try each
+            // handled type in turn. Per-type `MARKERS` make the misses cheap.
+            return RangeResult::Effect(
+                Unit::from_attribute(value)
+                    .map(TextEffect::Conversion)
+                    .or_else(|| ShipmentTracking::from_attribute(value).map(TextEffect::Tracking))
+                    .or_else(|| Flight::from_attribute(value).map(TextEffect::Flight)),
+            );
+        }
+        "__kIMMoneyAttributeName" => {
+            return RangeResult::Effect(
+                DetectedCurrency::from_attribute(value).map(TextEffect::Currency),
+            );
+        }
+        "__kIMAddressAttributeName" => {
+            return RangeResult::Effect(
+                DetectedAddress::from_attribute(value)
+                    .map(Box::new)
+                    .map(TextEffect::Address),
+            );
         }
         "__kIMTextEffectAttributeName" => {
             if let Some(effect_id) = as_signed_integer(value) {
@@ -348,21 +367,6 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
     }
 
     RangeResult::Effect(None)
-}
-
-/// Parse a data-detector unit conversion from the `__kIMDataDetectedAttributeName` payload.
-fn data_detected_unit<'a>(value: &Property<'a, 'a>) -> Option<Unit> {
-    let data = as_nsdata(value)?;
-
-    const UNIT_MARKERS: [&[u8]; 4] = [b"PhysicalAmount", b"Currency", b"Money", b"Unit"];
-    if !UNIT_MARKERS
-        .iter()
-        .any(|m| data.windows(m.len()).any(|w| w == *m))
-    {
-        return None;
-    }
-    let plist = plist::Value::from_reader(Cursor::new(data)).ok()?;
-    Unit::from_data_detected_plist(&plist)
 }
 
 // MARK: Fallback
@@ -431,7 +435,13 @@ mod typedstream_tests {
         message_types::{
             edited::{EditStatus, EditedEvent, EditedMessage, EditedMessagePart},
             text_effects::{
-                animation::Animation, style::Style, text_effect::TextEffect, unit::Unit,
+                animation::Animation,
+                detected::{
+                    address::DetectedAddress, currency::DetectedCurrency, flight::Flight,
+                    shipment_tracking::ShipmentTracking, unit::Unit,
+                },
+                style::Style,
+                text_effect::TextEffect,
             },
         },
         tables::messages::{
@@ -501,6 +511,107 @@ mod typedstream_tests {
                 AttributedRange::text(15, 26, vec![TextEffect::Default]),
                 AttributedRange::text(26, 32, vec![TextEffect::Conversion(Unit::Weight)]),
             ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_detected_address() {
+        let (text, components) = parse_typedstream_fixture("Address");
+        assert_eq!(
+            text.as_deref(),
+            Some("1 Apple Park Way, Cupertino, CA 95014")
+        );
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                0,
+                37,
+                vec![TextEffect::Address(Box::new(DetectedAddress {
+                    full: "1 Apple Park Way, Cupertino, CA 95014".to_string(),
+                    street: Some("1 Apple Park Way".to_string()),
+                    street_number: Some("1".to_string()),
+                    street_name: Some("Apple Park Way".to_string()),
+                    city: Some("Cupertino".to_string()),
+                    state: Some("CA".to_string()),
+                    zip: Some("95014".to_string()),
+                    country: None,
+                    country_code: None,
+                }))]
+            )])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_detected_currency() {
+        let (text, components) = parse_typedstream_fixture("Currency");
+        assert_eq!(text.as_deref(), Some("My burrito was $16"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::text(0, 15, vec![TextEffect::Default]),
+                AttributedRange::text(
+                    15,
+                    18,
+                    vec![TextEffect::Currency(DetectedCurrency {
+                        symbol: "$".to_string(),
+                        amount: "16".to_string(),
+                    })]
+                ),
+            ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_detected_currency_money_amount() {
+        let (text, components) = parse_typedstream_fixture("CurrencyMoneyAmount");
+        assert_eq!(text.as_deref(), Some("$15/mo"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![
+                AttributedRange::text(
+                    0,
+                    3,
+                    vec![TextEffect::Currency(DetectedCurrency {
+                        symbol: "$".to_string(),
+                        amount: "15".to_string(),
+                    })]
+                ),
+                AttributedRange::text(3, 6, vec![TextEffect::Default]),
+            ])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_detected_tracking() {
+        let (text, components) = parse_typedstream_fixture("Tracking");
+        assert_eq!(text.as_deref(), Some("1Z999AA10123456784"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                0,
+                18,
+                vec![TextEffect::Tracking(ShipmentTracking {
+                    carrier: Some("UPS".to_string()),
+                    number: "1Z999AA10123456784".to_string(),
+                })]
+            )])]
+        );
+    }
+
+    #[test]
+    fn can_get_message_body_detected_flight() {
+        let (text, components) = parse_typedstream_fixture("Flight");
+        assert_eq!(text.as_deref(), Some("AS 1111"));
+        assert_eq!(
+            components,
+            vec![BubbleComponent::Run(vec![AttributedRange::text(
+                0,
+                7,
+                vec![TextEffect::Flight(Flight {
+                    airline: Some("AS".to_string()),
+                    number: "1111".to_string(),
+                })]
+            )])]
         );
     }
 

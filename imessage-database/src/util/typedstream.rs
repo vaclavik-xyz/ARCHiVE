@@ -101,12 +101,13 @@ pub fn as_nsstring<'a>(property: &Property<'a, 'a>) -> Option<&'a str> {
 }
 
 // MARK: Data
-/// Converts a `Property` to an `Option<&[u8]>` if it is `NSData`.
+/// Converts a `Property` to an `Option<&[u8]>` if it is `NSData` or its mutable
+/// subclass `NSMutableData`.
 #[inline(always)]
 pub fn as_nsdata<'a>(property: &Property<'a, 'a>) -> Option<&'a [u8]> {
     if let Property::Group(group) = property
         && let Some(Property::Object { name, data, .. }) = group.iter().next()
-        && name == "NSData"
+        && (name == "NSData" || name == "NSMutableData")
     {
         for item in data {
             if let Property::Group(group) = item {

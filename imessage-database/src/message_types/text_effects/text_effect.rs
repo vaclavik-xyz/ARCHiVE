@@ -1,4 +1,11 @@
-use super::{animation::Animation, style::Style, unit::Unit};
+use super::{
+    animation::Animation,
+    detected::{
+        address::DetectedAddress, currency::DetectedCurrency, flight::Flight,
+        shipment_tracking::ShipmentTracking, unit::Unit,
+    },
+    style::Style,
+};
 
 /// Text effect container
 ///
@@ -19,6 +26,12 @@ pub enum TextEffect {
     Link(String),
     /// A one-time code, i.e. from a 2FA message
     OTP,
+    /// A detected postal address within the message text
+    ///
+    /// The embedded data contains the address components. It is boxed because
+    /// [`DetectedAddress`] is large relative to the other variants, which would
+    /// otherwise inflate every `TextEffect` to its size.
+    Address(Box<DetectedAddress>),
     /// Traditional formatting styles
     ///
     /// The embedded data contains the formatting styles applied to the range.
@@ -31,4 +44,16 @@ pub enum TextEffect {
     ///
     /// The embedded data contains the unit that the range represents.
     Conversion(Unit),
+    /// A detected monetary amount within the message text
+    ///
+    /// The embedded data contains the currency symbol and amount.
+    Currency(DetectedCurrency),
+    /// A detected package-tracking number within the message text
+    ///
+    /// The embedded data contains the carrier and tracking number.
+    Tracking(ShipmentTracking),
+    /// A detected flight reference within the message text
+    ///
+    /// The embedded data contains the airline and flight number.
+    Flight(Flight),
 }
