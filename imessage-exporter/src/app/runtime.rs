@@ -529,11 +529,15 @@ impl Config {
                 },
             );
 
+        let resolved_percent = if self.participants.is_empty() {
+            0.0
+        } else {
+            (total_resolved as f32 / self.participants.len() as f32 * 100.0).round()
+        };
         println!(
-            "    Handles with resolved names: {}/{} ({}%)",
+            "    Handles with resolved names: {}/{} ({resolved_percent}%)",
             total_resolved,
             self.participants.len(),
-            (total_resolved as f32 / self.participants.len() as f32 * 100.0).round()
         );
 
         println!("\nEnvironment Diagnostics\n");
