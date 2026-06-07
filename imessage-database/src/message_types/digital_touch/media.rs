@@ -93,21 +93,23 @@ impl DigitalTouchMedia {
         summary
     }
 
-    /// Draw the overlay sketches (if any) and label the media kind. The photo or
-    /// video itself lives in a separate attachment, so it is not depicted here.
+    /// Draw the overlay sketches (if any). When the backing photo is supplied as
+    /// the canvas background it shows through beneath them.
     pub(super) fn append_svg(&self, canvas: &mut Canvas) {
         for drawing in &self.drawings {
             drawing.append_svg(canvas);
         }
 
-        let width = canvas.width();
-        let font = width / 16;
-        let y = canvas.height() * 9 / 10;
-        canvas.push(&format!(
-            r#"<text x="{}" y="{y}" fill="white" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="{font}" text-anchor="middle">{}</text>"#,
-            width / 2,
-            self.kind.label(),
-        ));
+        if !canvas.has_background() {
+            let width = canvas.width();
+            let font = width / 16;
+            let y = canvas.height() * 9 / 10;
+            canvas.push(&format!(
+                r#"<text x="{}" y="{y}" fill="white" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="{font}" text-anchor="middle">{}</text>"#,
+                width / 2,
+                self.kind.label(),
+            ));
+        }
     }
 }
 

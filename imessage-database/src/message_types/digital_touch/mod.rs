@@ -6,7 +6,9 @@ render it with [`render_svg`](DigitalTouchMessage::render_svg) or
 [`render_text`](DigitalTouchMessage::render_text).
 */
 
-pub use crate::message_types::digital_touch::models::{Color, DigitalTouchMessage, Point};
+pub use crate::message_types::digital_touch::models::{
+    Color, DigitalTouchMessage, Point, SvgBackground,
+};
 
 pub(crate) mod digital_touch_proto;
 pub mod fireball;

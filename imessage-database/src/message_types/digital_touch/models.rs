@@ -13,6 +13,8 @@ The effects share a handful of binary encodings, captured by the helpers here:
 - Colors are four bytes in RGBA order ([`Color`]).
 */
 
+use std::borrow::Cow;
+
 use protobuf::Message;
 
 use crate::{
@@ -50,6 +52,56 @@ pub enum DigitalTouchMessage {
     Media(DigitalTouchMedia),
 }
 
+/// A media backdrop for [`render_svg`](DigitalTouchMessage::render_svg), drawn
+/// behind a [`Media`](DigitalTouchMessage::Media) effect.
+///
+/// This is a render-time input, not parsed state: a [`DigitalTouchMessage`] only
+/// records that an effect has media (plus any drawing overlay), so the caller
+/// must resolve the media via
+/// [`Attachment::from_message`](crate::tables::attachment::Attachment::from_message)
+/// and supply it here when rendering.
+///
+/// The value is the `href`/`src` reference embedded verbatim (XML-escaped) into
+/// the SVG: a relative export path, an in-place source path, or any URL. It is a
+/// [`Cow<str>`](std::borrow::Cow) because the renderer treats it as an opaque URL
+/// reference and never reads the file directly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SvgBackground<'a> {
+    /// A still image, scaled to cover the canvas.
+    Image(Cow<'a, str>),
+    /// A video, embedded with controls to play behind the effect.
+    Video(Cow<'a, str>),
+}
+
+impl SvgBackground<'_> {
+    /// Render the backdrop into the SVG markup that displays it, sized to cover a
+    /// `width`×`height` canvas. `slice`/`cover` scale the media to fill the frame,
+    /// cropping the overflow; the `<video>` (inside a `<foreignObject>`) plays
+    /// when the SVG is embedded in the exported HTML, its controls overlaying the
+    /// lower edge.
+    pub(super) fn render(&self, width: usize, height: usize) -> String {
+        match self {
+            SvgBackground::Image(href) => format!(
+                r#"<image href="{}" x="0" y="0" width="{width}" height="{height}" preserveAspectRatio="xMidYMid slice" />"#,
+                escape_attr(href)
+            ),
+            SvgBackground::Video(href) => format!(
+                r#"<foreignObject x="0" y="0" width="{width}" height="{height}"><video xmlns="http://www.w3.org/1999/xhtml" width="{width}" height="{height}" controls preload="metadata" style="object-fit:cover"><source src="{}" /></video></foreignObject>"#,
+                escape_attr(href)
+            ),
+        }
+    }
+}
+
+/// Escape the characters significant inside a double-quoted XML attribute value,
+/// for references such as a backdrop `href`.
+fn escape_attr(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 impl DigitalTouchMessage {
     /// Convert a raw `payload_data` byte blob into a [`DigitalTouchMessage`].
     pub fn from_payload(payload: &[u8]) -> Result<Self, DigitalTouchError> {
@@ -69,10 +121,13 @@ impl DigitalTouchMessage {
         }
     }
 
-    /// Render a static SVG depiction of the effect on a square black canvas.
+    /// Render a static SVG depiction of the effect.
+    ///
+    /// `background` optionally references media to draw as the backdrop in place
+    /// of the default black canvas. Pass `None` for a plain black background.
     #[must_use]
-    pub fn render_svg(&self) -> String {
-        let mut canvas = Canvas::new(self.summary());
+    pub fn render_svg(&self, background: Option<SvgBackground<'_>>) -> String {
+        let mut canvas = Canvas::new(self.summary(), background);
         match self {
             DigitalTouchMessage::Tap(t) => t.append_svg(&mut canvas),
             DigitalTouchMessage::Sketch(s) => s.append_svg(&mut canvas),
@@ -251,7 +306,7 @@ pub(super) fn pluralize(count: usize, noun: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Color, DigitalTouchMessage};
+    use super::{Color, DigitalTouchMessage, SvgBackground};
     use crate::message_types::digital_touch::media::MediaKind;
 
     use std::env::current_dir;
@@ -391,7 +446,7 @@ mod tests {
     #[test]
     fn renders_svg_and_text() {
         let sketch = parse("sketch.bin");
-        let svg = sketch.render_svg();
+        let svg = sketch.render_svg(None);
         assert!(svg.starts_with("<svg"));
         assert!(svg.contains("<polyline"));
         assert!(svg.contains(&MAGENTA.css()));
@@ -409,5 +464,30 @@ mod tests {
             "Digital Touch Image with drawing (5 strokes)"
         );
         assert_eq!(parse("video.bin").render_text(), "Digital Touch Video");
+    }
+
+    #[test]
+    fn media_background_references_media_and_drops_label() {
+        let media = parse("image.bin");
+
+        // An image backdrop is referenced via <image>, and the placeholder kind
+        // label is omitted because the media itself is shown.
+        let with_image =
+            media.render_svg(Some(SvgBackground::Image("attachments/0/bg.png".into())));
+        assert!(with_image.contains(r#"<image href="attachments/0/bg.png""#));
+        assert!(!with_image.contains(">Image</text>"));
+
+        // A video backdrop is embedded via <foreignObject><video>.
+        let with_video =
+            media.render_svg(Some(SvgBackground::Video("attachments/0/clip.mov".into())));
+        assert!(with_video.contains("<foreignObject"));
+        assert!(with_video.contains(r#"<source src="attachments/0/clip.mov" />"#));
+        assert!(!with_video.contains(">Image</text>"));
+
+        // Without a backdrop, nothing is referenced and the kind is labeled.
+        let without_background = media.render_svg(None);
+        assert!(!without_background.contains("<image"));
+        assert!(!without_background.contains("<foreignObject"));
+        assert!(without_background.contains(">Image</text>"));
     }
 }

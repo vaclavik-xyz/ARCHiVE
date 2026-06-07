@@ -11,6 +11,8 @@ authored and displayed on.
 
 use std::fmt::Write;
 
+use crate::message_types::digital_touch::models::SvgBackground;
+
 /// Canvas width in user units. The emitted `<svg>` scales to its container, so
 /// this only fixes the internal coordinate space.
 pub(super) const WIDTH: usize = 768;
@@ -22,16 +24,25 @@ pub(super) struct Canvas {
     title: String,
     defs: String,
     body: String,
+    /// Pre-rendered backdrop markup (an `<image>` or `<foreignObject><video>`)
+    /// drawn behind the effect, in place of the plain black canvas.
+    backdrop: Option<String>,
 }
 
 impl Canvas {
-    /// Create a canvas with the given accessible `<title>`.
-    pub(super) fn new(title: impl Into<String>) -> Self {
+    /// Create a canvas with the given accessible `<title>` and optional backdrop.
+    pub(super) fn new(title: impl Into<String>, background: Option<SvgBackground<'_>>) -> Self {
         Self {
             title: title.into(),
             defs: String::new(),
             body: String::new(),
+            backdrop: background.map(|background| background.render(WIDTH, HEIGHT)),
         }
+    }
+
+    /// Whether a backdrop (image or video) was supplied.
+    pub(super) fn has_background(&self) -> bool {
+        self.backdrop.is_some()
     }
 
     /// Canvas width, for renderers that place elements absolutely.
@@ -87,6 +98,10 @@ impl Canvas {
             svg,
             r#"<rect width="{WIDTH}" height="{HEIGHT}" fill="black" />"#
         );
+        if let Some(backdrop) = &self.backdrop {
+            svg.push_str(backdrop);
+            svg.push('\n');
+        }
         svg.push_str(&self.body);
         svg.push_str("</svg>\n");
         svg
