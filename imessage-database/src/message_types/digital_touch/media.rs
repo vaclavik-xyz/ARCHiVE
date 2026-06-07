@@ -1,15 +1,16 @@
 /*!
-[Media](super) Digital Touch effect: a photo or video, optionally with effects
-drawn on top of it.
+[Media](super) Digital Touch effect: a photo or video.
+
+A still photo can be drawn on. The [`Image`](MediaKind::Image) overlay holds the
+effects layered on top. A video cannot: the Digital Touch UI disables drawing
+while capturing or sending video, so a video cannot carry an overlay.
 
 The effect carries a media-type discriminator and an `NSKeyedArchiver` archive.
-The archive holds an `NSMutableArray` of overlay effects. Each is an `NSData` blob
-containing a complete, nested Digital Touch message, parsed through the same
-dispatcher as a top-level message and rendered the same way; in practice these
-are always [`Sketch`](super::sketch)es. A nested media blob is skipped so a
-crafted archive cannot drive unbounded recursion. The array is empty when nothing
-was drawn. The photo or video itself is delivered as a normal message attachment,
-not embedded here.
+For a photo, the archive holds an `NSMutableArray` of overlay effects, each an
+`NSData` blob containing a complete, nested Digital Touch message parsed through
+the same dispatcher as a top-level message; a nested media blob is skipped so a
+crafted archive cannot drive unbounded recursion. The photo or video itself is
+delivered as a normal message attachment, not embedded here.
 */
 
 use std::io::Cursor;
@@ -26,47 +27,42 @@ use crate::{
     },
 };
 
-/// The kind of media a [`DigitalTouchMedia`] effect carries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The media a [`DigitalTouchMedia`] effect carries.
+///
+/// Only a still image can be drawn on: the Digital Touch UI disables the drawing
+/// tools while capturing or sending video, so a video never carries an overlay.
+#[derive(Debug, Clone, PartialEq)]
 pub enum MediaKind {
-    /// A still image.
-    Image,
-    /// A video.
+    /// A still image, with the effects drawn on top
+    /// of it.
+    Image {
+        /// Effects layered over the image; empty when nothing was drawn.
+        overlay: Vec<DigitalTouchMessage>,
+    },
+    /// A video
     Video,
     /// An unrecognized media-type discriminator.
     Other(u64),
 }
 
 impl MediaKind {
-    /// Map the `MediaType` discriminator to a [`MediaKind`].
-    fn from_type(media_type: u64) -> Self {
-        match media_type {
-            1 => MediaKind::Video,
-            2 => MediaKind::Image,
-            other => MediaKind::Other(other),
-        }
-    }
-
     /// Human-readable label.
-    fn label(self) -> String {
+    fn label(&self) -> String {
         match self {
-            MediaKind::Image => "Image".to_string(),
+            MediaKind::Image { .. } => "Image".to_string(),
             MediaKind::Video => "Video".to_string(),
             MediaKind::Other(media_type) => format!("Media (type {media_type})"),
         }
     }
 }
 
-/// A photo or video Digital Touch, optionally drawn on top of.
+/// A photo or video Digital Touch effect.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DigitalTouchMedia {
     /// Unique identifier for the message.
     pub id: String,
-    /// Whether the media is an image or a video.
+    /// The media carried, and (for an image) the effects drawn on top of it.
     pub kind: MediaKind,
-    /// Effects drawn on top of the media (virtually always sketches); empty when
-    /// nothing was drawn.
-    pub overlay: Vec<DigitalTouchMessage>,
 }
 
 impl DigitalTouchMedia {
@@ -77,22 +73,34 @@ impl DigitalTouchMedia {
         let msg = MediaMessage::parse_from_bytes(&base.TouchPayload)
             .map_err(DigitalTouchError::ProtobufError)?;
 
+        // Only a still image can be drawn on, so only an image decodes an overlay
+        // from the archive; a video (or unknown kind) is shown on its own.
+        let kind = match msg.MediaType {
+            1 => MediaKind::Video,
+            2 => MediaKind::Image {
+                overlay: decode_overlays(&msg.Archive)?,
+            },
+            other => MediaKind::Other(other),
+        };
+
         Ok(DigitalTouchMessage::Media(DigitalTouchMedia {
             id: base.ID.clone(),
-            kind: MediaKind::from_type(msg.MediaType),
-            overlay: decode_overlays(&msg.Archive)?,
+            kind,
         }))
     }
 
     /// One-line summary, e.g. `"Digital Touch Image"` or
     /// `"Digital Touch Image with drawing (5 strokes)"`.
     pub(super) fn summary(&self) -> String {
-        let mut summary = format!("Digital Touch {}", self.kind.label());
-        if !self.overlay.is_empty() {
+        let MediaKind::Image { overlay } = &self.kind else {
+            return format!("Digital Touch {}", self.kind.label());
+        };
+
+        let mut summary = "Digital Touch Image".to_string();
+        if !overlay.is_empty() {
             // The overlay is almost always sketch strokes; count them for a
             // precise label, and note any other effect generically.
-            let strokes: usize = self
-                .overlay
+            let strokes: usize = overlay
                 .iter()
                 .map(|effect| match effect {
                     DigitalTouchMessage::Sketch(sketch) => sketch.strokes.len(),
@@ -108,11 +116,13 @@ impl DigitalTouchMedia {
         summary
     }
 
-    /// Draw the overlay sketches (if any). When the backing photo is supplied as
-    /// the canvas background it shows through beneath them.
+    /// Draw the image overlay effects (if any). When the backing photo is supplied
+    /// as the canvas background it shows through beneath them.
     pub(super) fn append_svg(&self, canvas: &mut Canvas) {
-        for effect in &self.overlay {
-            effect.append_svg(canvas);
+        if let MediaKind::Image { overlay } = &self.kind {
+            for effect in overlay {
+                effect.append_svg(canvas);
+            }
         }
 
         if !canvas.has_background() {

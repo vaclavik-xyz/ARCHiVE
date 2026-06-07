@@ -11,7 +11,7 @@ authored and displayed on.
 
 use std::fmt::Write;
 
-use crate::message_types::digital_touch::models::SvgBackground;
+use crate::message_types::digital_touch::models::ImageBackdrop;
 
 /// Canvas width in user units. The emitted `<svg>` scales to its container, so
 /// this only fixes the internal coordinate space.
@@ -31,7 +31,7 @@ pub(super) struct Canvas {
 
 impl Canvas {
     /// Create a canvas with the given accessible `<title>` and optional backdrop.
-    pub(super) fn new(title: impl Into<String>, background: Option<SvgBackground<'_>>) -> Self {
+    pub(super) fn new(title: impl Into<String>, background: Option<ImageBackdrop<'_>>) -> Self {
         Self {
             title: title.into(),
             defs: String::new(),

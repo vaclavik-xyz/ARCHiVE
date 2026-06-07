@@ -7,7 +7,7 @@ render it with [`render_svg`](DigitalTouchMessage::render_svg) or
 */
 
 pub use crate::message_types::digital_touch::models::{
-    Color, DigitalTouchMessage, Point, SvgBackground,
+    Color, DigitalTouchMessage, ImageBackdrop, Point,
 };
 
 pub(crate) mod digital_touch_proto;
