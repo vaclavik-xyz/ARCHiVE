@@ -16,6 +16,27 @@ use crate::app::{
     options::Options,
 };
 
+/// A decrypted temporary database file, removed from disk when dropped.
+struct TempDatabase(PathBuf);
+
+impl TempDatabase {
+    /// Borrow the path, e.g. to open a connection to it.
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDatabase {
+    fn drop(&mut self) {
+        if let Err(why) = remove_file(&self.0) {
+            eprintln!(
+                "warning: failed to remove temporary messages database at {}: {why}",
+                self.0.display(),
+            );
+        }
+    }
+}
+
 pub struct DataSource {
     /// Messages database connection.
     ///
@@ -28,10 +49,10 @@ pub struct DataSource {
     pub contacts_index: ContactsIndex,
     /// Encrypted iOS backup when one was opened.
     pub backup: Option<Backup>,
-    /// Path to a temporary decrypted messages database that this `DataSource` owns and
-    /// must clean up on drop. `None` when the messages database is a real on-disk file
-    /// (macOS, or iOS with an unencrypted backup).
-    temp_messages_db: Option<PathBuf>,
+    /// A temporary decrypted messages database this `DataSource` owns; its own
+    /// [`Drop`] removes the file. `None` when the messages database is a real
+    /// on-disk file (macOS, or iOS with an unencrypted backup).
+    temp_messages_db: Option<TempDatabase>,
 }
 
 impl DataSource {
@@ -56,7 +77,7 @@ impl DataSource {
             }
             Platform::iOS => match decrypt_backup(options)? {
                 Some(backup) => {
-                    let messages_path = get_decrypted_message_database(&backup)?;
+                    let messages_db = TempDatabase(get_decrypted_message_database(&backup)?);
                     let contacts_path = get_decrypted_contacts_database(&backup)?;
 
                     eprintln!(
@@ -76,12 +97,12 @@ impl DataSource {
                         );
                     }
 
-                    let messages_connection = get_connection(&messages_path)?;
+                    let messages_connection = get_connection(messages_db.path())?;
                     Ok(Self {
                         messages_connection: Some(messages_connection),
                         contacts_index,
                         backup: Some(backup),
-                        temp_messages_db: Some(messages_path),
+                        temp_messages_db: Some(messages_db),
                     })
                 }
                 None => {
@@ -132,20 +153,12 @@ impl DataSource {
 // MARK: Drop
 impl Drop for DataSource {
     fn drop(&mut self) {
-        // Close the connection explicitly before removing the file so the OS isn't
-        // holding the temp file open when we try to delete it (matters on Windows).
+        // Close the connection before the temp database is removed, so the OS isn't
+        // holding it open on Windows; `TempDatabase`'s own `Drop` does the removal.
         if let Some(conn) = self.messages_connection.take() {
             conn.close().ok();
         }
-
-        if let Some(path) = self.temp_messages_db.take()
-            && let Err(e) = remove_file(&path)
-        {
-            eprintln!(
-                "warning: failed to remove temporary messages database at {}: {e}",
-                path.display(),
-            );
-        }
+        drop(self.temp_messages_db.take());
     }
 }
 

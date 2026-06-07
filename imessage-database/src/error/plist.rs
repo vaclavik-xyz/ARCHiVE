@@ -37,6 +37,8 @@ pub enum PlistParseError {
     DigitalTouchError,
     /// Error parsing a poll message
     PollError,
+    /// Exceeded the maximum UID-reference resolution depth (likely a reference cycle)
+    RecursionLimit,
 }
 
 impl Display for PlistParseError {
@@ -73,6 +75,10 @@ impl Display for PlistParseError {
                 write!(fmt, "TypedStream error: {typed_stream_error}")
             }
             PlistParseError::PollError => write!(fmt, "Unable to parse Poll Message!"),
+            PlistParseError::RecursionLimit => write!(
+                fmt,
+                "Exceeded maximum depth while resolving UID references; the archive may contain a reference cycle"
+            ),
         }
     }
 }

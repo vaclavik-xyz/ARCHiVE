@@ -96,7 +96,7 @@ pub fn parse_body_typedstream<'a>(
 
     let mut current_range_id;
     let mut current_start;
-    let mut current_end = 0;
+    let mut current_end: usize = 0;
 
     // The first component is the text itself
     if let Some(mut components) = components
@@ -113,7 +113,7 @@ pub fn parse_body_typedstream<'a>(
             // the second part is the length of the range in UTF-16 code units
             if let Some(range) = as_type_length_pair(&property) {
                 current_start = current_end;
-                current_end += range.length as usize;
+                current_end = current_end.saturating_add(range.length as usize);
                 current_range_id = range.type_index;
 
                 let built = format_range_cache

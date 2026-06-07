@@ -26,6 +26,9 @@ use plist::{Dictionary, Value};
 
 use crate::error::plist::PlistParseError;
 
+/// Maximum depth of UID-reference resolution before bailing out.
+const MAX_UID_DEPTH: usize = 256;
+
 /// Deserialize an `NSKeyedArchiver` property list by resolving UID references.
 ///
 /// The archive stores objects in `$objects` and points `$top.root` at the root
@@ -71,7 +74,7 @@ pub fn parse_ns_keyed_archiver(plist: &Value) -> Result<Value, PlistParseError> 
     // Index of root object
     let root = extract_uid_key(extract_dictionary(body, "$top")?, "root")?;
 
-    follow_uid(objects, root, None, None)
+    follow_uid(objects, root, None, None, 0)
 }
 
 /// Resolve one archived object and any UID references it contains.
@@ -80,7 +83,11 @@ fn follow_uid<'a>(
     root: usize,
     parent: Option<&'a Value>,
     item: Option<&'a Value>,
+    depth: usize,
 ) -> Result<Value, PlistParseError> {
+    if depth >= MAX_UID_DEPTH {
+        return Err(PlistParseError::RecursionLimit);
+    }
     let item = match item {
         Some(item) => item,
         None => objects
@@ -93,7 +100,13 @@ fn follow_uid<'a>(
             let mut array = vec![];
             for item in arr {
                 if let Some(idx) = item.as_uid() {
-                    array.push(follow_uid(objects, idx.get() as usize, parent, None)?);
+                    array.push(follow_uid(
+                        objects,
+                        idx.get() as usize,
+                        parent,
+                        None,
+                        depth + 1,
+                    )?);
                 }
             }
             Ok(plist::Value::Array(array))
@@ -107,7 +120,7 @@ fn follow_uid<'a>(
                 {
                     dictionary.insert(
                         value_to_key_string(p),
-                        follow_uid(objects, idx.get() as usize, Some(p), None)?,
+                        follow_uid(objects, idx.get() as usize, Some(p), None, depth + 1)?,
                     );
                 }
             }
@@ -127,8 +140,8 @@ fn follow_uid<'a>(
                 for idx in 0..keys.len() {
                     let key_index = extract_uid_idx(keys, idx)?;
                     let value_index = extract_uid_idx(values, idx)?;
-                    let key = follow_uid(objects, key_index, None, None)?;
-                    let value = follow_uid(objects, value_index, Some(&key), None)?;
+                    let key = follow_uid(objects, key_index, None, None, depth + 1)?;
+                    let value = follow_uid(objects, value_index, Some(&key), None, depth + 1)?;
 
                     dictionary.insert(value_to_key_string(&key), value);
                 }
@@ -145,21 +158,27 @@ fn follow_uid<'a>(
                         let key_value = Value::String(key.clone());
                         dictionary.insert(
                             key.clone(),
-                            follow_uid(objects, idx.get() as usize, Some(&key_value), None)?,
+                            follow_uid(
+                                objects,
+                                idx.get() as usize,
+                                Some(&key_value),
+                                None,
+                                depth + 1,
+                            )?,
                         );
                     }
                     // If the value is not a pointer, try and follow the data itself
                     else if let Some(p) = parent {
                         dictionary.insert(
                             value_to_key_string(p),
-                            follow_uid(objects, root, Some(p), Some(val))?,
+                            follow_uid(objects, root, Some(p), Some(val), depth + 1)?,
                         );
                     }
                 }
             }
             Ok(plist::Value::Dictionary(dictionary))
         }
-        Value::Uid(uid) => follow_uid(objects, uid.get() as usize, None, None),
+        Value::Uid(uid) => follow_uid(objects, uid.get() as usize, None, None, depth + 1),
         _ => Ok(item.to_owned()),
     }
 }
@@ -336,4 +355,61 @@ pub fn get_float_from_nested_dict<'a>(payload: &'a Value, key: &'a str) -> Optio
         .as_dictionary()?
         .get(key)?
         .as_real()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use plist::Uid;
+
+    /// Build a plist dictionary from key/value pairs.
+    fn dict(pairs: Vec<(&str, Value)>) -> Value {
+        let mut dictionary = Dictionary::new();
+        for (key, value) in pairs {
+            dictionary.insert(key.to_string(), value);
+        }
+        Value::Dictionary(dictionary)
+    }
+
+    #[test]
+    fn resolves_simple_archive() {
+        // `$top.root` -> `$objects[1]` == "hello"
+        let archive = dict(vec![
+            (
+                "$objects",
+                Value::Array(vec![
+                    Value::String("$null".to_string()),
+                    Value::String("hello".to_string()),
+                ]),
+            ),
+            ("$top", dict(vec![("root", Value::Uid(Uid::new(1)))])),
+        ]);
+
+        assert_eq!(
+            parse_ns_keyed_archiver(&archive).unwrap(),
+            Value::String("hello".to_string())
+        );
+    }
+
+    #[test]
+    fn cyclic_uid_reference_is_rejected_not_overflowed() {
+        // `$objects[1]` points at itself and `$top.root` points at index 1. Without
+        // a depth bound this recurses forever and aborts the process via stack
+        // overflow; the bound converts it into a recoverable error instead.
+        let archive = dict(vec![
+            (
+                "$objects",
+                Value::Array(vec![
+                    Value::String("$null".to_string()),
+                    Value::Uid(Uid::new(1)),
+                ]),
+            ),
+            ("$top", dict(vec![("root", Value::Uid(Uid::new(1)))])),
+        ]);
+
+        assert!(matches!(
+            parse_ns_keyed_archiver(&archive),
+            Err(PlistParseError::RecursionLimit)
+        ));
+    }
 }
