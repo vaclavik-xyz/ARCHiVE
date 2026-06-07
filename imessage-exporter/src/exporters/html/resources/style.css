@@ -38,6 +38,14 @@ svg {
     width: 100%;
 }
 
+.digital_touch video {
+    width: 100%;
+    display: block;
+    aspect-ratio: 768 / 960;
+    object-fit: cover;
+    background: black;
+}
+
 a[href^="#"] {
     text-decoration: none;
     color: darkblue;

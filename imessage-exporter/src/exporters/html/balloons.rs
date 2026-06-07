@@ -5,7 +5,7 @@ use imessage_database::{
         app::AppMessage,
         app_store::AppStoreMessage,
         collaboration::CollaborationMessage,
-        digital_touch::{DigitalTouchMessage, SvgBackground},
+        digital_touch::{DigitalTouchMessage, ImageBackdrop, media::MediaKind},
         handwriting::HandwrittenMessage,
         music::MusicMessage,
         placemark::PlacemarkMessage,
@@ -24,8 +24,8 @@ use crate::exporters::{
         HTML,
         safe::Html,
         view_model::{
-            AppCardVM, AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, FindMyVM, MusicVM,
-            PlacemarkVM, PollOptionVM, PollVM, UrlVM,
+            AppCardVM, AppStoreVM, ApplePayVM, AttachmentVM, AttachmentVariant, CheckInVM,
+            CollaborationVM, FindMyVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, UrlVM,
         },
     },
     shared::{
@@ -36,36 +36,29 @@ use crate::exporters::{
 
 use crate::app::runtime::Config;
 
-/// Resolve the photo or video backing a Digital Touch media message into a
-/// reference for use as the rendered SVG background.
+/// Resolve and prepare the photo or video backing a Digital Touch media message.
 ///
 /// The media is a normal attachment on the message row: it is looked up with
 /// [`Attachment::from_message`], run through the attachment manager (copied into
-/// the export, or linked in place), and referenced by path rather than inlined.
-///
-/// Returns `None` when the message has no usable image/video attachment or its
-/// file is missing.
-fn digital_touch_background(
+/// the export, or linked in place), and confirmed present on disk. Returns `None`
+/// when the message has no attachment or its file is missing, so the caller can
+/// fall back to the labeled black canvas.
+fn digital_touch_attachment(
     config: &Config,
     state: &ExportState,
     msg: &Message,
-) -> Option<SvgBackground<'static>> {
-    let mut attachments = Attachment::from_message(config.data_source.db(), msg).ok()?;
-    let attachment = attachments.first_mut()?;
-
-    // Only a still image or a video can back the canvas.
-    let is_video = match attachment.mime_type() {
-        MediaType::Image(_) => false,
-        MediaType::Video(_) => true,
-        _ => return None,
-    };
+) -> Option<Attachment> {
+    let mut attachment = Attachment::from_message(config.data_source.db(), msg)
+        .ok()?
+        .into_iter()
+        .next()?;
 
     // Copy/convert the media into the export, like any other attachment, so the
     // reference lands inside the export folder. A no-op in modes that link
-    // originals in place; an error (e.g. the file is gone) drops the backdrop.
-    prepare_attachment(config, state, attachment, msg).ok()?;
+    // originals in place; an error (e.g. the file is gone) drops the backing.
+    prepare_attachment(config, state, &mut attachment, msg).ok()?;
 
-    // Skip the backdrop when the referenced file is not actually present.
+    // Keep the attachment only when the referenced file is actually present.
     let on_disk = match &attachment.copied_path {
         Some(path) => path.clone(),
         None => PathBuf::from(attachment.resolved_attachment_path(
@@ -74,16 +67,7 @@ fn digital_touch_background(
             config.options.attachment_root.as_deref(),
         )?),
     };
-    if !on_disk.exists() {
-        return None;
-    }
-
-    let href = config.message_attachment_path(attachment);
-    Some(if is_video {
-        SvgBackground::Video(href.into())
-    } else {
-        SvgBackground::Image(href.into())
-    })
+    on_disk.exists().then_some(attachment)
 }
 
 // MARK: Balloons
@@ -153,19 +137,13 @@ impl BalloonFormatter for HTML<'_> {
     }
 
     fn format_digital_touch(&self, msg: &Message, balloon: &DigitalTouchMessage) -> String {
-        // Media effects are drawn over the photo or video they reference, when
-        // it is still available; every other effect renders on the black canvas.
-        let background = match balloon {
-            DigitalTouchMessage::Media(_) => {
-                digital_touch_background(self.config, &self.state, msg)
-            }
-            _ => None,
-        };
         // Wrap in `.digital_touch` (inside the standard `app` card) as the CSS
-        // hook that caps the bubble to the card's width; the opaque card then
+        // hook that caps the bubble to the card's width; the opaque content then
         // fills that bubble, covering the `app` card's white background.
-        let svg = balloon.render_svg(background);
-        format!(r#"<div class="digital_touch">{svg}</div>"#)
+        format!(
+            r#"<div class="digital_touch">{}</div>"#,
+            self.digital_touch_body(msg, balloon)
+        )
     }
 
     fn format_apple_pay(&self, balloon: &AppMessage) -> String {
@@ -254,6 +232,36 @@ impl BalloonFormatter for HTML<'_> {
 }
 
 impl HTML<'_> {
+    /// Render the inner markup for a Digital Touch message, dispatching on the
+    /// parsed [`MediaKind`]: a video plays as a standalone `<video>` (it never has
+    /// an overlay, and an in-SVG `<foreignObject>` video overflows the bubble on
+    /// play), while an image backs the SVG its overlay draws over. Anything with
+    /// no resolvable file falls back to the labeled black canvas.
+    fn digital_touch_body(&self, msg: &Message, balloon: &DigitalTouchMessage) -> String {
+        let DigitalTouchMessage::Media(media) = balloon else {
+            return balloon.render_svg(None);
+        };
+        let Some(attachment) = digital_touch_attachment(self.config, &self.state, msg) else {
+            return balloon.render_svg(None);
+        };
+        let embed_path = self.config.message_attachment_path(&attachment);
+
+        match &media.kind {
+            // Reuse the shared attachment `<video>` template so the player gets the
+            // correct `type` hint and the duplicated source tag (see issue #73).
+            MediaKind::Video => match attachment.mime_type() {
+                MediaType::Video(media_type) => render_template(&AttachmentVM {
+                    lazy: !self.config.options.no_lazy,
+                    embed_path,
+                    variant: AttachmentVariant::Video { media_type },
+                }),
+                _ => balloon.render_svg(None),
+            },
+            MediaKind::Image { .. } => balloon.render_svg(Some(ImageBackdrop(embed_path.into()))),
+            MediaKind::Other(_) => balloon.render_svg(None),
+        }
+    }
+
     fn balloon_to_html(
         &self,
         balloon: &AppMessage,

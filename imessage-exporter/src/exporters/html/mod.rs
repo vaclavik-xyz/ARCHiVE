@@ -4048,6 +4048,32 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_html_digital_touch_video_without_attachment() {
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let payload_path = current_dir()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("imessage-database/test_data/digital_touch_message/video.bin");
+        let mut payload = vec![];
+        File::open(payload_path)
+            .unwrap()
+            .read_to_end(&mut payload)
+            .unwrap();
+        let balloon = DigitalTouchMessage::from_payload(&payload).unwrap();
+
+        let msg = Config::fake_message();
+        let actual = exporter.format_digital_touch(&msg, &balloon);
+
+        assert!(actual.starts_with("<div class=\"digital_touch\">"));
+        assert!(actual.contains("<title>Digital Touch Video</title>"));
+        assert!(actual.contains(">Video</text>"));
+    }
+
+    #[test]
     fn can_format_html_handwriting() {
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
