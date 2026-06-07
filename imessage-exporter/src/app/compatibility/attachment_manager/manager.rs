@@ -108,7 +108,7 @@ impl AttachmentManager {
             }
 
             // Attempt the svg render
-            if let Err(why) = write(to.to_str()?, handwriting.render_svg()) {
+            if let Err(why) = write(&to, handwriting.render_svg()) {
                 eprintln!("Unable to write to {}: {why}", to.display());
             }
 
