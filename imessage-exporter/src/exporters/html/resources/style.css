@@ -29,6 +29,15 @@ svg {
     height: auto;
 }
 
+.message .sent:has(.digital_touch),
+.message .received:has(.digital_touch) {
+    width: 30vw;
+}
+
+.digital_touch svg {
+    width: 100%;
+}
+
 a[href^="#"] {
     text-decoration: none;
     color: darkblue;

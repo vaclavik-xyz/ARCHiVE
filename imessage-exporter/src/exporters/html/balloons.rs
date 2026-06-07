@@ -1,11 +1,19 @@
+use std::path::PathBuf;
+
 use imessage_database::{
     message_types::{
-        app::AppMessage, app_store::AppStoreMessage, collaboration::CollaborationMessage,
-        digital_touch::DigitalTouchMessage, handwriting::HandwrittenMessage, music::MusicMessage,
-        placemark::PlacemarkMessage, polls::Poll, url::URLMessage,
+        app::AppMessage,
+        app_store::AppStoreMessage,
+        collaboration::CollaborationMessage,
+        digital_touch::{DigitalTouchMessage, SvgBackground},
+        handwriting::HandwrittenMessage,
+        music::MusicMessage,
+        placemark::PlacemarkMessage,
+        polls::Poll,
+        url::URLMessage,
     },
     tables::{
-        attachment::Attachment,
+        attachment::{Attachment, MediaType},
         messages::{Message, models::AttachmentMeta},
     },
 };
@@ -20,8 +28,63 @@ use crate::exporters::{
             PlacemarkVM, PollOptionVM, PollVM, UrlVM,
         },
     },
-    shared::{balloon::resolve_check_in_footer, render::render_template},
+    shared::{
+        attachment::prepare_attachment, balloon::resolve_check_in_footer, driver::ExportState,
+        render::render_template,
+    },
 };
+
+use crate::app::runtime::Config;
+
+/// Resolve the photo or video backing a Digital Touch media message into a
+/// reference for use as the rendered SVG background.
+///
+/// The media is a normal attachment on the message row: it is looked up with
+/// [`Attachment::from_message`], run through the attachment manager (copied into
+/// the export, or linked in place), and referenced by path rather than inlined.
+///
+/// Returns `None` when the message has no usable image/video attachment or its
+/// file is missing.
+fn digital_touch_background(
+    config: &Config,
+    state: &ExportState,
+    msg: &Message,
+) -> Option<SvgBackground<'static>> {
+    let mut attachments = Attachment::from_message(config.data_source.db(), msg).ok()?;
+    let attachment = attachments.first_mut()?;
+
+    // Only a still image or a video can back the canvas.
+    let is_video = match attachment.mime_type() {
+        MediaType::Image(_) => false,
+        MediaType::Video(_) => true,
+        _ => return None,
+    };
+
+    // Copy/convert the media into the export, like any other attachment, so the
+    // reference lands inside the export folder. A no-op in modes that link
+    // originals in place; an error (e.g. the file is gone) drops the backdrop.
+    prepare_attachment(config, state, attachment, msg).ok()?;
+
+    // Skip the backdrop when the referenced file is not actually present.
+    let on_disk = match &attachment.copied_path {
+        Some(path) => path.clone(),
+        None => PathBuf::from(attachment.resolved_attachment_path(
+            &config.options.platform,
+            &config.options.db_path,
+            config.options.attachment_root.as_deref(),
+        )?),
+    };
+    if !on_disk.exists() {
+        return None;
+    }
+
+    let href = config.message_attachment_path(attachment);
+    Some(if is_video {
+        SvgBackground::Video(href.into())
+    } else {
+        SvgBackground::Image(href.into())
+    })
+}
 
 // MARK: Balloons
 impl BalloonFormatter for HTML<'_> {
@@ -89,8 +152,20 @@ impl BalloonFormatter for HTML<'_> {
         balloon.render_svg()
     }
 
-    fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouchMessage) -> String {
-        balloon.render_svg()
+    fn format_digital_touch(&self, msg: &Message, balloon: &DigitalTouchMessage) -> String {
+        // Media effects are drawn over the photo or video they reference, when
+        // it is still available; every other effect renders on the black canvas.
+        let background = match balloon {
+            DigitalTouchMessage::Media(_) => {
+                digital_touch_background(self.config, &self.state, msg)
+            }
+            _ => None,
+        };
+        // Wrap in `.digital_touch` (inside the standard `app` card) as the CSS
+        // hook that caps the bubble to the card's width; the opaque card then
+        // fills that bubble, covering the `app` card's white background.
+        let svg = balloon.render_svg(background);
+        format!(r#"<div class="digital_touch">{svg}</div>"#)
     }
 
     fn format_apple_pay(&self, balloon: &AppMessage) -> String {

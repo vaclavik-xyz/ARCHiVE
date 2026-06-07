@@ -4015,7 +4015,8 @@ mod balloon_format_tests {
         let msg = Config::fake_message();
         let actual = exporter.format_digital_touch(&msg, &balloon);
 
-        assert!(actual.starts_with("<svg"));
+        assert!(actual.starts_with("<div class=\"digital_touch\">"));
+        assert!(actual.contains("<svg"));
         assert!(actual.contains("<title>Digital Touch Kiss (1 kiss)</title>"));
         assert!(actual.contains("fill=\"red\""));
     }
@@ -4041,7 +4042,7 @@ mod balloon_format_tests {
         let msg = Config::fake_message();
         let actual = exporter.format_digital_touch(&msg, &touch);
 
-        assert!(actual.starts_with("<svg"));
+        assert!(actual.starts_with("<div class=\"digital_touch\">"));
         assert!(actual.contains("<polyline"));
         assert!(actual.contains("rgba(255, 0, 252, 255)"));
     }
