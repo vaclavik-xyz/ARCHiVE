@@ -39,10 +39,11 @@ use crate::app::runtime::Config;
 /// Resolve and prepare the photo or video backing a Digital Touch media message.
 ///
 /// The media is a normal attachment on the message row: it is looked up with
-/// [`Attachment::from_message`], run through the attachment manager (copied into
-/// the export, or linked in place), and confirmed present on disk. Returns `None`
-/// when the message has no attachment or its file is missing, so the caller can
-/// fall back to the labeled black canvas.
+/// [`Attachment::from_message`], run through the attachment manager, and
+/// confirmed present on disk. Returns `None` for any condition that prevents a
+/// usable backing file, including a missing attachment row, unresolved source
+/// path, missing filename, copy/convert/decryption failure, or missing final
+/// file. The caller intentionally falls back to the labeled black canvas.
 fn digital_touch_attachment(
     config: &Config,
     state: &ExportState,
@@ -53,9 +54,10 @@ fn digital_touch_attachment(
         .into_iter()
         .next()?;
 
-    // Copy/convert the media into the export, like any other attachment, so the
-    // reference lands inside the export folder. A no-op in modes that link
-    // originals in place; an error (e.g. the file is gone) drops the backing.
+    // Prepare this as a normal attachment. Depending on the attachment-manager
+    // mode this may copy, convert, reuse an existing export copy, or leave the
+    // original path in place. If preparation fails, the render falls back to the
+    // labeled black canvas.
     prepare_attachment(config, state, &mut attachment, msg).ok()?;
 
     // Keep the attachment only when the referenced file is actually present.
@@ -236,7 +238,7 @@ impl HTML<'_> {
     /// parsed [`MediaKind`]: a video plays as a standalone `<video>` (it never has
     /// an overlay, and an in-SVG `<foreignObject>` video overflows the bubble on
     /// play), while an image backs the SVG its overlay draws over. Anything with
-    /// no resolvable file falls back to the labeled black canvas.
+    /// no usable backing attachment falls back to the labeled black canvas.
     fn digital_touch_body(&self, msg: &Message, balloon: &DigitalTouchMessage) -> String {
         let DigitalTouchMessage::Media(media) = balloon else {
             return balloon.render_svg(None);

@@ -61,9 +61,9 @@ pub enum DigitalTouchMessage {
 ///
 /// This is a render-time input, not parsed state: the caller resolves the image
 /// via [`Attachment::from_message`](crate::tables::attachment::Attachment::from_message)
-/// and supplies it here. The value is the `href` embedded verbatim (XML-escaped)
-/// into the SVG `<image>`because the renderer treats it as an opaque reference
-/// and never reads the file.
+/// and supplies it here. The value becomes the SVG `<image>` `href` after XML
+/// attribute escaping. The renderer treats it as an opaque reference and never
+/// reads the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageBackdrop<'a>(pub Cow<'a, str>);
 

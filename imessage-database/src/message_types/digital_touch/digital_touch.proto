@@ -21,7 +21,7 @@ enum TouchKind {
   Heartbeat = 3; // Also broken heart
   Sketch = 4;
   // 5?
-  Media = 6; // Image or video, optionally drawn on
+  Media = 6; // Still image with optional overlays, or video
   Kiss = 7;
   Fireball = 8;
 }
@@ -68,9 +68,10 @@ message FireballMessage {
 }
 
 message MediaMessage {
-  // `NSKeyedArchiver` archive holding an `NSMutableArray` of drawing overlays;
-  // each element is `NSData` encoding strokes in the same layout as
-  // `SketchMessage.Strokes`. The array is empty when nothing was drawn on top.
+  // For image media, an `NSKeyedArchiver` archive holding an `NSMutableArray`
+  // of overlay effects. Each element is `NSData` containing a complete nested
+  // `BaseMessage`; supported overlays are any non-media `TouchKind`. The array
+  // is empty when nothing was drawn on top.
   bytes Archive = 2;
   uint64 MediaType = 4; // 1 = video, 2 = image
 }

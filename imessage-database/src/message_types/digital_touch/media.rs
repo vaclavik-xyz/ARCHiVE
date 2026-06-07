@@ -98,8 +98,8 @@ impl DigitalTouchMedia {
 
         let mut summary = "Digital Touch Image".to_string();
         if !overlay.is_empty() {
-            // The overlay is almost always sketch strokes; count them for a
-            // precise label, and note any other effect generically.
+            // Sketch overlays expose a precise stroke count; any other overlay
+            // type falls back to a generic label.
             let strokes: usize = overlay
                 .iter()
                 .map(|effect| match effect {
@@ -141,8 +141,8 @@ impl DigitalTouchMedia {
 /// Decode the overlay effects from the effect's `NSKeyedArchiver` archive.
 ///
 /// The archive is an `NSMutableArray` of `NSData` blobs, each a complete, nested
-/// Digital Touch message (in practice always a [`Sketch`](super::sketch)). A blob
-/// that fails to parse is skipped rather than failing the whole message, since the
+/// Digital Touch message. Any non-media [`TouchKind`] may appear. A blob that
+/// fails to parse is skipped rather than failing the whole message, since the
 /// media kind is still meaningful without its overlay. A nested
 /// [`Media`](DigitalTouchMessage::Media) blob is skipped so a crafted archive
 /// cannot drive unbounded recursion.

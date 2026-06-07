@@ -24,13 +24,13 @@ pub(super) struct Canvas {
     title: String,
     defs: String,
     body: String,
-    /// Pre-rendered backdrop markup (an `<image>` or `<foreignObject><video>`)
-    /// drawn behind the effect, in place of the plain black canvas.
+    /// Pre-rendered `<image>` markup drawn behind the effect, in place of the
+    /// plain black canvas.
     backdrop: Option<String>,
 }
 
 impl Canvas {
-    /// Create a canvas with the given accessible `<title>` and optional backdrop.
+    /// Create a canvas with the given accessible `<title>` and optional still-image backdrop.
     pub(super) fn new(title: impl Into<String>, background: Option<ImageBackdrop<'_>>) -> Self {
         Self {
             title: title.into(),
@@ -40,7 +40,7 @@ impl Canvas {
         }
     }
 
-    /// Whether a backdrop (image or video) was supplied.
+    /// Whether a still-image backdrop was supplied.
     pub(super) fn has_background(&self) -> bool {
         self.backdrop.is_some()
     }

@@ -1,5 +1,5 @@
 /*!
-[Digital Touch](https://support.apple.com/guide/ipod-touch/send-a-digital-touch-effect-iph3fadba219/ios) messages are animated sketches, taps, fireballs, kisses, and heartbeats, as well as photos and videos that can be drawn on.
+[Digital Touch](https://support.apple.com/guide/ipod-touch/send-a-digital-touch-effect-iph3fadba219/ios) messages are animated sketches, taps, fireballs, kisses, and heartbeats, as well as still photos with optional drawing overlays and videos.
 
 Parse a `payload_data` blob with [`DigitalTouchMessage::from_payload`], then
 render it with [`render_svg`](DigitalTouchMessage::render_svg) or
