@@ -135,7 +135,13 @@ impl<'a> BalloonProvider<'a> for EditedMessage {
                         PlistParseError::InvalidTypeIndex(idx, "dictionary".to_string())
                     })?;
 
-                    let timestamp = extract_int_key(message_data, "d")? * TIMESTAMP_FACTOR;
+                    let timestamp = extract_int_key(message_data, "d")?
+                        .checked_mul(TIMESTAMP_FACTOR)
+                        .ok_or_else(|| {
+                            PlistParseError::InvalidEditedMessage(
+                                "edit timestamp out of range".to_string(),
+                            )
+                        })?;
 
                     let data = extract_bytes_key(message_data, "t")?;
 
