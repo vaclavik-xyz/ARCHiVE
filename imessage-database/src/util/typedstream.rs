@@ -1,8 +1,8 @@
 /*!
- Helpers for working with `Property` types in the Crabstep deserializer.
+ Helpers for working with `Property` types in the [Crabstep](https://github.com/ReagentX/crabstep) deserializer.
 */
 
-use crabstep::{OutputData, PropertyIterator, deserializer::iter::Property};
+use crabstep::{OutputData, deserializer::iter::Property};
 
 /// Pair used by attributed-body ranges: attribute dictionary index plus UTF-16
 /// range length.
@@ -16,6 +16,9 @@ pub struct TypeLengthPair {
 
 // MARK: Type Length
 /// Extract a [`TypeLengthPair`] from a two-integer typedstream group.
+///
+/// No Foundation accessor reads "two primitives in a group", so this stays on
+/// the generic [`Property`]/[`OutputData`] API.
 #[inline(always)]
 pub fn as_type_length_pair(property: &Property<'_, '_>) -> Option<TypeLengthPair> {
     if let Property::Group(group) = property {
@@ -27,158 +30,6 @@ pub fn as_type_length_pair(property: &Property<'_, '_>) -> Option<TypeLengthPair
                 type_index: *type_index,
                 length: *length,
             });
-        }
-    }
-    None
-}
-
-// MARK: i64
-/// Extract a signed integer from a primitive value or wrapped `NSNumber`.
-#[must_use]
-#[inline(always)]
-pub fn as_signed_integer(property: &Property<'_, '_>) -> Option<i64> {
-    if let Property::Group(group) = property {
-        let val = group.iter().next()?;
-        if let Property::Primitive(OutputData::SignedInteger(value)) = val {
-            return Some(*value);
-        } else if let Property::Object { name, mut data, .. } = val
-            && name == "NSNumber"
-        {
-            return as_signed_integer(&data.next()?);
-        }
-    }
-    None
-}
-
-// MARK: u64
-/// Extract an unsigned integer from a primitive value or wrapped `NSNumber`.
-#[must_use]
-#[inline(always)]
-pub fn as_unsigned_integer(property: &Property<'_, '_>) -> Option<u64> {
-    if let Property::Group(group) = property {
-        let val = group.iter().next()?;
-        if let Property::Primitive(OutputData::UnsignedInteger(value)) = val {
-            return Some(*value);
-        } else if let Property::Object { name, mut data, .. } = val
-            && name == "NSNumber"
-        {
-            return as_unsigned_integer(&data.next()?);
-        }
-    }
-    None
-}
-
-// MARK: f64
-/// Extract a double from a primitive value or wrapped `NSNumber`.
-#[must_use]
-#[inline(always)]
-pub fn as_float(property: &Property<'_, '_>) -> Option<f64> {
-    if let Property::Group(group) = property {
-        let val = group.iter().next()?;
-        if let Property::Primitive(OutputData::Double(value)) = val {
-            return Some(*value);
-        } else if let Property::Object { name, mut data, .. } = val
-            && name == "NSNumber"
-        {
-            return as_float(&data.next()?);
-        }
-    }
-    None
-}
-
-// MARK: String
-/// Extract a string from `NSString`, `NSMutableString`, or `NSAttributedString`.
-#[inline(always)]
-pub fn as_nsstring<'a>(property: &Property<'a, 'a>) -> Option<&'a str> {
-    if let Property::Group(group) = property
-        && let Some(Property::Object { name, mut data, .. }) = group.iter().next()
-        && (name == "NSString" || name == "NSAttributedString" || name == "NSMutableString")
-        && let Some(Property::Group(prim)) = data.next()
-        && let Some(Property::Primitive(OutputData::String(s))) = prim.first()
-    {
-        return Some(s);
-    }
-    None
-}
-
-// MARK: Data
-/// Return the raw bytes carried by an `NSData` or `NSMutableData` property.
-#[inline(always)]
-pub fn as_nsdata<'a>(property: &Property<'a, 'a>) -> Option<&'a [u8]> {
-    if let Property::Group(group) = property
-        && let Some(Property::Object { name, data, .. }) = group.iter().next()
-        && (name == "NSData" || name == "NSMutableData")
-    {
-        for item in data {
-            if let Property::Group(group) = item {
-                for child in group {
-                    if let Property::Primitive(OutputData::Array(bytes)) = child {
-                        return Some(bytes);
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}
-
-// MARK: Dict
-/// Extract the key/value iterator from an `NSDictionary`.
-///
-/// Returns the iterator **by value** (the lazy group yields owned properties).
-#[inline(always)]
-pub fn as_ns_dictionary<'a>(property: &Property<'a, 'a>) -> Option<PropertyIterator<'a, 'a>> {
-    if let Property::Group(group) = property
-        && let Some(Property::Object { name, data, .. }) = group.iter().next()
-        && name == "NSDictionary"
-    {
-        return Some(data);
-    }
-    None
-}
-
-// MARK: NSURL
-/// Extract the string payload from an `NSURL` encoded as a nested `NSString`.
-#[inline(always)]
-pub fn as_nsurl<'a>(property: &Property<'a, 'a>) -> Option<&'a str> {
-    // Only care about the top-level group.
-    if let Property::Group(groups) = property {
-        for level1 in groups.iter() {
-            // Look for Object(name = "NSURL", data = ...).
-            if let Property::Object {
-                name,
-                data: url_data,
-                ..
-            } = level1
-                && name == "NSURL"
-            {
-                // First level under NSURL.
-                for level2 in url_data {
-                    if let Property::Group(inner) = level2 {
-                        for level3 in inner.iter() {
-                            // Look for Object(name = "NSString", data = ...).
-                            if let Property::Object {
-                                name,
-                                data: str_data,
-                                ..
-                            } = level3
-                                && name == "NSString"
-                            {
-                                // Second level under NSString.
-                                for level4 in str_data {
-                                    if let Property::Group(bottom) = level4
-                                        && let Some(Property::Primitive(OutputData::String(s))) =
-                                            bottom.first()
-                                    {
-                                        return Some(s);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
     None

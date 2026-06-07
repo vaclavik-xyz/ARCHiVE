@@ -7,9 +7,7 @@ use std::fmt::{Display, Formatter, Result};
 use crabstep::deserializer::iter::Property;
 
 use crate::{
-    message_types::text_effects::text_effect::TextEffect,
-    tables::messages::message::Message,
-    util::typedstream::{as_float, as_nsstring},
+    message_types::text_effects::text_effect::TextEffect, tables::messages::message::Message,
 };
 
 // MARK: BubbleComponent
@@ -207,12 +205,12 @@ impl AttachmentMeta {
     pub(crate) fn set_from_key_value<'a>(&mut self, key: &str, value: &Property<'a, 'a>) {
         match key {
             "__kIMFileTransferGUIDAttributeName" => {
-                self.guid = as_nsstring(value).map(String::from);
+                self.guid = value.as_string().map(String::from);
             }
-            "IMAudioTranscription" => self.transcription = as_nsstring(value).map(String::from),
-            "__kIMInlineMediaHeightAttributeName" => self.height = as_float(value),
-            "__kIMInlineMediaWidthAttributeName" => self.width = as_float(value),
-            "__kIMFilenameAttributeName" => self.name = as_nsstring(value).map(String::from),
+            "IMAudioTranscription" => self.transcription = value.as_string().map(String::from),
+            "__kIMInlineMediaHeightAttributeName" => self.height = value.as_f64(),
+            "__kIMInlineMediaWidthAttributeName" => self.width = value.as_f64(),
+            "__kIMFilenameAttributeName" => self.name = value.as_string().map(String::from),
             _ => {}
         }
     }

@@ -7,7 +7,10 @@ use std::{
     sync::LazyLock,
 };
 
-use crabstep::{PropertyIterator, deserializer::iter::Property};
+use crabstep::{
+    PropertyIterator,
+    deserializer::{foundation::FoundationDict, iter::Property},
+};
 
 use crate::{
     message_types::{
@@ -24,9 +27,7 @@ use crate::{
     },
     tables::messages::models::{AttachmentMeta, AttributedRange, BubbleComponent},
     util::data_detected::FromScannerResult,
-    util::typedstream::{
-        as_ns_dictionary, as_nsstring, as_nsurl, as_signed_integer, as_type_length_pair,
-    },
+    util::typedstream::as_type_length_pair,
 };
 
 // MARK: Constants
@@ -99,7 +100,7 @@ pub fn parse_body_typedstream<'a>(
 
     // The first component is the text itself
     if let Some(mut components) = components
-        && let Some(text) = components.next().as_ref().and_then(as_nsstring)
+        && let Some(text) = components.next().as_ref().and_then(Property::as_string)
     {
         message_text = Some(text.to_string());
 
@@ -132,7 +133,7 @@ pub fn parse_body_typedstream<'a>(
                         components
                             .next()
                             .as_ref()
-                            .and_then(as_ns_dictionary)
+                            .and_then(Property::as_dictionary)
                             .and_then(|dict| {
                                 build_range(dict, text, current_start, current_end, &utf16_to_byte)
                                     .inspect(|built| {
@@ -218,54 +219,51 @@ fn utf16_idx(text: &str, idx: usize, map: &[usize]) -> usize {
 /// (or `-1` when the attribute is absent), which the caller uses to group
 /// ranges into bubbles.
 fn build_range<'a>(
-    mut components: PropertyIterator<'a, 'a>,
+    dict: FoundationDict<'a, 'a>,
     text: &str,
     start: usize,
     end: usize,
     utf16_to_byte: &[usize],
 ) -> Option<(AttributedRange, i64)> {
-    // The first item in `components` is the number of key/value pairs in the `NSDictionary`
-    let num_objects = components.next().as_ref().and_then(as_signed_integer)?;
-
     // The start and end indexes are based on the `UTF-16` char indexes of the text, so we need to convert them
     let range_start = utf16_idx(text, start, utf16_to_byte);
     let range_end = utf16_idx(text, end, utf16_to_byte);
 
-    let mut effects = Vec::with_capacity(num_objects as usize);
+    let mut effects = Vec::with_capacity(dict.len());
     let mut styles = Vec::new();
     let mut attachment: Option<AttachmentMeta> = None;
     let mut emoji_image = false;
     // `-1` sentinel: this range carries no part attribute.
     let mut message_part: i64 = -1;
 
-    // Iterate over the key/value pairs in the `NSDictionary` data
-    for _ in 0..num_objects {
-        let key = components.next()?;
-
-        // Convert the key to a string
-        let key_name = as_nsstring(&key)?;
+    // Iterate over the key/value pairs in the `NSDictionary`; `as_dictionary`
+    // already skipped the leading count group and yields complete pairs.
+    for (key, value) in dict {
+        // Keys are strings; skip a malformed non-string key rather than
+        // discarding the rest of the range.
+        let Some(key_name) = key.as_string() else {
+            continue;
+        };
 
         // Attachment-meta keys populate this range's `AttachmentMeta` in place.
         // We intentionally do not early-exit: sibling keys on the same range
         // (text effects, the emoji-image hint, the part index) are still read.
         if ATTACHMENT_META_KEYS.contains(key_name) {
-            let value = components.next()?;
             attachment
                 .get_or_insert_with(AttachmentMeta::default)
                 .set_from_key_value(key_name, &value);
             continue;
         }
 
-        let value = components.next()?;
         match key_name {
             "__kIMMessagePartAttributeName" => {
-                if let Some(part) = as_signed_integer(&value) {
+                if let Some(part) = value.as_i64() {
                     message_part = part;
                 }
             }
             // Apple's inline-rendering hint; value `1` means "render inline".
             "__kIMEmojiImageAttributeName" => {
-                emoji_image = as_signed_integer(&value) == Some(1);
+                emoji_image = value.as_i64() == Some(1);
             }
             _ => match get_text_effects(key_name, &value) {
                 RangeResult::Effect(Some(text_effect)) => effects.push(text_effect),
@@ -302,12 +300,12 @@ fn build_range<'a>(
 fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeResult {
     match key_name {
         "__kIMMentionConfirmedMention" => {
-            if let Some(mention_value) = as_nsstring(value) {
+            if let Some(mention_value) = value.as_string() {
                 return RangeResult::Effect(Some(TextEffect::Mention(mention_value.to_string())));
             }
         }
         "__kIMLinkAttributeName" => {
-            if let Some(url) = as_nsurl(value) {
+            if let Some(url) = value.as_url() {
                 return RangeResult::Effect(Some(TextEffect::Link(url.to_string())));
             }
         }
@@ -340,7 +338,7 @@ fn get_text_effects<'a>(key_name: &'a str, value: &Property<'a, 'a>) -> RangeRes
             );
         }
         "__kIMTextEffectAttributeName" => {
-            if let Some(effect_id) = as_signed_integer(value) {
+            if let Some(effect_id) = value.as_i64() {
                 return RangeResult::Effect(Some(TextEffect::Animated(Animation::from_id(
                     effect_id,
                 ))));
