@@ -88,6 +88,7 @@ impl std::error::Error for PlistParseError {
             PlistParseError::StreamTypedError(e) => Some(e),
             PlistParseError::TypedStreamError(e) => Some(e),
             PlistParseError::HandwritingError(e) => Some(e),
+            PlistParseError::DigitalTouchError(e) => Some(e),
             _ => None,
         }
     }
