@@ -13,6 +13,9 @@ use crate::{
     },
 };
 
+/// Width of a sketched stroke, in canvas user units.
+const STROKE_WIDTH: usize = 8;
+
 /// A freehand sketch made of one or more colored strokes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DigitalTouchSketch {
@@ -60,20 +63,34 @@ impl DigitalTouchSketch {
         )
     }
 
-    /// Draw each stroke as a colored polyline.
+    /// Draw each stroke as a colored polyline, or a dot for a single-point stroke.
     pub(super) fn append_svg(&self, canvas: &mut Canvas) {
         for stroke in &self.strokes {
             let Some(first) = stroke.first() else {
                 continue;
             };
             let color = first.extra.css();
+
+            // A single-point stroke has no segment to stroke, and SVG does not
+            // render a one-vertex polyline. Draw it as a filled dot the size of
+            // the round stroke cap instead.
+            if stroke.len() == 1 {
+                canvas.push(&format!(
+                    r#"<circle cx="{}" cy="{}" r="{}" fill="{color}" />"#,
+                    canvas.fit_x(first.x),
+                    canvas.fit_y(first.y),
+                    STROKE_WIDTH / 2,
+                ));
+                continue;
+            }
+
             let points = stroke
                 .iter()
                 .map(|p| format!("{},{}", canvas.fit_x(p.x), canvas.fit_y(p.y)))
                 .collect::<Vec<_>>()
                 .join(" ");
             canvas.push(&format!(
-                r#"<polyline points="{points}" fill="none" stroke="{color}" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />"#
+                r#"<polyline points="{points}" fill="none" stroke="{color}" stroke-width="{STROKE_WIDTH}" stroke-linecap="round" stroke-linejoin="round" />"#
             ));
         }
     }

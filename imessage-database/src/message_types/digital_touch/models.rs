@@ -484,6 +484,23 @@ mod tests {
     }
 
     #[test]
+    fn renders_single_point_stroke_as_dot() {
+        let message = parse("hi.bin");
+        let DigitalTouchMessage::Sketch(sketch) = &message else {
+            panic!("expected a sketch");
+        };
+        // "hi": four multi-point strokes plus the single-point dot on the "i".
+        let lengths: Vec<usize> = sketch.strokes.iter().map(Vec::len).collect();
+        assert_eq!(lengths, vec![38, 10, 1, 17, 38]);
+
+        // SVG won't stroke a one-vertex polyline, so that 1-point stroke renders as
+        // a <circle> while the other four stay <polyline>s.
+        let svg = message.render_svg(None);
+        assert_eq!(svg.matches("<circle").count(), 1);
+        assert_eq!(svg.matches("<polyline").count(), 4);
+    }
+
+    #[test]
     fn media_background_references_media_and_drops_label() {
         let media = parse("image.bin");
 
