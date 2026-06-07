@@ -19,8 +19,6 @@ use std::io::Cursor;
 use crabstep::deserializer::iter::Property;
 use plist::{Dictionary, Value};
 
-use crate::util::typedstream::as_nsdata;
-
 /// Maximum scanner-result depth before traversal stops.
 ///
 /// `NSKeyedArchiver` graphs are deduplicated by `UID` and may contain reference
@@ -147,7 +145,7 @@ pub trait FromScannerResult: Sized {
     /// [`MARKERS`](Self::MARKERS) pre-filter, is not a valid archive, or does
     /// not represent a `Self`.
     fn from_attribute<'p>(value: &Property<'p, 'p>) -> Option<Self> {
-        let data = as_nsdata(value)?;
+        let data = value.as_data()?;
         if !Self::MARKERS.is_empty()
             && !Self::MARKERS
                 .iter()
