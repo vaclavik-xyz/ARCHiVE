@@ -146,11 +146,14 @@ impl Table for Attachment {
 impl Attachment {
     /// Load attachments associated with one message.
     ///
-    /// The order of the attachments aligns with the order of the attachment
+    /// Rows are returned in the `message_attachment_join` table's order, which is
+    /// not guaranteed to align with the order of the attachment
     /// [`AttributedRange`](crate::tables::messages::models::AttributedRange)s
     /// (those whose [`attachment`](crate::tables::messages::models::AttributedRange::attachment)
-    /// is `Some`) across the message's
+    /// is `Some`) in the message's
     /// [`attributed_body()`](crate::tables::messages::message::Message::attributed_body).
+    /// Callers pairing body ranges to rows should match on the file-transfer GUID
+    /// rather than relying on position.
     pub fn from_message(db: &Connection, msg: &Message) -> Result<Vec<Attachment>, TableError> {
         let mut out_l = vec![];
         if msg.has_attachments() {
