@@ -2,8 +2,8 @@
 [Handwritten](https://support.apple.com/en-us/HT206894) messages are animated doodles or messages sent in your own handwriting.
 */
 
-use std::fmt::Write;
-use std::io::Cursor;
+use std::io::{Cursor, ErrorKind};
+use std::{fmt::Write, io::Error};
 
 use crate::{
     error::handwriting::HandwritingError,
@@ -298,29 +298,59 @@ fn parse_strokes(msg: &BaseMessage) -> Result<Vec<Vec<Point>>, HandwritingError>
     Ok(strokes)
 }
 
+/// Hard ceiling on decompressed handwriting stroke data, independent of the
+/// attacker-controlled `DecompressedLength`, so a crafted XZ payload cannot
+/// force an unbounded allocation. Real handwriting payloads are only a few KB.
+const MAX_DECOMPRESSED_STROKES: usize = 32 * 1024 * 1024;
+
+/// A sink that appends decompressed bytes to a buffer but fails once a write
+/// would exceed `limit`, so a decompression bomb is rejected mid-stream rather
+/// than fully materialized in memory.
+struct CappedBuffer {
+    buf: Vec<u8>,
+    limit: usize,
+}
+
+impl std::io::Write for CappedBuffer {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if self.buf.len().saturating_add(data.len()) > self.limit {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "decompressed handwriting data exceeded the expected length",
+            ));
+        }
+        self.buf.extend_from_slice(data);
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Decompress raw stroke bytes and verify the expected length.
 fn decompress_strokes(msg: &BaseMessage) -> Result<Vec<u8>, HandwritingError> {
-    let data = match msg.Handwriting.Compression.enum_value_or_default() {
-        Compression::None => msg.Handwriting.Strokes.clone(),
+    let (data, length) = match msg.Handwriting.Compression.enum_value_or_default() {
+        Compression::None => {
+            let data = msg.Handwriting.Strokes.clone();
+            let length = data.len();
+            (data, length)
+        }
         Compression::XZ => {
+            // Bound the output up front so a crafted stream cannot expand without
+            // limit: cap at the declared length, itself clamped to a sane maximum.
+            let length = match msg.Handwriting.DecompressedLength {
+                Some(decompress_size) => usize::try_from(decompress_size)
+                    .map_err(|_| HandwritingError::ConversionError)?,
+                None => return Err(HandwritingError::DecompressedNotSet),
+            };
             let mut cursor = Cursor::new(&msg.Handwriting.Strokes);
-            let mut buf = Vec::new();
-            lzma_rs::xz_decompress(&mut cursor, &mut buf).map_err(HandwritingError::XZError)?;
-            buf
-        }
-        Compression::Unknown => {
-            return Err(HandwritingError::CompressionUnknown);
-        }
-    };
-
-    let length = match msg.Handwriting.Compression.enum_value_or_default() {
-        Compression::None => data.len(),
-        Compression::XZ => {
-            if let Some(decompress_size) = msg.Handwriting.DecompressedLength {
-                usize::try_from(decompress_size).map_err(|_| HandwritingError::ConversionError)?
-            } else {
-                return Err(HandwritingError::DecompressedNotSet);
-            }
+            let mut sink = CappedBuffer {
+                buf: Vec::new(),
+                limit: length.min(MAX_DECOMPRESSED_STROKES),
+            };
+            lzma_rs::xz_decompress(&mut cursor, &mut sink).map_err(HandwritingError::XZError)?;
+            (sink.buf, length)
         }
         Compression::Unknown => {
             return Err(HandwritingError::CompressionUnknown);
@@ -357,7 +387,7 @@ fn parse_coordinates(b1: u8, b2: u8) -> u16 {
 mod tests {
     use crate::message_types::handwriting::models::{HandwrittenMessage, Point};
 
-    use super::{generate_strokes, get_max_dimension, group_points, parse_strokes};
+    use super::{CappedBuffer, generate_strokes, get_max_dimension, group_points, parse_strokes};
     use crate::error::handwriting::HandwritingError;
     use crate::message_types::handwriting::handwriting_proto::{
         BaseMessage, Compression, Handwriting,
@@ -367,6 +397,22 @@ mod tests {
     use std::env::current_dir;
     use std::fs::File;
     use std::io::Read;
+
+    #[test]
+    fn capped_buffer_rejects_data_beyond_limit() {
+        use std::io::Write as _;
+
+        let mut sink = CappedBuffer {
+            buf: Vec::new(),
+            limit: 4,
+        };
+        // Writing exactly up to the limit is allowed.
+        assert!(sink.write_all(b"abcd").is_ok());
+        // The next byte must be rejected rather than buffered, so a decompression
+        // bomb cannot grow the buffer past the declared/clamped length.
+        assert!(sink.write_all(b"e").is_err());
+        assert_eq!(sink.buf, b"abcd");
+    }
 
     #[test]
     fn test_parse_handwritten_from_payload() {
