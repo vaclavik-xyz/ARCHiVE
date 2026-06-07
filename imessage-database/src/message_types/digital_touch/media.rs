@@ -1,13 +1,15 @@
 /*!
-[Media](super) Digital Touch effect: a photo or video, optionally with a
-drawing on top of it.
+[Media](super) Digital Touch effect: a photo or video, optionally with effects
+drawn on top of it.
 
 The effect carries a media-type discriminator and an `NSKeyedArchiver` archive.
-The archive holds an `NSMutableArray` of drawing overlays. Each overlay is an
-`NSData` blob containing a complete, nested [`Sketch`](super::sketch) Digital
-Touch message, so the drawing is parsed and rendered exactly like a standalone
-sketch. The array is empty when nothing was drawn. The photo or video itself is
-delivered as a normal message attachment, not embedded here.
+The archive holds an `NSMutableArray` of overlay effects. Each is an `NSData` blob
+containing a complete, nested Digital Touch message, parsed through the same
+dispatcher as a top-level message and rendered the same way; in practice these
+are always [`Sketch`](super::sketch)es. A nested media blob is skipped so a
+crafted archive cannot drive unbounded recursion. The array is empty when nothing
+was drawn. The photo or video itself is delivered as a normal message attachment,
+not embedded here.
 */
 
 use std::io::Cursor;
@@ -20,7 +22,6 @@ use crate::{
     message_types::digital_touch::{
         digital_touch_proto::{BaseMessage, MediaMessage, TouchKind},
         models::{DigitalTouchMessage, pluralize},
-        sketch::DigitalTouchSketch,
         svg::Canvas,
     },
 };
@@ -57,14 +58,15 @@ impl MediaKind {
 }
 
 /// A photo or video Digital Touch, optionally drawn on top of.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DigitalTouchMedia {
     /// Unique identifier for the message.
     pub id: String,
     /// Whether the media is an image or a video.
     pub kind: MediaKind,
-    /// Sketches drawn on top of the media; empty when nothing was drawn.
-    pub drawings: Vec<DigitalTouchSketch>,
+    /// Effects drawn on top of the media (virtually always sketches); empty when
+    /// nothing was drawn.
+    pub overlay: Vec<DigitalTouchMessage>,
 }
 
 impl DigitalTouchMedia {
@@ -78,7 +80,7 @@ impl DigitalTouchMedia {
         Ok(DigitalTouchMessage::Media(DigitalTouchMedia {
             id: base.ID.clone(),
             kind: MediaKind::from_type(msg.MediaType),
-            drawings: decode_drawings(&msg.Archive)?,
+            overlay: decode_overlays(&msg.Archive)?,
         }))
     }
 
@@ -86,9 +88,22 @@ impl DigitalTouchMedia {
     /// `"Digital Touch Image with drawing (5 strokes)"`.
     pub(super) fn summary(&self) -> String {
         let mut summary = format!("Digital Touch {}", self.kind.label());
-        let strokes: usize = self.drawings.iter().map(|s| s.strokes.len()).sum();
-        if strokes > 0 {
-            summary.push_str(&format!(" with drawing ({})", pluralize(strokes, "stroke")));
+        if !self.overlay.is_empty() {
+            // The overlay is almost always sketch strokes; count them for a
+            // precise label, and note any other effect generically.
+            let strokes: usize = self
+                .overlay
+                .iter()
+                .map(|effect| match effect {
+                    DigitalTouchMessage::Sketch(sketch) => sketch.strokes.len(),
+                    _ => 0,
+                })
+                .sum();
+            if strokes > 0 {
+                summary.push_str(&format!(" with drawing ({})", pluralize(strokes, "stroke")));
+            } else {
+                summary.push_str(" with overlay");
+            }
         }
         summary
     }
@@ -96,8 +111,8 @@ impl DigitalTouchMedia {
     /// Draw the overlay sketches (if any). When the backing photo is supplied as
     /// the canvas background it shows through beneath them.
     pub(super) fn append_svg(&self, canvas: &mut Canvas) {
-        for drawing in &self.drawings {
-            drawing.append_svg(canvas);
+        for effect in &self.overlay {
+            effect.append_svg(canvas);
         }
 
         if !canvas.has_background() {
@@ -113,13 +128,15 @@ impl DigitalTouchMedia {
     }
 }
 
-/// Decode the drawing overlays from the effect's `NSKeyedArchiver` archive.
+/// Decode the overlay effects from the effect's `NSKeyedArchiver` archive.
 ///
-/// The archive is an `NSMutableArray` of `NSData` blobs, each a nested sketch
-/// message. A blob that is not a sketch (or fails to parse) is skipped rather
-/// than failing the whole message, since the media kind is still meaningful
-/// without its overlay.
-fn decode_drawings(archive: &[u8]) -> Result<Vec<DigitalTouchSketch>, DigitalTouchError> {
+/// The archive is an `NSMutableArray` of `NSData` blobs, each a complete, nested
+/// Digital Touch message (in practice always a [`Sketch`](super::sketch)). A blob
+/// that fails to parse is skipped rather than failing the whole message, since the
+/// media kind is still meaningful without its overlay. A nested
+/// [`Media`](DigitalTouchMessage::Media) blob is skipped so a crafted archive
+/// cannot drive unbounded recursion.
+fn decode_overlays(archive: &[u8]) -> Result<Vec<DigitalTouchMessage>, DigitalTouchError> {
     if archive.is_empty() {
         return Ok(Vec::new());
     }
@@ -135,7 +152,7 @@ fn decode_drawings(archive: &[u8]) -> Result<Vec<DigitalTouchSketch>, DigitalTou
         return Ok(Vec::new());
     };
 
-    let mut drawings = Vec::new();
+    let mut overlays = Vec::new();
     for object in objects {
         let Some(data) = object
             .as_dictionary()
@@ -145,19 +162,18 @@ fn decode_drawings(archive: &[u8]) -> Result<Vec<DigitalTouchSketch>, DigitalTou
             continue;
         };
 
-        // Each overlay is a nested sketch message. Parse it directly as a sketch
-        // (rather than recursing through the general dispatcher) so a nested
-        // media blob can't drive unbounded recursion.
         let Ok(base) = BaseMessage::parse_from_bytes(data) else {
             continue;
         };
-        if base.TouchKind.enum_value_or_default() != TouchKind::Sketch {
+        // Refuse a nested media blob before dispatching, so a crafted archive
+        // can't nest media-in-media and drive unbounded recursion.
+        if base.TouchKind.enum_value_or_default() == TouchKind::Media {
             continue;
         }
-        if let Ok(DigitalTouchMessage::Sketch(sketch)) = DigitalTouchSketch::from_payload(&base) {
-            drawings.push(sketch);
+        if let Ok(message) = DigitalTouchMessage::from_base(&base) {
+            overlays.push(message);
         }
     }
 
-    Ok(drawings)
+    Ok(overlays)
 }

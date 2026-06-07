@@ -48,18 +48,19 @@ pub enum DigitalTouchMessage {
     Heartbeat(DigitalTouchHeartbeat),
     /// A fireball dragged along a path.
     Fireball(DigitalTouchFireball),
-    /// A photo or video, optionally drawn on top of.
+    /// A photo or video, with any effects drawn on top of it.
     Media(DigitalTouchMedia),
 }
 
 /// A media backdrop for [`render_svg`](DigitalTouchMessage::render_svg), drawn
-/// behind a [`Media`](DigitalTouchMessage::Media) effect.
+/// behind the effect in place of the default black canvas.
 ///
-/// This is a render-time input, not parsed state: a [`DigitalTouchMessage`] only
-/// records that an effect has media (plus any drawing overlay), so the caller
-/// must resolve the media via
+/// This is a render-time input, not parsed state, and is orthogonal to the effect:
+/// any [`DigitalTouchMessage`] can render on a backdrop. In practice only a
+/// [`Media`](DigitalTouchMessage::Media) message carries a photo or video, so the
+/// caller resolves it via
 /// [`Attachment::from_message`](crate::tables::attachment::Attachment::from_message)
-/// and supply it here when rendering.
+/// and supplies it here when rendering that message.
 ///
 /// The value is the `href`/`src` reference embedded verbatim (XML-escaped) into
 /// the SVG: a relative export path, an in-place source path, or any URL. It is a
@@ -107,14 +108,20 @@ impl DigitalTouchMessage {
     pub fn from_payload(payload: &[u8]) -> Result<Self, DigitalTouchError> {
         let msg =
             BaseMessage::parse_from_bytes(payload).map_err(DigitalTouchError::ProtobufError)?;
+        Self::from_base(&msg)
+    }
 
+    /// Dispatch an already-parsed [`BaseMessage`] envelope to the parser for its
+    /// [`TouchKind`]. Used both for top-level messages and for the nested effects
+    /// a [`Media`](DigitalTouchMessage::Media) message draws over its photo.
+    pub(super) fn from_base(msg: &BaseMessage) -> Result<Self, DigitalTouchError> {
         match msg.TouchKind.enum_value_or_default() {
-            TouchKind::Tap => DigitalTouchTap::from_payload(&msg),
-            TouchKind::Sketch => DigitalTouchSketch::from_payload(&msg),
-            TouchKind::Kiss => DigitalTouchKiss::from_payload(&msg),
-            TouchKind::Heartbeat => DigitalTouchHeartbeat::from_payload(&msg),
-            TouchKind::Fireball => DigitalTouchFireball::from_payload(&msg),
-            TouchKind::Media => DigitalTouchMedia::from_payload(&msg),
+            TouchKind::Tap => DigitalTouchTap::from_payload(msg),
+            TouchKind::Sketch => DigitalTouchSketch::from_payload(msg),
+            TouchKind::Kiss => DigitalTouchKiss::from_payload(msg),
+            TouchKind::Heartbeat => DigitalTouchHeartbeat::from_payload(msg),
+            TouchKind::Fireball => DigitalTouchFireball::from_payload(msg),
+            TouchKind::Media => DigitalTouchMedia::from_payload(msg),
             TouchKind::Unknown => Err(DigitalTouchError::UnknownDigitalTouchKind(
                 msg.TouchKind.value(),
             )),
@@ -128,15 +135,22 @@ impl DigitalTouchMessage {
     #[must_use]
     pub fn render_svg(&self, background: Option<SvgBackground<'_>>) -> String {
         let mut canvas = Canvas::new(self.summary(), background);
-        match self {
-            DigitalTouchMessage::Tap(t) => t.append_svg(&mut canvas),
-            DigitalTouchMessage::Sketch(s) => s.append_svg(&mut canvas),
-            DigitalTouchMessage::Kiss(k) => k.append_svg(&mut canvas),
-            DigitalTouchMessage::Heartbeat(h) => h.append_svg(&mut canvas),
-            DigitalTouchMessage::Fireball(f) => f.append_svg(&mut canvas),
-            DigitalTouchMessage::Media(m) => m.append_svg(&mut canvas),
-        }
+        self.append_svg(&mut canvas);
         canvas.finish()
+    }
+
+    /// Append this effect's markup to `canvas`. Factored out of
+    /// [`render_svg`](Self::render_svg) so a [`Media`](Self::Media) message can
+    /// draw its overlay effects through the same dispatch.
+    pub(super) fn append_svg(&self, canvas: &mut Canvas) {
+        match self {
+            DigitalTouchMessage::Tap(t) => t.append_svg(canvas),
+            DigitalTouchMessage::Sketch(s) => s.append_svg(canvas),
+            DigitalTouchMessage::Kiss(k) => k.append_svg(canvas),
+            DigitalTouchMessage::Heartbeat(h) => h.append_svg(canvas),
+            DigitalTouchMessage::Fireball(f) => f.append_svg(canvas),
+            DigitalTouchMessage::Media(m) => m.append_svg(canvas),
+        }
     }
 
     /// Render a one-line, human-readable summary of the effect.
@@ -418,7 +432,7 @@ mod tests {
             panic!("expected media");
         };
         assert_eq!(media.kind, MediaKind::Image);
-        assert!(media.drawings.is_empty());
+        assert!(media.overlay.is_empty());
     }
 
     #[test]
@@ -427,7 +441,7 @@ mod tests {
             panic!("expected media");
         };
         assert_eq!(media.kind, MediaKind::Video);
-        assert!(media.drawings.is_empty());
+        assert!(media.overlay.is_empty());
     }
 
     #[test]
@@ -436,10 +450,13 @@ mod tests {
             panic!("expected media");
         };
         assert_eq!(media.kind, MediaKind::Image);
-        // The overlay is a nested sketch message with five strokes.
-        assert_eq!(media.drawings.len(), 1);
-        assert_eq!(media.drawings[0].strokes.len(), 5);
-        let points: usize = media.drawings[0].strokes.iter().map(Vec::len).sum();
+        // The overlay is a single nested sketch message with five strokes.
+        assert_eq!(media.overlay.len(), 1);
+        let DigitalTouchMessage::Sketch(sketch) = &media.overlay[0] else {
+            panic!("expected a sketch overlay");
+        };
+        assert_eq!(sketch.strokes.len(), 5);
+        let points: usize = sketch.strokes.iter().map(Vec::len).sum();
         assert_eq!(points, 97);
     }
 
