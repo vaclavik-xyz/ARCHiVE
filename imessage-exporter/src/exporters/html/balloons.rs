@@ -1,7 +1,7 @@
 use imessage_database::{
     message_types::{
         app::AppMessage, app_store::AppStoreMessage, collaboration::CollaborationMessage,
-        digital_touch::DigitalTouch, handwriting::HandwrittenMessage, music::MusicMessage,
+        digital_touch::DigitalTouchMessage, handwriting::HandwrittenMessage, music::MusicMessage,
         placemark::PlacemarkMessage, polls::Poll, url::URLMessage,
     },
     tables::{
@@ -16,8 +16,8 @@ use crate::exporters::{
         HTML,
         safe::Html,
         view_model::{
-            AppCardVM, AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, DigitalTouchVM,
-            FindMyVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, UrlVM,
+            AppCardVM, AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, FindMyVM, MusicVM,
+            PlacemarkVM, PollOptionVM, PollVM, UrlVM,
         },
     },
     shared::{balloon::resolve_check_in_footer, render::render_template},
@@ -89,10 +89,8 @@ impl BalloonFormatter for HTML<'_> {
         balloon.render_svg()
     }
 
-    fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouch) -> String {
-        render_template(&DigitalTouchVM {
-            debug: format!("{balloon:?}"),
-        })
+    fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouchMessage) -> String {
+        balloon.render_svg()
     }
 
     fn format_apple_pay(&self, balloon: &AppMessage) -> String {

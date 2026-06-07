@@ -3459,7 +3459,7 @@ mod balloon_format_tests {
         app::AppMessage,
         app_store::AppStoreMessage,
         collaboration::CollaborationMessage,
-        digital_touch::{DigitalTouch, from_payload as digital_touch_from_payload},
+        digital_touch::DigitalTouchMessage,
         handwriting::HandwrittenMessage,
         music::MusicMessage,
         placemark::{Placemark, PlacemarkMessage},
@@ -4000,11 +4000,24 @@ mod balloon_format_tests {
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
-        let msg = Config::fake_message();
-        let actual = exporter.format_digital_touch(&msg, &DigitalTouch::Kiss);
-        let expected = "<div class=\"app_header\">\n    <div class=\"name\">Digital Touch Message</div>\n</div>\n<div class=\"app_footer\">\n    <div class=\"caption\">Kiss</div>\n</div>";
+        let payload_path = current_dir()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("imessage-database/test_data/digital_touch_message/kiss.bin");
+        let mut payload = vec![];
+        File::open(payload_path)
+            .unwrap()
+            .read_to_end(&mut payload)
+            .unwrap();
+        let balloon = DigitalTouchMessage::from_payload(&payload).unwrap();
 
-        assert_eq!(actual, expected);
+        let msg = Config::fake_message();
+        let actual = exporter.format_digital_touch(&msg, &balloon);
+
+        assert!(actual.starts_with("<svg"));
+        assert!(actual.contains("<title>Digital Touch Kiss (1 kiss)</title>"));
+        assert!(actual.contains("fill=\"red\""));
     }
 
     #[test]
@@ -4023,13 +4036,14 @@ mod balloon_format_tests {
             .unwrap()
             .read_to_end(&mut payload)
             .unwrap();
-        let touch = digital_touch_from_payload(&payload).unwrap();
+        let touch = DigitalTouchMessage::from_payload(&payload).unwrap();
 
         let msg = Config::fake_message();
         let actual = exporter.format_digital_touch(&msg, &touch);
-        let expected = "<div class=\"app_header\">\n    <div class=\"name\">Digital Touch Message</div>\n</div>\n<div class=\"app_footer\">\n    <div class=\"caption\">Sketch</div>\n</div>";
 
-        assert_eq!(actual, expected);
+        assert!(actual.starts_with("<svg"));
+        assert!(actual.contains("<polyline"));
+        assert!(actual.contains("rgba(255, 0, 252, 255)"));
     }
 
     #[test]

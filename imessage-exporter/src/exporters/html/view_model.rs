@@ -14,12 +14,6 @@ use crate::exporters::{
 };
 
 #[derive(Template)]
-#[template(path = "balloons/digital_touch.html")]
-pub(super) struct DigitalTouchVM {
-    pub debug: String,
-}
-
-#[derive(Template)]
 #[template(path = "balloons/find_my.html")]
 pub(super) struct FindMyVM<'a> {
     pub app_name: OptionalText<'a>,

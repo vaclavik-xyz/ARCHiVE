@@ -2161,7 +2161,7 @@ mod balloon_format_tests {
         app::AppMessage,
         app_store::AppStoreMessage,
         collaboration::CollaborationMessage,
-        digital_touch::DigitalTouch,
+        digital_touch::DigitalTouchMessage,
         handwriting::HandwrittenMessage,
         music::MusicMessage,
         placemark::{Placemark, PlacemarkMessage},
@@ -2715,11 +2715,22 @@ mod balloon_format_tests {
         let config = Config::fake_app(options);
         let exporter = TXT::new(&config).unwrap();
 
-        let msg = Config::fake_message();
-        let actual = exporter.format_digital_touch(&msg, &DigitalTouch::Kiss);
-        let expected = "Digital Touch Message: Kiss";
+        let payload_path = current_dir()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("imessage-database/test_data/digital_touch_message/kiss.bin");
+        let mut payload = vec![];
+        File::open(payload_path)
+            .unwrap()
+            .read_to_end(&mut payload)
+            .unwrap();
+        let balloon = DigitalTouchMessage::from_payload(&payload).unwrap();
 
-        assert_eq!(actual, expected);
+        let msg = Config::fake_message();
+        let actual = exporter.format_digital_touch(&msg, &balloon);
+
+        assert_eq!(actual, "Digital Touch Kiss (1 kiss)");
     }
 
     #[test]

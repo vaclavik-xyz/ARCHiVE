@@ -5,7 +5,7 @@ use imessage_database::{
         app::AppMessage,
         app_store::AppStoreMessage,
         collaboration::CollaborationMessage,
-        digital_touch::DigitalTouch,
+        digital_touch::DigitalTouchMessage,
         edited::EditedMessage,
         handwriting::HandwrittenMessage,
         music::MusicMessage,
@@ -151,7 +151,7 @@ pub(crate) trait BalloonFormatter {
     /// Format a handwritten note message.
     fn format_handwriting(&self, msg: &Message, balloon: &HandwrittenMessage) -> String;
     /// Format a digital touch message.
-    fn format_digital_touch(&self, msg: &Message, balloon: &DigitalTouch) -> String;
+    fn format_digital_touch(&self, msg: &Message, balloon: &DigitalTouchMessage) -> String;
     /// Format an Apple Pay message.
     fn format_apple_pay(&self, balloon: &AppMessage) -> String;
     /// Format a Fitness message.
