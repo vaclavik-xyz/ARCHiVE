@@ -2,7 +2,7 @@
 Parser for [Digital Touch](https://support.apple.com/guide/ipod-touch/send-a-digital-touch-effect-iph3fadba219/ios) iMessages.
 
 This message type is not documented by Apple, but represents messages displayed
-as `com.apple.DigitalTouchBalloonProvider`. Each message is a [`BaseMessage`]
+as `com.apple.DigitalTouchBalloonProvider`. Each message is a `BaseMessage`
 envelope wrapping an effect-specific protobuf selected by its `TouchKind`.
 
 The effects share a handful of binary encodings, captured by the helpers here:
