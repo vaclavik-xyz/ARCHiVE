@@ -130,9 +130,9 @@ impl<'a> BalloonProvider<'a> for EditedMessage {
                     )
                 })?;
 
-                for event in events {
+                for (event_idx, event) in events.iter().enumerate() {
                     let message_data = event.as_dictionary().ok_or_else(|| {
-                        PlistParseError::InvalidTypeIndex(idx, "dictionary".to_string())
+                        PlistParseError::InvalidTypeIndex(event_idx, "dictionary".to_string())
                     })?;
 
                     let timestamp = extract_int_key(message_data, "d")?
