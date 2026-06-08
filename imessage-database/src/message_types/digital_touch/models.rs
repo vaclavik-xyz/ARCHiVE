@@ -258,7 +258,8 @@ pub fn decode_points<T>(raw: &[u8], extras: Vec<T>) -> Result<Vec<Point<T>>, Dig
 /// the number of strokes to read, e.g. a [`SketchMessage`](super::sketch)'s
 /// `StrokesCount`.
 pub fn decode_strokes(raw: &[u8], count: usize) -> Result<Vec<Vec<(u16, u16)>>, DigitalTouchError> {
-    let mut strokes = Vec::with_capacity(count);
+    // Guard against pathological counts that would cause us to allocate more memory than the input buffer size
+    let mut strokes = Vec::with_capacity(count.min(raw.len() / 4));
     let mut idx = 0;
 
     for _ in 0..count {
@@ -502,5 +503,10 @@ mod tests {
         let without_backdrop = media.render_svg(None);
         assert!(!without_backdrop.contains("<image"));
         assert!(without_backdrop.contains(">Image</text>"));
+    }
+
+    #[test]
+    fn decode_strokes_rejects_oversized_count_without_allocating() {
+        assert!(super::decode_strokes(&[], 1_000_000_000).is_err());
     }
 }
