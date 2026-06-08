@@ -26,8 +26,9 @@ use crate::exporters::{
         safe::Html,
         view_model::{
             AppCardVM, AppStoreVM, ApplePayVM, AttachmentVM, AttachmentVariant, CheckInVM,
-            CollaborationVM, FindMyVM, FormAnswerVM, FormRequestVM, FormResponseVM, MusicVM,
-            PlacemarkVM, PollOptionVM, PollVM, QuickReplyOptionVM, QuickReplyVM, UrlVM,
+            CollaborationVM, FindMyVM, FormAnswerVM, FormRequestVM, FormResponseVM,
+            ListPickerItemVM, ListPickerVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM,
+            QuickReplyOptionVM, QuickReplyVM, UrlVM,
         },
     },
     shared::{
@@ -245,6 +246,21 @@ impl BalloonFormatter for HTML<'_> {
                 title: form.title.as_deref().into(),
                 subtitle: form.subtitle.as_deref().into(),
             }),
+            BusinessMessage::ListPicker(list_picker) => {
+                let items = list_picker
+                    .items
+                    .iter()
+                    .map(|item| ListPickerItemVM {
+                        title: &item.title,
+                        subtitle: item.subtitle.as_deref().into(),
+                        selected: item.selected,
+                    })
+                    .collect();
+                render_template(&ListPickerVM {
+                    summary: list_picker.summary.as_deref().into(),
+                    items,
+                })
+            }
         }
     }
 

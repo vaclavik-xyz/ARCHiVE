@@ -211,6 +211,19 @@ pub(super) struct FormRequestVM<'a> {
 }
 
 #[derive(Template)]
+#[template(path = "balloons/business_list_picker.html")]
+pub(super) struct ListPickerVM<'a> {
+    pub summary: OptionalText<'a>,
+    pub items: Vec<ListPickerItemVM<'a>>,
+}
+
+pub(super) struct ListPickerItemVM<'a> {
+    pub title: &'a str,
+    pub subtitle: OptionalText<'a>,
+    pub selected: bool,
+}
+
+#[derive(Template)]
 #[template(path = "attachments/attachment.html")]
 pub(super) struct AttachmentVM<'a> {
     pub lazy: bool,

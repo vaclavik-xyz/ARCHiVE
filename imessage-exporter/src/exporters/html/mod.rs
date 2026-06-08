@@ -4077,6 +4077,80 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_html_business_list_picker_prompt() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, ListPicker, ListPickerItem,
+        };
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = BusinessMessage::ListPicker(ListPicker {
+            summary: Some("Select a Product".to_string()),
+            items: vec![
+                ListPickerItem {
+                    title: "iPhone".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "AirPods".to_string(),
+                    subtitle: Some("Wireless".to_string()),
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "Apple Watch".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+            ],
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"list-picker\"><div class=\"list-picker-summary\">Select a Product</div><ul class=\"list-picker-items\"><li class=\"list-picker-item\">iPhone</li><li class=\"list-picker-item\">AirPods <span class=\"list-picker-subtitle\">Wireless</span></li><li class=\"list-picker-item\">Apple Watch</li></ul></div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_business_list_picker_reply() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, ListPicker, ListPickerItem,
+        };
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = BusinessMessage::ListPicker(ListPicker {
+            summary: Some("Select a Product".to_string()),
+            items: vec![
+                ListPickerItem {
+                    title: "iPhone".to_string(),
+                    subtitle: None,
+                    selected: true,
+                },
+                ListPickerItem {
+                    title: "AirPods".to_string(),
+                    subtitle: Some("Wireless".to_string()),
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "Apple Watch".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+            ],
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"list-picker\"><div class=\"list-picker-summary\">Select a Product</div><ul class=\"list-picker-items\"><li class=\"list-picker-item selected\">iPhone</li><li class=\"list-picker-item\">AirPods <span class=\"list-picker-subtitle\">Wireless</span></li><li class=\"list-picker-item\">Apple Watch</li></ul></div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_html_generic_app() {
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);

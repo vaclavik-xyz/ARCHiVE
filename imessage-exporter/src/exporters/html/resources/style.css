@@ -481,6 +481,48 @@ td {
     opacity: var(--opacity-high);
 }
 
+.list-picker {
+    color: black;
+    padding: var(--message-padding);
+}
+
+.list-picker-summary {
+    font-weight: 600;
+    margin-bottom: var(--message-padding);
+}
+
+.list-picker-items {
+    list-style: none;
+    margin: 0;
+    padding-left: 0;
+}
+
+.list-picker-item {
+    border: var(--border-width) solid var(--imessage-blue);
+    border-radius: 12px;
+    color: var(--imessage-blue);
+    margin-top: 8px;
+    padding: 10px var(--message-padding);
+    text-align: center;
+}
+
+.list-picker-item:first-child {
+    margin-top: 0;
+}
+
+.list-picker-item.selected {
+    background: var(--imessage-blue);
+    color: white;
+}
+
+.list-picker-item.selected::after {
+    content: " ✓";
+}
+
+.list-picker-subtitle {
+    opacity: var(--opacity-high);
+}
+
 
 @media (prefers-color-scheme: dark) {
     :root {

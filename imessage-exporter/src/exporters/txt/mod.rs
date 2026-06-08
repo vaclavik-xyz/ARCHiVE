@@ -2791,6 +2791,80 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_txt_business_list_picker_prompt() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, ListPicker, ListPickerItem,
+        };
+
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = BusinessMessage::ListPicker(ListPicker {
+            summary: Some("Select a Product".to_string()),
+            items: vec![
+                ListPickerItem {
+                    title: "iPhone".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "AirPods".to_string(),
+                    subtitle: Some("Wireless".to_string()),
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "Apple Watch".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+            ],
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "Select a Product\n- iPhone\n- AirPods (Wireless)\n- Apple Watch";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_business_list_picker_reply() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, ListPicker, ListPickerItem,
+        };
+
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = BusinessMessage::ListPicker(ListPicker {
+            summary: Some("Select a Product".to_string()),
+            items: vec![
+                ListPickerItem {
+                    title: "iPhone".to_string(),
+                    subtitle: None,
+                    selected: true,
+                },
+                ListPickerItem {
+                    title: "AirPods".to_string(),
+                    subtitle: Some("Wireless".to_string()),
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "Apple Watch".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+            ],
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "Select a Product\n- iPhone ✓\n- AirPods (Wireless)\n- Apple Watch";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_txt_generic_app() {
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);

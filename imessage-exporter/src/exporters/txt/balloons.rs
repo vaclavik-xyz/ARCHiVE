@@ -19,8 +19,9 @@ use crate::{
             TXT,
             view_model::{
                 AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, FindMyVM, FitnessVM,
-                FormAnswerVM, FormRequestVM, FormResponseVM, GenericAppVM, MusicVM, PlacemarkVM,
-                PollOptionVM, PollVM, QuickReplyOptionVM, QuickReplyVM, SlideshowVM, UrlVM,
+                FormAnswerVM, FormRequestVM, FormResponseVM, GenericAppVM, ListPickerItemVM,
+                ListPickerVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, QuickReplyOptionVM,
+                QuickReplyVM, SlideshowVM, UrlVM,
             },
         },
     },
@@ -199,6 +200,21 @@ impl BalloonFormatter for TXT<'_> {
                 title: form.title.as_deref().into(),
                 subtitle: form.subtitle.as_deref().into(),
             }),
+            BusinessMessage::ListPicker(list_picker) => {
+                let items = list_picker
+                    .items
+                    .iter()
+                    .map(|item| ListPickerItemVM {
+                        title: &item.title,
+                        subtitle: item.subtitle.as_deref().into(),
+                        selected: item.selected,
+                    })
+                    .collect();
+                render_balloon(&ListPickerVM {
+                    summary: list_picker.summary.as_deref().into(),
+                    items,
+                })
+            }
         }
     }
 

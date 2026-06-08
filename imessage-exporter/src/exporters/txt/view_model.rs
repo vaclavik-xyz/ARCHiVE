@@ -95,6 +95,19 @@ pub(super) struct FormRequestVM<'a> {
 }
 
 #[derive(Template)]
+#[template(path = "balloons/business_list_picker.txt")]
+pub(super) struct ListPickerVM<'a> {
+    pub summary: OptionalText<'a>,
+    pub items: Vec<ListPickerItemVM<'a>>,
+}
+
+pub(super) struct ListPickerItemVM<'a> {
+    pub title: &'a str,
+    pub subtitle: OptionalText<'a>,
+    pub selected: bool,
+}
+
+#[derive(Template)]
 #[template(path = "balloons/generic_app.txt")]
 pub(super) struct GenericAppVM<'a> {
     /// `app_name` falling back to `bundle_id`.
