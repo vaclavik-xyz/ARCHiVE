@@ -178,7 +178,7 @@ impl BalloonFormatter for TXT<'_> {
                     })
                     .collect();
                 render_balloon(&QuickReplyVM {
-                    summary: quick_reply.summary_text.as_deref().into(),
+                    summary: quick_reply.summary.as_deref().into(),
                     options,
                 })
             }

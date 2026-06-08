@@ -25,7 +25,7 @@ pub struct QuickReplyOption {
 #[derive(Debug, PartialEq, Eq)]
 pub struct QuickReply {
     /// Prompt summary or template-layout fallback text.
-    pub summary_text: Option<String>,
+    pub summary: Option<String>,
     /// Options in display order.
     pub options: Vec<QuickReplyOption>,
     /// Index into [`options`](Self::options) selected by a reply.
@@ -47,13 +47,13 @@ impl QuickReply {
             })
             .collect();
 
-        let summary_text = quick_reply["summaryText"]
+        let summary = quick_reply["summaryText"]
             .as_str()
             .map(str::to_string)
             .or_else(|| get_string_from_dict(payload, "ldtext").map(str::to_string));
 
         QuickReply {
-            summary_text,
+            summary,
             options,
             selected_index: quick_reply["selectedIndex"].as_usize(),
         }
@@ -97,7 +97,7 @@ mod tests {
     fn test_parse_business_quick_reply_prompt() {
         let balloon = parse("BusinessQuickReply.plist");
         let expected = QuickReply {
-            summary_text: Some("Choose an option".to_string()),
+            summary: Some("Choose an option".to_string()),
             options: vec![option("Yes"), option("No")],
             selected_index: None,
         };
@@ -109,7 +109,7 @@ mod tests {
         let balloon = parse("BusinessQuickReplyResponse.plist");
         let expected = QuickReply {
             // Replies in this fixture have no `summaryText`; `ldtext` is the fallback.
-            summary_text: Some("Replied to a question".to_string()),
+            summary: Some("Replied to a question".to_string()),
             options: vec![option("Yes"), option("No")],
             selected_index: Some(0),
         };

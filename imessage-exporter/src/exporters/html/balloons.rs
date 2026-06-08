@@ -224,7 +224,7 @@ impl BalloonFormatter for HTML<'_> {
                     })
                     .collect();
                 render_template(&QuickReplyVM {
-                    summary: quick_reply.summary_text.as_deref().into(),
+                    summary: quick_reply.summary.as_deref().into(),
                     options,
                 })
             }

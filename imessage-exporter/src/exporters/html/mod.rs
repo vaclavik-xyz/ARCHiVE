@@ -3976,7 +3976,7 @@ mod balloon_format_tests {
         let exporter = HTML::new(&config).unwrap();
 
         let balloon = BusinessMessage::QuickReply(QuickReply {
-            summary_text: Some("Choose an option".to_string()),
+            summary: Some("Choose an option".to_string()),
             options: vec![
                 QuickReplyOption {
                     title: "Yes".to_string(),
@@ -4005,7 +4005,7 @@ mod balloon_format_tests {
         let exporter = HTML::new(&config).unwrap();
 
         let balloon = BusinessMessage::QuickReply(QuickReply {
-            summary_text: Some("Replied to a question".to_string()),
+            summary: Some("Replied to a question".to_string()),
             options: vec![
                 QuickReplyOption {
                     title: "Yes".to_string(),
