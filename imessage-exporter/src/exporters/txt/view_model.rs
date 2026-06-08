@@ -42,12 +42,6 @@ pub(super) struct FindMyVM<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "balloons/digital_touch.txt")]
-pub(super) struct DigitalTouchVM {
-    pub debug: String,
-}
-
-#[derive(Template)]
 #[template(path = "balloons/check_in.txt")]
 pub(super) struct CheckInVM<'a> {
     /// Resolved label: `balloon.caption.unwrap_or("Check In")`.

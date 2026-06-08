@@ -2,7 +2,7 @@ use imessage_database::{
     error::plist::PlistParseError,
     message_types::{
         app::{AppMessage, CheckInKind},
-        digital_touch,
+        digital_touch::DigitalTouchMessage,
         handwriting::HandwrittenMessage,
         url::URLMessage,
         variants::{BalloonProvider, CustomBalloon, URLOverride, Variant},
@@ -50,9 +50,9 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
     if message.is_digital_touch()
         && let Some(payload) = message.raw_payload_data(config.data_source.db())
     {
-        return match digital_touch::from_payload(&payload) {
-            Some(bubble) => Ok(formatter.format_digital_touch(message, &bubble)),
-            None => Err(PlistParseError::DigitalTouchError.into()),
+        return match DigitalTouchMessage::from_payload(&payload) {
+            Ok(bubble) => Ok(formatter.format_digital_touch(message, &bubble)),
+            Err(why) => Err(PlistParseError::DigitalTouchError(why).into()),
         };
     }
 

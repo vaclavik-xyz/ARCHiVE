@@ -29,6 +29,22 @@ svg {
     height: auto;
 }
 
+.message .digital_touch_bubble {
+    width: 30vw;
+}
+
+.digital_touch svg {
+    width: 100%;
+}
+
+.digital_touch video {
+    width: 100%;
+    display: block;
+    aspect-ratio: 768 / 960;
+    object-fit: cover;
+    background: black;
+}
+
 a[href^="#"] {
     text-decoration: none;
     color: darkblue;

@@ -14,12 +14,6 @@ use crate::exporters::{
 };
 
 #[derive(Template)]
-#[template(path = "balloons/digital_touch.html")]
-pub(super) struct DigitalTouchVM {
-    pub debug: String,
-}
-
-#[derive(Template)]
 #[template(path = "balloons/find_my.html")]
 pub(super) struct FindMyVM<'a> {
     pub app_name: OptionalText<'a>,
@@ -284,6 +278,7 @@ pub(super) struct MessageVM<'a> {
     /// True for `<div class="sent {service}">`, false for `<div class="received">`.
     pub is_from_me: bool,
     pub service: Service<'a>,
+    pub digital_touch: bool,
     pub date: String,
     pub read_after: String,
     pub reply_anchor: Option<ReplyAnchorKind>,

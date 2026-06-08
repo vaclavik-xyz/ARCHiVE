@@ -3,7 +3,7 @@ use askama::Template;
 use imessage_database::{
     message_types::{
         app::AppMessage, app_store::AppStoreMessage, collaboration::CollaborationMessage,
-        digital_touch::DigitalTouch, handwriting::HandwrittenMessage, music::MusicMessage,
+        digital_touch::DigitalTouchMessage, handwriting::HandwrittenMessage, music::MusicMessage,
         placemark::PlacemarkMessage, polls::Poll, url::URLMessage,
     },
     tables::{attachment::Attachment, messages::Message},
@@ -17,9 +17,8 @@ use crate::{
         txt::{
             TXT,
             view_model::{
-                AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, DigitalTouchVM, FindMyVM,
-                FitnessVM, GenericAppVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, SlideshowVM,
-                UrlVM,
+                AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, FindMyVM, FitnessVM,
+                GenericAppVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, SlideshowVM, UrlVM,
             },
         },
     },
@@ -109,10 +108,8 @@ impl BalloonFormatter for TXT<'_> {
         }
     }
 
-    fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouch) -> String {
-        render_balloon(&DigitalTouchVM {
-            debug: format!("{balloon:?}"),
-        })
+    fn format_digital_touch(&self, _: &Message, balloon: &DigitalTouchMessage) -> String {
+        balloon.render_text()
     }
 
     fn format_apple_pay(&self, balloon: &AppMessage) -> String {

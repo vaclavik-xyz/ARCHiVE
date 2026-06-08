@@ -1,4 +1,4 @@
-use super::{
+use crate::message_types::text_effects::{
     animation::Animation,
     detected::{
         address::DetectedAddress, currency::DetectedCurrency, flight::Flight,
