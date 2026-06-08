@@ -3989,7 +3989,7 @@ mod balloon_format_tests {
         });
 
         let actual = exporter.format_business(&balloon);
-        let expected = "<div class=\"quick-reply\"><div class=\"quick-reply-summary\">Choose an option</div>\n    <ul class=\"quick-reply-options\"><li\n            class=\"quick-reply-option\">Yes</li><li\n            class=\"quick-reply-option\">No</li>\n    </ul>\n</div>";
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Choose an option\n    </div>\n    <ul class=\"business-options\"><li\n            class=\"business-option\">Yes</li><li\n            class=\"business-option\">No</li>\n    </ul>\n</div>";
 
         assert_eq!(actual, expected);
     }
@@ -4018,7 +4018,7 @@ mod balloon_format_tests {
         });
 
         let actual = exporter.format_business(&balloon);
-        let expected = "<div class=\"quick-reply\"><div class=\"quick-reply-summary\">Replied to a question</div>\n    <ul class=\"quick-reply-options\"><li\n            class=\"quick-reply-option selected\">Yes</li><li\n            class=\"quick-reply-option\">No</li>\n    </ul>\n</div>";
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Replied to a question\n    </div>\n    <ul class=\"business-options\"><li\n            class=\"business-option selected\">Yes</li><li\n            class=\"business-option\">No</li>\n    </ul>\n</div>";
 
         assert_eq!(actual, expected);
     }
@@ -4037,7 +4037,7 @@ mod balloon_format_tests {
         });
 
         let actual = exporter.format_business(&balloon);
-        let expected = "<div class=\"business-form-request\"><div class=\"business-form-request-title\">Report an Issue</div><div\n        class=\"business-form-request-subtitle\">Tap to get started</div></div>";
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Report an Issue</div><div class=\"business-subtitle\">Tap to get started</div></div>";
 
         assert_eq!(actual, expected);
     }
@@ -4071,7 +4071,7 @@ mod balloon_format_tests {
         });
 
         let actual = exporter.format_business(&balloon);
-        let expected = "<div class=\"business-form\"><div class=\"business-form-summary\">Here&apos;s my completed form\n    </div><dl class=\"business-form-answers\"><dt class=\"business-form-question\">Which option best describes your request?</dt>\n        <dd class=\"business-form-value\">The first example option</dd><dt class=\"business-form-question\">When did this happen?</dt>\n        <dd class=\"business-form-value\">01/01/2024</dd><dt class=\"business-form-question\">Anything else to add?</dt>\n        <dd class=\"business-form-value\">Example free-text response.</dd>\n    </dl>\n</div>";
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Here&apos;s my completed form\n    </div><dl class=\"business-answers\"><dt class=\"business-question\">Which option best describes your request?</dt>\n        <dd class=\"business-answer\">The first example option</dd><dt class=\"business-question\">When did this happen?</dt>\n        <dd class=\"business-answer\">01/01/2024</dd><dt class=\"business-question\">Anything else to add?</dt>\n        <dd class=\"business-answer\">Example free-text response.</dd>\n    </dl>\n</div>";
 
         assert_eq!(actual, expected);
     }
@@ -4108,7 +4108,7 @@ mod balloon_format_tests {
         });
 
         let actual = exporter.format_business(&balloon);
-        let expected = "<div class=\"list-picker\"><div class=\"list-picker-summary\">Select a Product</div><ul class=\"list-picker-items\"><li class=\"list-picker-item\">iPhone</li><li class=\"list-picker-item\">AirPods <span class=\"list-picker-subtitle\">Wireless</span></li><li class=\"list-picker-item\">Apple Watch</li></ul></div>";
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Select a Product\n    </div><ul class=\"business-options\"><li\n            class=\"business-option\">iPhone</li><li\n            class=\"business-option\">AirPods <span class=\"business-option-detail\">Wireless</span></li><li\n            class=\"business-option\">Apple Watch</li></ul>\n</div>";
 
         assert_eq!(actual, expected);
     }
@@ -4145,7 +4145,7 @@ mod balloon_format_tests {
         });
 
         let actual = exporter.format_business(&balloon);
-        let expected = "<div class=\"list-picker\"><div class=\"list-picker-summary\">Select a Product</div><ul class=\"list-picker-items\"><li class=\"list-picker-item selected\">iPhone</li><li class=\"list-picker-item\">AirPods <span class=\"list-picker-subtitle\">Wireless</span></li><li class=\"list-picker-item\">Apple Watch</li></ul></div>";
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Select a Product\n    </div><ul class=\"business-options\"><li\n            class=\"business-option selected\">iPhone</li><li\n            class=\"business-option\">AirPods <span class=\"business-option-detail\">Wireless</span></li><li\n            class=\"business-option\">Apple Watch</li></ul>\n</div>";
 
         assert_eq!(actual, expected);
     }

@@ -411,23 +411,23 @@ td {
     margin-right: 5px;
 }
 
-.quick-reply {
+.business-balloon {
     color: black;
     padding: var(--message-padding);
 }
 
-.quick-reply-summary {
+.business-heading {
     font-weight: 600;
-    margin-bottom: var(--message-padding);
 }
 
-.quick-reply-options {
+/* Tappable option list, shared by quick replies and list pickers. */
+.business-options {
     list-style: none;
-    margin: 0;
+    margin: var(--message-padding) 0 0;
     padding-left: 0;
 }
 
-.quick-reply-option {
+.business-option {
     border: var(--border-width) solid var(--imessage-blue);
     border-radius: 12px;
     color: var(--imessage-blue);
@@ -436,90 +436,42 @@ td {
     text-align: center;
 }
 
-.quick-reply-option:first-child {
+.business-option:first-child {
     margin-top: 0;
 }
 
-.quick-reply-option.selected {
+.business-option.selected {
     background: var(--imessage-blue);
     color: white;
 }
 
-.quick-reply-option.selected::after {
+.business-option.selected::after {
     content: " ✓";
 }
 
-.business-form,
-.business-form-request {
-    color: black;
-    padding: var(--message-padding);
-}
-
-.business-form-summary,
-.business-form-request-title {
-    font-weight: 600;
-}
-
-.business-form-answers {
-    margin: 8px 0 0 0;
-}
-
-.business-form-question {
-    font-weight: 600;
-}
-
-.business-form-question:not(:first-of-type) {
-    margin-top: 8px;
-}
-
-.business-form-value {
-    margin: 2px 0 0 0;
-}
-
-.business-form-request-subtitle {
-    margin-top: 4px;
+.business-option-detail {
     opacity: var(--opacity-high);
 }
 
-.list-picker {
-    color: black;
-    padding: var(--message-padding);
-}
-
-.list-picker-summary {
-    font-weight: 600;
-    margin-bottom: var(--message-padding);
-}
-
-.list-picker-items {
-    list-style: none;
-    margin: 0;
-    padding-left: 0;
-}
-
-.list-picker-item {
-    border: var(--border-width) solid var(--imessage-blue);
-    border-radius: 12px;
-    color: var(--imessage-blue);
+/* Submitted-form question/answer list. */
+.business-answers {
     margin-top: 8px;
-    padding: 10px var(--message-padding);
-    text-align: center;
 }
 
-.list-picker-item:first-child {
-    margin-top: 0;
+.business-question {
+    font-weight: 600;
 }
 
-.list-picker-item.selected {
-    background: var(--imessage-blue);
-    color: white;
+.business-question:not(:first-of-type) {
+    margin-top: 8px;
 }
 
-.list-picker-item.selected::after {
-    content: " ✓";
+.business-answer {
+    margin-top: 2px;
 }
 
-.list-picker-subtitle {
+.business-subtitle {
+    margin-top: 4px;
     opacity: var(--opacity-high);
 }
 
