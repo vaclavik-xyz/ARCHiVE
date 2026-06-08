@@ -248,19 +248,19 @@ impl HTML<'_> {
         };
         let embed_path = self.config.message_attachment_path(&attachment);
 
-        match &media.kind {
+        // Dispatch on the parsed kind, but require the resolved file to match
+        match (&media.kind, attachment.mime_type()) {
             // Reuse the shared attachment `<video>` template so the player gets the
             // correct `type` hint and the duplicated source tag (see issue #73).
-            MediaKind::Video => match attachment.mime_type() {
-                MediaType::Video(media_type) => render_template(&AttachmentVM {
-                    lazy: !self.config.options.no_lazy,
-                    embed_path,
-                    variant: AttachmentVariant::Video { media_type },
-                }),
-                _ => balloon.render_svg(None),
-            },
-            MediaKind::Image { .. } => balloon.render_svg(Some(ImageBackdrop(embed_path.into()))),
-            MediaKind::Other(_) => balloon.render_svg(None),
+            (MediaKind::Video, MediaType::Video(media_type)) => render_template(&AttachmentVM {
+                lazy: !self.config.options.no_lazy,
+                embed_path,
+                variant: AttachmentVariant::Video { media_type },
+            }),
+            (MediaKind::Image { .. }, MediaType::Image(_)) => {
+                balloon.render_svg(Some(ImageBackdrop(embed_path.into())))
+            }
+            _ => balloon.render_svg(None),
         }
     }
 
