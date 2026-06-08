@@ -11,6 +11,7 @@ use crate::{
     error::plist::PlistParseError,
     message_types::business_chat::{
         form::{FormRequest, FormResponse},
+        list_picker::ListPicker,
         quick_reply::QuickReply,
     },
 };
@@ -24,6 +25,8 @@ pub enum BusinessMessage {
     FormRequest(FormRequest),
     /// A submitted interactive form, with the answers the user gave.
     FormResponse(FormResponse),
+    /// A list of items to choose from, and on a reply which were chosen.
+    ListPicker(ListPicker),
 }
 
 impl BusinessMessage {
@@ -43,6 +46,9 @@ impl BusinessMessage {
         }
         if let Ok(request) = FormRequest::from_map(payload) {
             return Ok(Self::FormRequest(request));
+        }
+        if let Ok(list_picker) = ListPicker::from_map(payload) {
+            return Ok(Self::ListPicker(list_picker));
         }
         Err(PlistParseError::WrongMessageType)
     }
@@ -89,6 +95,22 @@ mod tests {
         assert!(matches!(
             classify("BusinessFormResponse.plist"),
             Ok(BusinessMessage::FormResponse(_))
+        ));
+    }
+
+    #[test]
+    fn classifies_list_picker_prompt() {
+        assert!(matches!(
+            classify("BusinessListPicker.plist"),
+            Ok(BusinessMessage::ListPicker(_))
+        ));
+    }
+
+    #[test]
+    fn classifies_list_picker_reply() {
+        assert!(matches!(
+            classify("BusinessListPickerResponse.plist"),
+            Ok(BusinessMessage::ListPicker(_))
         ));
     }
 
