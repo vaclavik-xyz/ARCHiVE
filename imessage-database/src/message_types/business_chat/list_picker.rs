@@ -6,9 +6,15 @@
  `replyMessage` and move the selected item(s) into the first section.
 */
 
+use std::str::from_utf8;
+
+use jzon::parse;
 use plist::Value;
 
-use crate::{error::plist::PlistParseError, util::plist::get_string_from_dict};
+use crate::{
+    error::plist::PlistParseError,
+    util::plist::{get_data_from_dict, get_string_from_dict},
+};
 
 /// One item in a [`ListPicker`].
 #[derive(Debug, PartialEq, Eq)]
@@ -39,18 +45,14 @@ impl ListPicker {
     /// Returns [`PlistParseError::WrongMessageType`] when the payload carries no
     /// `listPicker` block.
     pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
-        let data = payload
-            .as_dictionary()
-            .and_then(|dict| dict.get("data"))
-            .and_then(Value::as_data)
-            .ok_or(PlistParseError::WrongMessageType)?;
+        let data = get_data_from_dict(payload, "data").ok_or(PlistParseError::WrongMessageType)?;
 
-        let text = std::str::from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
+        let text = from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
         if !text.contains("\"listPicker\"") {
             return Err(PlistParseError::WrongMessageType);
         }
 
-        let parsed = jzon::parse(text).map_err(|_| PlistParseError::WrongMessageType)?;
+        let parsed = parse(text).map_err(|_| PlistParseError::WrongMessageType)?;
         let sections = parsed["listPicker"]["sections"]
             .as_array()
             .ok_or(PlistParseError::WrongMessageType)?;

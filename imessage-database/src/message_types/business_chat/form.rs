@@ -8,7 +8,10 @@
 
 use plist::Value;
 
-use crate::{error::plist::PlistParseError, util::plist::get_string_from_dict};
+use crate::{
+    error::plist::PlistParseError,
+    util::plist::{get_data_from_dict, get_string_from_dict},
+};
 
 /// One submitted answer group in a [`FormResponse`].
 #[derive(Debug, PartialEq, Eq)]
@@ -42,11 +45,7 @@ pub struct FormResponse {
 
 /// Read the `data` field that stores the business JSON payload.
 fn form_data(payload: &Value) -> Result<&[u8], PlistParseError> {
-    payload
-        .as_dictionary()
-        .and_then(|dict| dict.get("data"))
-        .and_then(Value::as_data)
-        .ok_or(PlistParseError::WrongMessageType)
+    get_data_from_dict(payload, "data").ok_or(PlistParseError::WrongMessageType)
 }
 
 impl FormRequest {

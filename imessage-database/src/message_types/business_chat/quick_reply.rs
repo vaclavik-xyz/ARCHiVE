@@ -5,9 +5,15 @@
  the available options. Reply payloads add `selectedIndex`.
 */
 
+use std::str::from_utf8;
+
+use jzon::parse;
 use plist::Value;
 
-use crate::{error::plist::PlistParseError, util::plist::get_string_from_dict};
+use crate::{
+    error::plist::PlistParseError,
+    util::plist::{get_data_from_dict, get_string_from_dict},
+};
 
 /// One option in a [`QuickReply`] prompt.
 #[derive(Debug, PartialEq, Eq)]
@@ -37,13 +43,9 @@ impl QuickReply {
     /// Returns [`PlistParseError::WrongMessageType`] when `data` does not carry
     /// a quick reply schema.
     pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
-        let data = payload
-            .as_dictionary()
-            .and_then(|dict| dict.get("data"))
-            .and_then(Value::as_data)
-            .ok_or(PlistParseError::WrongMessageType)?;
+        let data = get_data_from_dict(payload, "data").ok_or(PlistParseError::WrongMessageType)?;
 
-        let text = std::str::from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
+        let text = from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
 
         // Forms and legacy business payloads reuse this bundle ID. This parser
         // should only parse quick reply JSON.
@@ -51,7 +53,7 @@ impl QuickReply {
             return Err(PlistParseError::WrongMessageType);
         }
 
-        let parsed = jzon::parse(text).map_err(|_| PlistParseError::WrongMessageType)?;
+        let parsed = parse(text).map_err(|_| PlistParseError::WrongMessageType)?;
         let quick_reply = &parsed["quick-reply"];
 
         let options = quick_reply["items"]
