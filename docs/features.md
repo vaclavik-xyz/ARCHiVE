@@ -124,7 +124,17 @@ This tool targets the current latest public release for Messages.app. It may wor
       - `clone, basic, full`: saved as an `svg` file
 - Digital Touch
   - Parses the protobuf payload to extract [Digital Touch](https://support.apple.com/guide/ipod-touch/send-a-digital-touch-effect-iph3fadba219/ios) message data
-    - Displayed as text that describes the type of message sent in HTML and TXT exports
+    - Supports all Digital Touch effects:
+      - Taps
+      - Sketches
+      - Kisses
+      - Heartbeats, including heartbreaks
+      - Fireballs
+      - Photos and videos
+    - HTML exports render a static frame depicting the captured data as an embedded `svg` on a black `4:5` canvas
+      - A photo is shown as the canvas backdrop, with any sketch drawn over it
+      - A video is shown as an embedded video player
+    - TXT exports describe each effect on a single line, including stroke and point counts or beats per minute
 - Duplicated group chats
   - Handles (participants) and chats (threads) can become duplicated
   - On startup:
