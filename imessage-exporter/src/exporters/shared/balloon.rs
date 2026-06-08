@@ -2,7 +2,7 @@ use imessage_database::{
     error::plist::PlistParseError,
     message_types::{
         app::{AppMessage, CheckInKind},
-        business::QuickReply,
+        business_chat::BusinessMessage,
         digital_touch::DigitalTouchMessage,
         handwriting::HandwrittenMessage,
         url::URLMessage,
@@ -98,8 +98,11 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
                 CustomBalloon::Slideshow => formatter.format_slideshow(&bubble),
                 CustomBalloon::CheckIn => formatter.format_check_in(&bubble),
                 CustomBalloon::FindMy => formatter.format_find_my(&bubble),
-                CustomBalloon::Business => match QuickReply::from_map(&parsed) {
-                    Ok(quick_reply) => formatter.format_business(&quick_reply),
+                CustomBalloon::Business => match BusinessMessage::from_map(&parsed) {
+                    Ok(business) => formatter.format_business(&business),
+                    // Business balloons with no rich shape (e.g. legacy
+                    // query-string messages) reuse this bundle ID; render those
+                    // as a generic app card just as before this variant existed.
                     Err(_) => {
                         let bundle_id =
                             parse_balloon_bundle_id(message.balloon_bundle_id.as_deref())

@@ -64,8 +64,8 @@ pub(super) struct PollOptionVM<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "balloons/business.txt")]
-pub(super) struct BusinessVM<'a> {
+#[template(path = "balloons/business_quick_reply.txt")]
+pub(super) struct QuickReplyVM<'a> {
     pub summary: OptionalText<'a>,
     pub options: Vec<QuickReplyOptionVM<'a>>,
 }
@@ -73,6 +73,25 @@ pub(super) struct BusinessVM<'a> {
 pub(super) struct QuickReplyOptionVM<'a> {
     pub text: &'a str,
     pub selected: bool,
+}
+
+#[derive(Template)]
+#[template(path = "balloons/business_form_response.txt")]
+pub(super) struct FormResponseVM<'a> {
+    pub summary: OptionalText<'a>,
+    pub answers: Vec<FormAnswerVM<'a>>,
+}
+
+pub(super) struct FormAnswerVM<'a> {
+    pub question: &'a str,
+    pub answer: String,
+}
+
+#[derive(Template)]
+#[template(path = "balloons/business_form_request.txt")]
+pub(super) struct FormRequestVM<'a> {
+    pub title: OptionalText<'a>,
+    pub subtitle: OptionalText<'a>,
 }
 
 #[derive(Template)]

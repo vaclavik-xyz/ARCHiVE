@@ -4,7 +4,7 @@ use imessage_database::{
     message_types::{
         app::AppMessage,
         app_store::AppStoreMessage,
-        business::QuickReply,
+        business_chat::BusinessMessage,
         collaboration::CollaborationMessage,
         digital_touch::{DigitalTouchMessage, ImageBackdrop, media::MediaKind},
         handwriting::HandwrittenMessage,
@@ -25,9 +25,9 @@ use crate::exporters::{
         HTML,
         safe::Html,
         view_model::{
-            AppCardVM, AppStoreVM, ApplePayVM, AttachmentVM, AttachmentVariant, BusinessVM,
-            CheckInVM, CollaborationVM, FindMyVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM,
-            QuickReplyOptionVM, UrlVM,
+            AppCardVM, AppStoreVM, ApplePayVM, AttachmentVM, AttachmentVariant, CheckInVM,
+            CollaborationVM, FindMyVM, FormAnswerVM, FormRequestVM, FormResponseVM, MusicVM,
+            PlacemarkVM, PollOptionVM, PollVM, QuickReplyOptionVM, QuickReplyVM, UrlVM,
         },
     },
     shared::{
@@ -210,20 +210,42 @@ impl BalloonFormatter for HTML<'_> {
         render_template(&PollVM { options })
     }
 
-    fn format_business(&self, balloon: &QuickReply) -> String {
-        let options = balloon
-            .options
-            .iter()
-            .enumerate()
-            .map(|(index, option)| QuickReplyOptionVM {
-                text: &option.title,
-                selected: balloon.selected_index == Some(index),
-            })
-            .collect();
-        render_template(&BusinessVM {
-            summary: balloon.summary_text.as_deref().into(),
-            options,
-        })
+    fn format_business(&self, balloon: &BusinessMessage) -> String {
+        match balloon {
+            BusinessMessage::QuickReply(quick_reply) => {
+                let options = quick_reply
+                    .options
+                    .iter()
+                    .enumerate()
+                    .map(|(index, option)| QuickReplyOptionVM {
+                        text: &option.title,
+                        selected: quick_reply.selected_index == Some(index),
+                    })
+                    .collect();
+                render_template(&QuickReplyVM {
+                    summary: quick_reply.summary_text.as_deref().into(),
+                    options,
+                })
+            }
+            BusinessMessage::FormResponse(form) => {
+                let answers = form
+                    .answers
+                    .iter()
+                    .map(|answer| FormAnswerVM {
+                        question: &answer.question,
+                        answer: answer.answers.join(", "),
+                    })
+                    .collect();
+                render_template(&FormResponseVM {
+                    summary: form.summary.as_deref().into(),
+                    answers,
+                })
+            }
+            BusinessMessage::FormRequest(form) => render_template(&FormRequestVM {
+                title: form.title.as_deref().into(),
+                subtitle: form.subtitle.as_deref().into(),
+            }),
+        }
     }
 
     fn format_generic_app(

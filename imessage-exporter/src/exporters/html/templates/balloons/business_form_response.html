@@ -1,0 +1,6 @@
+<div class="business-form">{% if let Some(summary) = summary.get() %}<div class="business-form-summary">{{ summary }}
+    </div>{% endif %}<dl class="business-form-answers">{% for answer in answers %}<dt class="business-form-question">{{
+            answer.question }}</dt>
+        <dd class="business-form-value">{{ answer.answer }}</dd>{% endfor %}
+    </dl>
+</div>

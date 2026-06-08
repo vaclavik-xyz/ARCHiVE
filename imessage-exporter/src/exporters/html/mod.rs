@@ -3967,13 +3967,15 @@ mod balloon_format_tests {
 
     #[test]
     fn can_format_html_business_quick_reply_prompt() {
-        use imessage_database::message_types::business::{QuickReply, QuickReplyOption};
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, QuickReply, QuickReplyOption,
+        };
 
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
-        let balloon = QuickReply {
+        let balloon = BusinessMessage::QuickReply(QuickReply {
             summary_text: Some("Choose an option".to_string()),
             options: vec![
                 QuickReplyOption {
@@ -3984,23 +3986,25 @@ mod balloon_format_tests {
                 },
             ],
             selected_index: None,
-        };
+        });
 
         let actual = exporter.format_business(&balloon);
-        let expected = "<div class=\"quick-reply\"><div class=\"quick-reply-summary\">Choose an option</div><ul class=\"quick-reply-options\"><li class=\"quick-reply-option\">Yes</li><li class=\"quick-reply-option\">No</li></ul></div>";
+        let expected = "<div class=\"quick-reply\"><div class=\"quick-reply-summary\">Choose an option</div>\n    <ul class=\"quick-reply-options\"><li\n            class=\"quick-reply-option\">Yes</li><li\n            class=\"quick-reply-option\">No</li>\n    </ul>\n</div>";
 
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn can_format_html_business_quick_reply_selected() {
-        use imessage_database::message_types::business::{QuickReply, QuickReplyOption};
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, QuickReply, QuickReplyOption,
+        };
 
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);
         let exporter = HTML::new(&config).unwrap();
 
-        let balloon = QuickReply {
+        let balloon = BusinessMessage::QuickReply(QuickReply {
             summary_text: Some("Replied to a question".to_string()),
             options: vec![
                 QuickReplyOption {
@@ -4011,10 +4015,63 @@ mod balloon_format_tests {
                 },
             ],
             selected_index: Some(0),
-        };
+        });
 
         let actual = exporter.format_business(&balloon);
-        let expected = "<div class=\"quick-reply\"><div class=\"quick-reply-summary\">Replied to a question</div><ul class=\"quick-reply-options\"><li class=\"quick-reply-option selected\">Yes</li><li class=\"quick-reply-option\">No</li></ul></div>";
+        let expected = "<div class=\"quick-reply\"><div class=\"quick-reply-summary\">Replied to a question</div>\n    <ul class=\"quick-reply-options\"><li\n            class=\"quick-reply-option selected\">Yes</li><li\n            class=\"quick-reply-option\">No</li>\n    </ul>\n</div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_business_form_request() {
+        use imessage_database::message_types::business_chat::{BusinessMessage, FormRequest};
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = BusinessMessage::FormRequest(FormRequest {
+            title: Some("Report an Issue".to_string()),
+            subtitle: Some("Tap to get started".to_string()),
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"business-form-request\"><div class=\"business-form-request-title\">Report an Issue</div><div\n        class=\"business-form-request-subtitle\">Tap to get started</div></div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_business_form_response() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, FormAnswer, FormResponse,
+        };
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = BusinessMessage::FormResponse(FormResponse {
+            summary: Some("Here's my completed form".to_string()),
+            answers: vec![
+                FormAnswer {
+                    question: "Which option best describes your request?".to_string(),
+                    answers: vec!["The first example option".to_string()],
+                },
+                FormAnswer {
+                    question: "When did this happen?".to_string(),
+                    answers: vec!["01/01/2024".to_string()],
+                },
+                FormAnswer {
+                    question: "Anything else to add?".to_string(),
+                    answers: vec!["Example free-text response.".to_string()],
+                },
+            ],
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"business-form\"><div class=\"business-form-summary\">Here&apos;s my completed form\n    </div><dl class=\"business-form-answers\"><dt class=\"business-form-question\">Which option best describes your request?</dt>\n        <dd class=\"business-form-value\">The first example option</dd><dt class=\"business-form-question\">When did this happen?</dt>\n        <dd class=\"business-form-value\">01/01/2024</dd><dt class=\"business-form-question\">Anything else to add?</dt>\n        <dd class=\"business-form-value\">Example free-text response.</dd>\n    </dl>\n</div>";
 
         assert_eq!(actual, expected);
     }

@@ -2,7 +2,7 @@ use askama::Template;
 
 use imessage_database::{
     message_types::{
-        app::AppMessage, app_store::AppStoreMessage, business::QuickReply,
+        app::AppMessage, app_store::AppStoreMessage, business_chat::BusinessMessage,
         collaboration::CollaborationMessage, digital_touch::DigitalTouchMessage,
         handwriting::HandwrittenMessage, music::MusicMessage, placemark::PlacemarkMessage,
         polls::Poll, url::URLMessage,
@@ -18,9 +18,9 @@ use crate::{
         txt::{
             TXT,
             view_model::{
-                AppStoreVM, ApplePayVM, BusinessVM, CheckInVM, CollaborationVM, FindMyVM,
-                FitnessVM, GenericAppVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM,
-                QuickReplyOptionVM, SlideshowVM, UrlVM,
+                AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, FindMyVM, FitnessVM,
+                FormAnswerVM, FormRequestVM, FormResponseVM, GenericAppVM, MusicVM, PlacemarkVM,
+                PollOptionVM, PollVM, QuickReplyOptionVM, QuickReplyVM, SlideshowVM, UrlVM,
             },
         },
     },
@@ -164,20 +164,42 @@ impl BalloonFormatter for TXT<'_> {
         render_balloon(&PollVM { options })
     }
 
-    fn format_business(&self, balloon: &QuickReply) -> String {
-        let options = balloon
-            .options
-            .iter()
-            .enumerate()
-            .map(|(index, option)| QuickReplyOptionVM {
-                text: &option.title,
-                selected: balloon.selected_index == Some(index),
-            })
-            .collect();
-        render_balloon(&BusinessVM {
-            summary: balloon.summary_text.as_deref().into(),
-            options,
-        })
+    fn format_business(&self, balloon: &BusinessMessage) -> String {
+        match balloon {
+            BusinessMessage::QuickReply(quick_reply) => {
+                let options = quick_reply
+                    .options
+                    .iter()
+                    .enumerate()
+                    .map(|(index, option)| QuickReplyOptionVM {
+                        text: &option.title,
+                        selected: quick_reply.selected_index == Some(index),
+                    })
+                    .collect();
+                render_balloon(&QuickReplyVM {
+                    summary: quick_reply.summary_text.as_deref().into(),
+                    options,
+                })
+            }
+            BusinessMessage::FormResponse(form) => {
+                let answers = form
+                    .answers
+                    .iter()
+                    .map(|answer| FormAnswerVM {
+                        question: &answer.question,
+                        answer: answer.answers.join(", "),
+                    })
+                    .collect();
+                render_balloon(&FormResponseVM {
+                    summary: form.summary.as_deref().into(),
+                    answers,
+                })
+            }
+            BusinessMessage::FormRequest(form) => render_balloon(&FormRequestVM {
+                title: form.title.as_deref().into(),
+                subtitle: form.subtitle.as_deref().into(),
+            }),
+        }
     }
 
     fn format_generic_app(

@@ -4,7 +4,7 @@ use imessage_database::{
     message_types::{
         app::AppMessage,
         app_store::AppStoreMessage,
-        business::QuickReply,
+        business_chat::BusinessMessage,
         collaboration::CollaborationMessage,
         digital_touch::DigitalTouchMessage,
         edited::EditedMessage,
@@ -165,8 +165,8 @@ pub(crate) trait BalloonFormatter {
     fn format_check_in(&self, balloon: &AppMessage) -> String;
     /// Format a poll message.
     fn format_poll(&self, poll: &Poll) -> String;
-    /// Format an Apple Business Chat quick-reply message.
-    fn format_business(&self, balloon: &QuickReply) -> String;
+    /// Format an Apple Business Chat message
+    fn format_business(&self, balloon: &BusinessMessage) -> String;
     /// Format an app message without a specialized renderer.
     fn format_generic_app(
         &self,

@@ -449,6 +449,38 @@ td {
     content: " ✓";
 }
 
+.business-form,
+.business-form-request {
+    color: black;
+    padding: var(--message-padding);
+}
+
+.business-form-summary,
+.business-form-request-title {
+    font-weight: 600;
+}
+
+.business-form-answers {
+    margin: 8px 0 0 0;
+}
+
+.business-form-question {
+    font-weight: 600;
+}
+
+.business-form-question:not(:first-of-type) {
+    margin-top: 8px;
+}
+
+.business-form-value {
+    margin: 2px 0 0 0;
+}
+
+.business-form-request-subtitle {
+    margin-top: 4px;
+    opacity: var(--opacity-high);
+}
+
 
 @media (prefers-color-scheme: dark) {
     :root {
