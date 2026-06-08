@@ -2,9 +2,10 @@ use askama::Template;
 
 use imessage_database::{
     message_types::{
-        app::AppMessage, app_store::AppStoreMessage, collaboration::CollaborationMessage,
-        digital_touch::DigitalTouchMessage, handwriting::HandwrittenMessage, music::MusicMessage,
-        placemark::PlacemarkMessage, polls::Poll, url::URLMessage,
+        app::AppMessage, app_store::AppStoreMessage, business::QuickReply,
+        collaboration::CollaborationMessage, digital_touch::DigitalTouchMessage,
+        handwriting::HandwrittenMessage, music::MusicMessage, placemark::PlacemarkMessage,
+        polls::Poll, url::URLMessage,
     },
     tables::{attachment::Attachment, messages::Message},
 };
@@ -17,8 +18,9 @@ use crate::{
         txt::{
             TXT,
             view_model::{
-                AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, FindMyVM, FitnessVM,
-                GenericAppVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, SlideshowVM, UrlVM,
+                AppStoreVM, ApplePayVM, BusinessVM, CheckInVM, CollaborationVM, FindMyVM,
+                FitnessVM, GenericAppVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM,
+                QuickReplyOptionVM, SlideshowVM, UrlVM,
             },
         },
     },
@@ -160,6 +162,22 @@ impl BalloonFormatter for TXT<'_> {
             .collect();
 
         render_balloon(&PollVM { options })
+    }
+
+    fn format_business(&self, balloon: &QuickReply) -> String {
+        let options = balloon
+            .options
+            .iter()
+            .enumerate()
+            .map(|(index, option)| QuickReplyOptionVM {
+                text: &option.title,
+                selected: balloon.selected_index == Some(index),
+            })
+            .collect();
+        render_balloon(&BusinessVM {
+            summary: balloon.summary_text.as_deref().into(),
+            options,
+        })
     }
 
     fn format_generic_app(

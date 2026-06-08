@@ -2680,6 +2680,60 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_txt_business_quick_reply_prompt() {
+        use imessage_database::message_types::business::{QuickReply, QuickReplyOption};
+
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = QuickReply {
+            summary_text: Some("Choose an option".to_string()),
+            options: vec![
+                QuickReplyOption {
+                    title: "Yes".to_string(),
+                },
+                QuickReplyOption {
+                    title: "No".to_string(),
+                },
+            ],
+            selected_index: None,
+        };
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "Choose an option\n- Yes\n- No";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_business_quick_reply_selected() {
+        use imessage_database::message_types::business::{QuickReply, QuickReplyOption};
+
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = QuickReply {
+            summary_text: Some("Replied to a question".to_string()),
+            options: vec![
+                QuickReplyOption {
+                    title: "Yes".to_string(),
+                },
+                QuickReplyOption {
+                    title: "No".to_string(),
+                },
+            ],
+            selected_index: Some(0),
+        };
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "Replied to a question\n- Yes ✓\n- No";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_txt_generic_app() {
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);

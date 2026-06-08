@@ -411,6 +411,44 @@ td {
     margin-right: 5px;
 }
 
+.quick-reply {
+    color: black;
+    padding: var(--message-padding);
+}
+
+.quick-reply-summary {
+    font-weight: 600;
+    margin-bottom: var(--message-padding);
+}
+
+.quick-reply-options {
+    list-style: none;
+    margin: 0;
+    padding-left: 0;
+}
+
+.quick-reply-option {
+    border: var(--border-width) solid var(--imessage-blue);
+    border-radius: 12px;
+    color: var(--imessage-blue);
+    margin-top: 8px;
+    padding: 10px var(--message-padding);
+    text-align: center;
+}
+
+.quick-reply-option:first-child {
+    margin-top: 0;
+}
+
+.quick-reply-option.selected {
+    background: var(--imessage-blue);
+    color: white;
+}
+
+.quick-reply-option.selected::after {
+    content: " ✓";
+}
+
 
 @media (prefers-color-scheme: dark) {
     :root {

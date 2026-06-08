@@ -64,6 +64,18 @@ pub(super) struct PollOptionVM<'a> {
 }
 
 #[derive(Template)]
+#[template(path = "balloons/business.txt")]
+pub(super) struct BusinessVM<'a> {
+    pub summary: OptionalText<'a>,
+    pub options: Vec<QuickReplyOptionVM<'a>>,
+}
+
+pub(super) struct QuickReplyOptionVM<'a> {
+    pub text: &'a str,
+    pub selected: bool,
+}
+
+#[derive(Template)]
 #[template(path = "balloons/generic_app.txt")]
 pub(super) struct GenericAppVM<'a> {
     /// `app_name` falling back to `bundle_id`.

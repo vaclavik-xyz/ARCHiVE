@@ -3966,6 +3966,60 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_html_business_quick_reply_prompt() {
+        use imessage_database::message_types::business::{QuickReply, QuickReplyOption};
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = QuickReply {
+            summary_text: Some("Choose an option".to_string()),
+            options: vec![
+                QuickReplyOption {
+                    title: "Yes".to_string(),
+                },
+                QuickReplyOption {
+                    title: "No".to_string(),
+                },
+            ],
+            selected_index: None,
+        };
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"quick-reply\"><div class=\"quick-reply-summary\">Choose an option</div><ul class=\"quick-reply-options\"><li class=\"quick-reply-option\">Yes</li><li class=\"quick-reply-option\">No</li></ul></div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_business_quick_reply_selected() {
+        use imessage_database::message_types::business::{QuickReply, QuickReplyOption};
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = QuickReply {
+            summary_text: Some("Replied to a question".to_string()),
+            options: vec![
+                QuickReplyOption {
+                    title: "Yes".to_string(),
+                },
+                QuickReplyOption {
+                    title: "No".to_string(),
+                },
+            ],
+            selected_index: Some(0),
+        };
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"quick-reply\"><div class=\"quick-reply-summary\">Replied to a question</div><ul class=\"quick-reply-options\"><li class=\"quick-reply-option selected\">Yes</li><li class=\"quick-reply-option\">No</li></ul></div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_html_generic_app() {
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);

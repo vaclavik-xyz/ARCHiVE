@@ -4,6 +4,7 @@ use imessage_database::{
     message_types::{
         app::AppMessage,
         app_store::AppStoreMessage,
+        business::QuickReply,
         collaboration::CollaborationMessage,
         digital_touch::{DigitalTouchMessage, ImageBackdrop, media::MediaKind},
         handwriting::HandwrittenMessage,
@@ -24,8 +25,9 @@ use crate::exporters::{
         HTML,
         safe::Html,
         view_model::{
-            AppCardVM, AppStoreVM, ApplePayVM, AttachmentVM, AttachmentVariant, CheckInVM,
-            CollaborationVM, FindMyVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, UrlVM,
+            AppCardVM, AppStoreVM, ApplePayVM, AttachmentVM, AttachmentVariant, BusinessVM,
+            CheckInVM, CollaborationVM, FindMyVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM,
+            QuickReplyOptionVM, UrlVM,
         },
     },
     shared::{
@@ -206,6 +208,22 @@ impl BalloonFormatter for HTML<'_> {
             .collect();
 
         render_template(&PollVM { options })
+    }
+
+    fn format_business(&self, balloon: &QuickReply) -> String {
+        let options = balloon
+            .options
+            .iter()
+            .enumerate()
+            .map(|(index, option)| QuickReplyOptionVM {
+                text: &option.title,
+                selected: balloon.selected_index == Some(index),
+            })
+            .collect();
+        render_template(&BusinessVM {
+            summary: balloon.summary_text.as_deref().into(),
+            options,
+        })
     }
 
     fn format_generic_app(

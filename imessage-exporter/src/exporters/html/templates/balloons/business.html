@@ -1,0 +1,5 @@
+<div class="quick-reply">{% if let Some(summary) = summary.get() %}<div class="quick-reply-summary">{{ summary }}</div>
+    {% endif %}<ul class="quick-reply-options">{% for option in options %}<li
+            class="quick-reply-option{% if option.selected %} selected{% endif %}">{{ option.text }}</li>{% endfor %}
+    </ul>
+</div>
