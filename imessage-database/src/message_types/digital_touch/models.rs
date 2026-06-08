@@ -207,7 +207,14 @@ impl Color {
     /// Render as an SVG/CSS `rgba(…)` color string.
     #[must_use]
     pub fn css(&self) -> String {
-        format!("rgba({}, {}, {}, {})", self.r, self.g, self.b, self.a)
+        // SVG/CSS `rgba()` expects alpha in `0..=1`, not the raw `0..=255` byte.
+        format!(
+            "rgba({}, {}, {}, {})",
+            self.r,
+            self.g,
+            self.b,
+            f32::from(self.a) / 255.0
+        )
     }
 }
 
