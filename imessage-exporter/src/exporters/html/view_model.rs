@@ -278,6 +278,7 @@ pub(super) struct MessageVM<'a> {
     /// True for `<div class="sent {service}">`, false for `<div class="received">`.
     pub is_from_me: bool,
     pub service: Service<'a>,
+    pub digital_touch: bool,
     pub date: String,
     pub read_after: String,
     pub reply_anchor: Option<ReplyAnchorKind>,

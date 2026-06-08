@@ -29,8 +29,7 @@ svg {
     height: auto;
 }
 
-.message .sent:has(.digital_touch),
-.message .received:has(.digital_touch) {
+.message .digital_touch_bubble {
     width: 30vw;
 }
 

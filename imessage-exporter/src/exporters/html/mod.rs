@@ -499,6 +499,7 @@ impl<'a> MessageFormatter<'a> for HTML<'a> {
             anchor_id: message.is_reply() && !is_reply,
             is_from_me: message.is_from_me(),
             service: message.service(),
+            digital_touch: message.is_digital_touch(),
             date,
             read_after,
             reply_anchor,
