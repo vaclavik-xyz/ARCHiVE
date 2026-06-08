@@ -1,11 +1,10 @@
 /*!
- Apple Business Chat "quick reply" messages.
+ Quick-reply business messages.
 
  A business extension can send an interactive prompt that offers the recipient a
  short list of options to tap (for example `"Yes"` / `"No"`). Tapping one sends a
- second message back that records which option was chosen. Both halves share the
- `com.apple.icloud.apps.messages.business.extension` balloon and carry their
- state as a JSON document in the archive's `data` field.
+ reply back that records which option was chosen. Both halves carry their state
+ as a JSON document in the archive's `data` field.
 */
 
 use plist::Value;
@@ -45,9 +44,8 @@ impl QuickReply {
     ///
     /// The interactive content is a JSON document stored in the archive's
     /// `data` field. Returns [`PlistParseError::WrongMessageType`] when the
-    /// payload is some other `business.extension` shape (a dynamic form or a
-    /// legacy hash) that carries no quick reply, so callers can fall back to
-    /// the generic app-card renderer.
+    /// payload is some other `business.extension` shape (an interactive form or
+    /// a legacy hash) that carries no quick reply.
     pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
         let data = payload
             .as_dictionary()
@@ -57,10 +55,9 @@ impl QuickReply {
 
         let text = std::str::from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
 
-        // Other business balloons (dynamic forms, legacy hashes) reuse this
-        // bundle ID without a quick reply. This guard keeps those (sometimes
-        // very large) payloads off the JSON path and routes them to the
-        // generic fallback.
+        // Other business balloons (forms, legacy hashes) reuse this bundle ID
+        // without a quick reply. This guard keeps those (sometimes very large)
+        // payloads off the JSON path.
         if !text.contains("\"quick-reply\"") {
             return Err(PlistParseError::WrongMessageType);
         }
@@ -100,7 +97,7 @@ mod tests {
 
     use crate::{
         error::plist::PlistParseError,
-        message_types::business::{QuickReply, QuickReplyOption},
+        message_types::business_chat::{QuickReply, QuickReplyOption},
         util::plist::parse_ns_keyed_archiver,
     };
 

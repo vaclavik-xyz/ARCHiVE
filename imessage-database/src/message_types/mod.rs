@@ -4,7 +4,7 @@
 
 pub mod app;
 pub mod app_store;
-pub mod business;
+pub mod business_chat;
 pub mod collaboration;
 pub mod digital_touch;
 pub mod edited;
