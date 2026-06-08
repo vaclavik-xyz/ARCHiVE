@@ -1,51 +1,41 @@
 /*!
- Quick-reply business messages.
+ Quick reply business payloads.
 
- A business extension can send an interactive prompt that offers the recipient a
- short list of options to tap (for example `"Yes"` / `"No"`). Tapping one sends a
- reply back that records which option was chosen. Both halves carry their state
- as a JSON document in the archive's `data` field.
+ Quick replies store JSON in the archive's `data` field. Prompt payloads list
+ the available options. Reply payloads add `selectedIndex`.
 */
 
 use plist::Value;
 
 use crate::{error::plist::PlistParseError, util::plist::get_string_from_dict};
 
-/// One tappable option offered by a [`QuickReply`] prompt.
+/// One option in a [`QuickReply`] prompt.
 #[derive(Debug, PartialEq, Eq)]
 pub struct QuickReplyOption {
-    /// The user-facing label for the option, for example `"Yes"`.
+    /// Display title, for example `"Yes"`.
     pub title: String,
 }
 
-/// An Apple Business Chat quick-reply message.
+/// Apple Business Chat quick reply.
 ///
-/// This represents both halves of the interaction:
-/// - the **prompt** a business sends (a [`summary_text`](Self::summary_text)
-///   and a list of [`options`](Self::options), with no selection), and
-/// - the **reply** the recipient sends back by tapping an option (the same
-///   options plus a [`selected_index`](Self::selected_index)).
+/// The same model represents prompts and replies. Prompts have
+/// [`options`](Self::options) and no [`selected_index`](Self::selected_index);
+/// replies carry the same option list plus a selected index.
 #[derive(Debug, PartialEq, Eq)]
 pub struct QuickReply {
-    /// Heading describing the prompt, for example `"Choose an option"`. Sent
-    /// replies carry no `summaryText`, so this falls back to the layout's
-    /// `ldtext` (for example `"Replied to a question"`).
+    /// Prompt summary or template-layout fallback text.
     pub summary_text: Option<String>,
-    /// The options offered, in display order.
+    /// Options in display order.
     pub options: Vec<QuickReplyOption>,
-    /// The index into [`options`](Self::options) that was selected. Present
-    /// only on the sent reply; `None` on the original prompt.
+    /// Index into [`options`](Self::options) selected by a reply.
     pub selected_index: Option<usize>,
 }
 
 impl QuickReply {
-    /// Parse a [`QuickReply`] from a balloon's resolved `NSKeyedArchiver`
-    /// payload.
+    /// Parse a [`QuickReply`] from a resolved business `NSKeyedArchiver` payload.
     ///
-    /// The interactive content is a JSON document stored in the archive's
-    /// `data` field. Returns [`PlistParseError::WrongMessageType`] when the
-    /// payload is some other `business.extension` shape (an interactive form or
-    /// a legacy hash) that carries no quick reply.
+    /// Returns [`PlistParseError::WrongMessageType`] when `data` does not carry
+    /// a quick reply schema.
     pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
         let data = payload
             .as_dictionary()
@@ -55,9 +45,8 @@ impl QuickReply {
 
         let text = std::str::from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
 
-        // Other business balloons (forms, legacy hashes) reuse this bundle ID
-        // without a quick reply. This guard keeps those (sometimes very large)
-        // payloads off the JSON path.
+        // Forms and legacy business payloads reuse this bundle ID. This parser
+        // should only parse quick reply JSON.
         if !text.contains("\"quick-reply\"") {
             return Err(PlistParseError::WrongMessageType);
         }
@@ -134,7 +123,8 @@ mod tests {
     fn test_parse_business_quick_reply_response() {
         let balloon = parse("BusinessQuickReplyResponse.plist").unwrap();
         let expected = QuickReply {
-            // The reply has no `summaryText`; the heading comes from `ldtext`.
+            // Replies in this fixture have no `summaryText`.
+            // `ldtext` is the fallback.
             summary_text: Some("Replied to a question".to_string()),
             options: vec![option("Yes"), option("No")],
             selected_index: Some(0),
@@ -144,9 +134,7 @@ mod tests {
 
     #[test]
     fn test_legacy_business_is_not_quick_reply() {
-        // The legacy query-string business format stores a hash in `data`, not a
-        // quick reply, so it must be rejected and routed to the generic-app
-        // fallback rather than rendered as an interactive message.
+        // The legacy fixture stores hash data, not quick reply JSON.
         assert!(matches!(
             parse("Business.plist"),
             Err(PlistParseError::WrongMessageType)

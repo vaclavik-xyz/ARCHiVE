@@ -1,49 +1,46 @@
 /*!
- Interactive form business messages.
+ Interactive form business payloads.
 
- A business extension can ask the recipient to fill out a multi-page form
- ([`FormRequest`]); submitting it sends back the answers ([`FormResponse`]). Both
- carry their state as a JSON document in the archive's `data` field, under a
- `dynamic` block.
+ Form requests and responses both store JSON in the archive's `data` field.
+ Requests expose their display text through the template layout; responses also
+ include submitted answers under `dynamic.selections`.
 */
 
 use plist::Value;
 
 use crate::{error::plist::PlistParseError, util::plist::get_string_from_dict};
 
-/// One answered question in a [`FormResponse`].
+/// One submitted answer group in a [`FormResponse`].
 #[derive(Debug, PartialEq, Eq)]
 pub struct FormAnswer {
-    /// The question that was asked.
+    /// Prompt shown for this answer group.
     pub question: String,
-    /// The answer(s) the user gave, in order. A single-selection question has
-    /// one; a multiple-selection question may have several.
+    /// Submitted values, in display order.
     pub answers: Vec<String>,
 }
 
-/// A request to fill out an Apple Business Chat interactive form.
+/// Apple Business Chat form request.
 ///
-/// The request also carries the entire blank form template, which we do not
-/// surface; only the title and subtitle are rendered.
+/// The request can carry a blank form definition. The exporters only need the
+/// template-layout title and subtitle.
 #[derive(Debug, PartialEq, Eq)]
 pub struct FormRequest {
-    /// The form's title, for example `"Report an Issue"`.
+    /// Template-layout title, for example `"Report an Issue"`.
     pub title: Option<String>,
-    /// The form's subtitle, for example `"Tap to get started"`.
+    /// Template-layout subtitle, for example `"Tap to get started"`.
     pub subtitle: Option<String>,
 }
 
-/// A submitted Apple Business Chat interactive form.
+/// Submitted Apple Business Chat form.
 #[derive(Debug, PartialEq, Eq)]
 pub struct FormResponse {
-    /// Heading describing the submission, for example
-    /// `"Here's my completed form"`.
+    /// Template-layout summary, for example `"Here's my completed form"`.
     pub summary: Option<String>,
-    /// The questions asked and the answers the user gave, in order.
+    /// Submitted answer groups, in payload order.
     pub answers: Vec<FormAnswer>,
 }
 
-/// Read the `data` field a business balloon stores its JSON payload in.
+/// Read the `data` field that stores the business JSON payload.
 fn form_data(payload: &Value) -> Result<&[u8], PlistParseError> {
     payload
         .as_dictionary()
@@ -53,22 +50,23 @@ fn form_data(payload: &Value) -> Result<&[u8], PlistParseError> {
 }
 
 impl FormRequest {
-    /// Parse a [`FormRequest`] from a balloon's resolved `NSKeyedArchiver`
-    /// payload.
+    /// Parse a [`FormRequest`] from a resolved business `NSKeyedArchiver` payload.
     ///
-    /// Returns [`PlistParseError::WrongMessageType`] when the payload carries no
-    /// `dynamic` form block (for example a legacy business message).
+    /// Returns [`PlistParseError::WrongMessageType`] when the `data` field does
+    /// not look like a form request.
     pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
         let data = form_data(payload)?;
         let text = std::str::from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
 
-        // A `dynamic` block is what makes a payload a form; legacy business
-        // messages have none.
+        // Form requests include a `dynamic` marker. Legacy business payloads
+        // store query-string/hash data instead.
         if !text.contains("\"dynamic\"") {
             return Err(PlistParseError::WrongMessageType);
         }
 
-        let user_info = payload.as_dictionary().and_then(|dict| dict.get("userInfo"));
+        let user_info = payload
+            .as_dictionary()
+            .and_then(|dict| dict.get("userInfo"));
         let title = user_info
             .and_then(|info| get_string_from_dict(info, "caption"))
             .or_else(|| get_string_from_dict(payload, "ldtext"))
@@ -82,12 +80,10 @@ impl FormRequest {
 }
 
 impl FormResponse {
-    /// Parse a [`FormResponse`] from a balloon's resolved `NSKeyedArchiver`
-    /// payload.
+    /// Parse a [`FormResponse`] from a resolved business `NSKeyedArchiver` payload.
     ///
-    /// Returns [`PlistParseError::WrongMessageType`] when the payload has no
-    /// submitted answers in `dynamic.selections` (for example a blank
-    /// [`FormRequest`]).
+    /// Returns [`PlistParseError::WrongMessageType`] when `dynamic.selections`
+    /// is missing or empty.
     pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
         let data = form_data(payload)?;
         let text = std::str::from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
@@ -186,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_form_response_requires_selections() {
-        // A blank request carries no answers, so it is not a response.
+        // A blank request has no submitted answers.
         assert!(matches!(
             FormResponse::from_map(&archive("BusinessFormRequest.plist")),
             Err(PlistParseError::WrongMessageType)
@@ -195,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_form_request_rejects_legacy() {
-        // Legacy business messages have no `dynamic` form block.
+        // The legacy fixture stores query-string/hash data, not form JSON.
         assert!(matches!(
             FormRequest::from_map(&archive("Business.plist")),
             Err(PlistParseError::WrongMessageType)

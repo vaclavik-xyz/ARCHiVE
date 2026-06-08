@@ -1,10 +1,10 @@
 /*!
- Apple Business Chat message family.
+ Apple Business Chat payload parsers.
 
- Business extensions send several distinct interactive shapes that all share the
- `com.apple.icloud.apps.messages.business.extension` balloon bundle ID. Each shape
- has its own type in this module, and [`BusinessMessage`] classifies a payload
- into one of them.
+ The Messages business extension uses
+ `com.apple.icloud.apps.messages.business.extension` for several interactive
+ schemas. [`BusinessMessage`] inspects the decoded payload and chooses the
+ parser that matches the schema.
 */
 
 mod business;

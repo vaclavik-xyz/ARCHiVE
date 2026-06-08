@@ -420,7 +420,6 @@ td {
     font-weight: 600;
 }
 
-/* Tappable option list, shared by quick replies and list pickers. */
 .business-options {
     list-style: none;
     margin: var(--message-padding) 0 0;
@@ -453,7 +452,6 @@ td {
     opacity: var(--opacity-high);
 }
 
-/* Submitted-form question/answer list. */
 .business-answers {
     margin-top: 8px;
 }
@@ -474,7 +472,6 @@ td {
     margin-top: 4px;
     opacity: var(--opacity-high);
 }
-
 
 @media (prefers-color-scheme: dark) {
     :root {

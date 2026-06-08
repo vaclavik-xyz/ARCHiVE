@@ -1,8 +1,9 @@
 /*!
- Classification for the Apple Business Chat message family.
+ Classification for Apple Business Chat payloads.
 
- Every business shape shares one balloon bundle ID, so they cannot be told apart
- by bundle ID; [`BusinessMessage::from_map`] inspects the payload instead.
+ The business extension uses one balloon bundle ID for several payload schemas.
+ The bundle ID gets us into this module; the decoded payload determines the
+ concrete renderer.
 */
 
 use plist::Value;
@@ -16,31 +17,31 @@ use crate::{
     },
 };
 
-/// One of the interactive shapes carried by the business balloon.
+/// Parsed business payload supported by the exporters.
 #[derive(Debug, PartialEq, Eq)]
 pub enum BusinessMessage {
-    /// A tappable list of options, and on a reply which one was chosen.
+    /// [`QuickReply`] prompt, optionally with the selected option on replies.
     QuickReply(QuickReply),
-    /// A request to fill out an interactive form.
+    /// [`FormRequest`] asking the user to fill out an interactive form.
     FormRequest(FormRequest),
-    /// A submitted interactive form, with the answers the user gave.
+    /// [`FormResponse`] with the answers the user gave.
     FormResponse(FormResponse),
-    /// A list of items to choose from, and on a reply which were chosen.
+    /// [`ListPicker`] prompt or reply, with selected items marked on replies.
     ListPicker(ListPicker),
 }
 
 impl BusinessMessage {
-    /// Classify a business balloon's resolved `NSKeyedArchiver` payload.
+    /// Classify a resolved business `NSKeyedArchiver` payload.
     ///
     /// Returns [`PlistParseError::WrongMessageType`] when the payload carries no
-    /// shape we render richly (for example a legacy query-string business
-    /// message), so callers can fall back to the generic app-card renderer.
+    /// supported business schema. Callers use that to preserve the generic app
+    /// card fallback for older query-string payloads.
     pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
         if let Ok(quick_reply) = QuickReply::from_map(payload) {
             return Ok(Self::QuickReply(quick_reply));
         }
-        // A submitted form carries answers in `dynamic.selections`; a blank
-        // request does not, so the response must be tried before the request.
+        // Form responses carry `dynamic.selections`. Requests also carry
+        // `dynamic`, so the more specific parser has to run first.
         if let Ok(response) = FormResponse::from_map(payload) {
             return Ok(Self::FormResponse(response));
         }
@@ -116,8 +117,7 @@ mod tests {
 
     #[test]
     fn legacy_business_falls_through() {
-        // Legacy query-string business messages have no rich shape and must
-        // route to the generic-app fallback.
+        // Legacy query-string payloads have no supported business schema.
         assert!(matches!(
             classify("Business.plist"),
             Err(PlistParseError::WrongMessageType)

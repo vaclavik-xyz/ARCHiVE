@@ -100,9 +100,9 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
                 CustomBalloon::FindMy => formatter.format_find_my(&bubble),
                 CustomBalloon::Business => match BusinessMessage::from_map(&parsed) {
                     Ok(business) => formatter.format_business(&business),
-                    // Business balloons with no rich shape (e.g. legacy
-                    // query-string messages) reuse this bundle ID; render those
-                    // as a generic app card just as before this variant existed.
+                    // Older business payloads use the same bundle ID but do
+                    // not carry a supported interactive schema. Preserve the
+                    // generic app-card fallback for those rows.
                     Err(_) => {
                         let bundle_id =
                             parse_balloon_bundle_id(message.balloon_bundle_id.as_deref())

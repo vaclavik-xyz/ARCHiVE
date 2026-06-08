@@ -100,7 +100,7 @@ pub enum CustomBalloon<'a> {
     FindMy,
     /// Poll message.
     Polls,
-    /// Apple [Business](crate::message_types::business_chat) Chat message.
+    /// Apple [Business Chat](crate::message_types::business_chat) message.
     Business,
 }
 

@@ -1,44 +1,40 @@
 /*!
- List-picker business messages.
+ List picker business payloads.
 
- A business extension can send a list of items (grouped into sections) for the
- recipient to choose from; the reply echoes the list with the chosen item(s)
- floated into a leading "selected" section. Both halves carry their state as a
- JSON document in the archive's `data` field, under a `listPicker` key.
+ List pickers store JSON in the archive's `data` field under `listPicker`.
+ Prompt payloads list the available items. Reply payloads include
+ `replyMessage` and move the selected item(s) into the first section.
 */
 
 use plist::Value;
 
 use crate::{error::plist::PlistParseError, util::plist::get_string_from_dict};
 
-/// One item offered by a [`ListPicker`].
+/// One item in a [`ListPicker`].
 #[derive(Debug, PartialEq, Eq)]
 pub struct ListPickerItem {
-    /// The item's label, for example `"iPhone"`.
+    /// Display title, for example `"iPhone"`.
     pub title: String,
-    /// An optional secondary label shown beneath the title.
+    /// Optional secondary label.
     pub subtitle: Option<String>,
-    /// Whether the recipient selected this item. Always `false` on the prompt;
-    /// set on the reply for the chosen item(s).
+    /// Whether this item appears in the selected section of a reply.
     pub selected: bool,
 }
 
-/// An Apple Business Chat list-picker message.
+/// Apple Business Chat list picker.
 ///
-/// This represents both halves of the interaction: the **prompt** offering a
-/// list of items (none selected), and the **reply** echoing the list with the
-/// chosen item(s) marked.
+/// The same model represents prompts and replies. Prompts have no selected
+/// [`items`](Self::items); replies mark items from the leading selected section.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ListPicker {
-    /// Heading describing the list, for example `"Select a Product"`.
+    /// Template-layout or received-message heading.
     pub summary: Option<String>,
-    /// The items offered, flattened across sections, in display order.
+    /// Items flattened across sections in display order.
     pub items: Vec<ListPickerItem>,
 }
 
 impl ListPicker {
-    /// Parse a [`ListPicker`] from a balloon's resolved `NSKeyedArchiver`
-    /// payload.
+    /// Parse a [`ListPicker`] from a resolved business `NSKeyedArchiver` payload.
     ///
     /// Returns [`PlistParseError::WrongMessageType`] when the payload carries no
     /// `listPicker` block.
@@ -59,10 +55,9 @@ impl ListPicker {
             .as_array()
             .ok_or(PlistParseError::WrongMessageType)?;
 
-        // The reply carries `replyMessage` / `receivedMessage` and floats the
-        // chosen item(s) into a leading section; the prompt has neither. We mark
-        // the selection by that leading position rather than the section's
-        // (localized) title.
+        // Reply payloads include `replyMessage` and put the selected item(s) in
+        // the first section. The section title is localized, so position is the
+        // robust signal.
         let is_reply = !parsed["replyMessage"].is_null();
 
         let mut items = Vec::new();
@@ -82,8 +77,8 @@ impl ListPicker {
             }
         }
 
-        // The reply's heading lives in `receivedMessage.title` (its `ldtext` is
-        // the chosen item); the prompt's heading is its `ldtext`.
+        // Replies use `ldtext` for the selected item. The prompt heading is
+        // still useful, so use `receivedMessage.title` when it exists.
         let summary = parsed["receivedMessage"]["title"]
             .as_str()
             .map(str::to_string)
@@ -145,7 +140,7 @@ mod tests {
             balloon,
             ListPicker {
                 summary: Some("Select a Product".to_string()),
-                // The first ("You Selected") section is the chosen item.
+                // In the reply fixture, the first section contains the choice.
                 items: vec![
                     item("iPhone", None, true),
                     item("AirPods", Some("Wireless"), false),
