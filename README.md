@@ -47,6 +47,7 @@ This crate supports every iMessage feature as of macOS Tahoe 26.5.1 (25F80) and 
 - Audio messages
 - App Integrations
 - Edited messages
+- Business messages
 - Handwritten messages
 
 See more detail about supported features [here](docs/features.md).
