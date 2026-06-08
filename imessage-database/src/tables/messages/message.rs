@@ -1247,6 +1247,7 @@ impl Message {
             "com.apple.mobileslideshow.PhotosMessagesApp" => CustomBalloon::Slideshow,
             "com.apple.SafetyMonitorApp.SafetyMonitorMessages" => CustomBalloon::CheckIn,
             "com.apple.findmy.FindMyMessagesApp" => CustomBalloon::FindMy,
+            "com.apple.icloud.apps.messages.business.extension" => CustomBalloon::Business,
             "com.apple.messages.Polls" => {
                 // Special case: Check if this is the original poll or an update
                 if self

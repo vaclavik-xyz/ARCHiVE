@@ -100,6 +100,8 @@ pub enum CustomBalloon<'a> {
     FindMy,
     /// Poll message.
     Polls,
+    /// Apple Business Chat [quick-reply](crate::message_types::business) message.
+    Business,
 }
 
 /// Specialized payload carried by a URL balloon.
