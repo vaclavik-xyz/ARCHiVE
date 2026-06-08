@@ -4044,7 +4044,7 @@ mod balloon_format_tests {
 
         assert!(actual.starts_with("<div class=\"digital_touch\">"));
         assert!(actual.contains("<polyline"));
-        assert!(actual.contains("rgba(255, 0, 252, 255)"));
+        assert!(actual.contains("rgba(255, 0, 252, 1)"));
     }
 
     #[test]
