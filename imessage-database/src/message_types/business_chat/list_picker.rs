@@ -6,15 +6,10 @@
  `replyMessage` and move the selected item(s) into the first section.
 */
 
-use std::str::from_utf8;
-
-use jzon::parse;
+use jzon::JsonValue;
 use plist::Value;
 
-use crate::{
-    error::plist::PlistParseError,
-    util::plist::{get_data_from_dict, get_string_from_dict},
-};
+use crate::{message_types::business_chat::LIST_PICKER_KEY, util::plist::get_string_from_dict};
 
 /// One item in a [`ListPicker`].
 #[derive(Debug, PartialEq, Eq)]
@@ -40,53 +35,39 @@ pub struct ListPicker {
 }
 
 impl ListPicker {
-    /// Parse a [`ListPicker`] from a resolved business `NSKeyedArchiver` payload.
+    /// Extract a [`ListPicker`] from a decoded business JSON payload.
     ///
-    /// Returns [`PlistParseError::WrongMessageType`] when the payload carries no
-    /// `listPicker` block.
-    pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
-        let data = get_data_from_dict(payload, "data").ok_or(PlistParseError::WrongMessageType)?;
-
-        let text = from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
-        if !text.contains("\"listPicker\"") {
-            return Err(PlistParseError::WrongMessageType);
-        }
-
-        let parsed = parse(text).map_err(|_| PlistParseError::WrongMessageType)?;
-        let sections = parsed["listPicker"]["sections"]
-            .as_array()
-            .ok_or(PlistParseError::WrongMessageType)?;
-
+    /// The caller has already matched the `listPicker` schema; `payload`
+    /// supplies the plist-level `ldtext` fallback.
+    pub(super) fn from_json(json: &JsonValue, payload: &Value) -> Self {
         // Reply payloads include `replyMessage` and put the selected item(s) in
         // the first section. The section title is localized, so position is the
         // robust signal.
-        let is_reply = !parsed["replyMessage"].is_null();
+        let is_reply = !json["replyMessage"].is_null();
 
         let mut items = Vec::new();
-        for (section_index, section) in sections.iter().enumerate() {
+        for (section_index, section) in json[LIST_PICKER_KEY]["sections"].members().enumerate() {
             let selected = is_reply && section_index == 0;
-            if let Some(section_items) = section["items"].as_array() {
-                for item in section_items {
-                    items.push(ListPickerItem {
-                        title: item["title"].as_str().unwrap_or_default().to_string(),
-                        subtitle: item["subtitle"]
-                            .as_str()
-                            .filter(|subtitle| !subtitle.is_empty())
-                            .map(str::to_string),
-                        selected,
-                    });
-                }
+            for item in section["items"].members() {
+                items.push(ListPickerItem {
+                    title: item["title"].as_str().unwrap_or_default().to_string(),
+                    subtitle: item["subtitle"]
+                        .as_str()
+                        .filter(|subtitle| !subtitle.is_empty())
+                        .map(str::to_string),
+                    selected,
+                });
             }
         }
 
         // Replies use `ldtext` for the selected item. The prompt heading is
         // still useful, so use `receivedMessage.title` when it exists.
-        let summary = parsed["receivedMessage"]["title"]
+        let summary = json["receivedMessage"]["title"]
             .as_str()
             .map(str::to_string)
             .or_else(|| get_string_from_dict(payload, "ldtext").map(str::to_string));
 
-        Ok(ListPicker { summary, items })
+        ListPicker { summary, items }
     }
 }
 
@@ -97,7 +78,10 @@ mod tests {
     use plist::Value;
 
     use crate::{
-        message_types::business_chat::{ListPicker, ListPickerItem},
+        message_types::{
+            business_chat::{BusinessMessage, ListPicker, ListPickerItem},
+            variants::BalloonProvider,
+        },
         util::plist::parse_ns_keyed_archiver,
     };
 
@@ -108,7 +92,10 @@ mod tests {
             .join("test_data/app_message")
             .join(filename);
         let plist = Value::from_reader(File::open(path).unwrap()).unwrap();
-        ListPicker::from_map(&parse_ns_keyed_archiver(&plist).unwrap()).unwrap()
+        match BusinessMessage::from_map(&parse_ns_keyed_archiver(&plist).unwrap()) {
+            Ok(BusinessMessage::ListPicker(list_picker)) => list_picker,
+            other => panic!("expected list picker, got {other:?}"),
+        }
     }
 
     fn item(title: &str, subtitle: Option<&str>, selected: bool) -> ListPickerItem {

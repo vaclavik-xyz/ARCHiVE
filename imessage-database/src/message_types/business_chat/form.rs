@@ -6,11 +6,12 @@
  include submitted answers under `dynamic.selections`.
 */
 
+use jzon::JsonValue;
 use plist::Value;
 
 use crate::{
-    error::plist::PlistParseError,
-    util::plist::{get_data_from_dict, get_string_from_dict},
+    message_types::business_chat::{DYNAMIC_KEY, SELECTIONS_KEY},
+    util::plist::get_string_from_dict,
 };
 
 /// One submitted answer group in a [`FormResponse`].
@@ -43,26 +44,12 @@ pub struct FormResponse {
     pub answers: Vec<FormAnswer>,
 }
 
-/// Read the `data` field that stores the business JSON payload.
-fn form_data(payload: &Value) -> Result<&[u8], PlistParseError> {
-    get_data_from_dict(payload, "data").ok_or(PlistParseError::WrongMessageType)
-}
-
 impl FormRequest {
-    /// Parse a [`FormRequest`] from a resolved business `NSKeyedArchiver` payload.
+    /// Extract a [`FormRequest`] from a decoded business JSON payload.
     ///
-    /// Returns [`PlistParseError::WrongMessageType`] when the `data` field does
-    /// not look like a form request.
-    pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
-        let data = form_data(payload)?;
-        let text = std::str::from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
-
-        // Form requests include a `dynamic` marker. Legacy business payloads
-        // store query-string/hash data instead.
-        if !text.contains("\"dynamic\"") {
-            return Err(PlistParseError::WrongMessageType);
-        }
-
+    /// The request body carries no display text; the title and subtitle come
+    /// from the plist template layout, so `json` is unused.
+    pub(super) fn from_json(_json: &JsonValue, payload: &Value) -> Self {
         let user_info = payload
             .as_dictionary()
             .and_then(|dict| dict.get("userInfo"));
@@ -74,48 +61,30 @@ impl FormRequest {
             .and_then(|info| get_string_from_dict(info, "subcaption"))
             .map(str::to_string);
 
-        Ok(FormRequest { title, subtitle })
+        FormRequest { title, subtitle }
     }
 }
 
 impl FormResponse {
-    /// Parse a [`FormResponse`] from a resolved business `NSKeyedArchiver` payload.
+    /// Extract a [`FormResponse`] from a decoded business JSON payload.
     ///
-    /// Returns [`PlistParseError::WrongMessageType`] when `dynamic.selections`
-    /// is missing or empty.
-    pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
-        let data = form_data(payload)?;
-        let text = std::str::from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
-
-        if !text.contains("\"selections\"") {
-            return Err(PlistParseError::WrongMessageType);
-        }
-
-        let parsed = jzon::parse(text).map_err(|_| PlistParseError::WrongMessageType)?;
-        let selections = parsed["dynamic"]["selections"]
-            .as_array()
-            .filter(|selections| !selections.is_empty())
-            .ok_or(PlistParseError::WrongMessageType)?;
-
-        let answers = selections
-            .iter()
+    /// The caller has already confirmed `dynamic.selections` is non-empty;
+    /// `payload` supplies the plist-level `ldtext` summary.
+    pub(super) fn from_json(json: &JsonValue, payload: &Value) -> Self {
+        let answers = json[DYNAMIC_KEY][SELECTIONS_KEY]
+            .members()
             .map(|page| FormAnswer {
                 question: page["subtitle"].as_str().unwrap_or_default().to_string(),
                 answers: page["items"]
-                    .as_array()
-                    .map(|items| {
-                        items
-                            .iter()
-                            .map(|item| item["title"].as_str().unwrap_or_default().to_string())
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                    .members()
+                    .map(|item| item["title"].as_str().unwrap_or_default().to_string())
+                    .collect(),
             })
             .collect();
 
         let summary = get_string_from_dict(payload, "ldtext").map(str::to_string);
 
-        Ok(FormResponse { summary, answers })
+        FormResponse { summary, answers }
     }
 }
 
@@ -126,8 +95,10 @@ mod tests {
     use plist::Value;
 
     use crate::{
-        error::plist::PlistParseError,
-        message_types::business_chat::{FormAnswer, FormRequest, FormResponse},
+        message_types::{
+            business_chat::{BusinessMessage, FormAnswer, FormRequest, FormResponse},
+            variants::BalloonProvider,
+        },
         util::plist::parse_ns_keyed_archiver,
     };
 
@@ -141,6 +112,20 @@ mod tests {
         parse_ns_keyed_archiver(&plist).unwrap()
     }
 
+    fn form_request(filename: &str) -> FormRequest {
+        match BusinessMessage::from_map(&archive(filename)) {
+            Ok(BusinessMessage::FormRequest(request)) => request,
+            other => panic!("expected form request, got {other:?}"),
+        }
+    }
+
+    fn form_response(filename: &str) -> FormResponse {
+        match BusinessMessage::from_map(&archive(filename)) {
+            Ok(BusinessMessage::FormResponse(response)) => response,
+            other => panic!("expected form response, got {other:?}"),
+        }
+    }
+
     fn answer(question: &str, value: &str) -> FormAnswer {
         FormAnswer {
             question: question.to_string(),
@@ -150,9 +135,8 @@ mod tests {
 
     #[test]
     fn test_parse_form_request() {
-        let request = FormRequest::from_map(&archive("BusinessFormRequest.plist")).unwrap();
         assert_eq!(
-            request,
+            form_request("BusinessFormRequest.plist"),
             FormRequest {
                 title: Some("Report an Issue".to_string()),
                 subtitle: Some("Tap to get started".to_string()),
@@ -162,9 +146,8 @@ mod tests {
 
     #[test]
     fn test_parse_form_response() {
-        let response = FormResponse::from_map(&archive("BusinessFormResponse.plist")).unwrap();
         assert_eq!(
-            response,
+            form_response("BusinessFormResponse.plist"),
             FormResponse {
                 summary: Some("Here's my completed form".to_string()),
                 answers: vec![
@@ -177,23 +160,5 @@ mod tests {
                 ],
             }
         );
-    }
-
-    #[test]
-    fn test_form_response_requires_selections() {
-        // A blank request has no submitted answers.
-        assert!(matches!(
-            FormResponse::from_map(&archive("BusinessFormRequest.plist")),
-            Err(PlistParseError::WrongMessageType)
-        ));
-    }
-
-    #[test]
-    fn test_form_request_rejects_legacy() {
-        // The legacy fixture stores query-string/hash data, not form JSON.
-        assert!(matches!(
-            FormRequest::from_map(&archive("Business.plist")),
-            Err(PlistParseError::WrongMessageType)
-        ));
     }
 }

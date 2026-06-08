@@ -6,15 +6,23 @@
  concrete renderer.
 */
 
+use std::str::from_utf8;
+
+use jzon::parse;
 use plist::Value;
 
 use crate::{
     error::plist::PlistParseError,
-    message_types::business_chat::{
-        form::{FormRequest, FormResponse},
-        list_picker::ListPicker,
-        quick_reply::QuickReply,
+    message_types::{
+        business_chat::{
+            DYNAMIC_KEY, LIST_PICKER_KEY, QUICK_REPLY_KEY, SELECTIONS_KEY,
+            form::{FormRequest, FormResponse},
+            list_picker::ListPicker,
+            quick_reply::QuickReply,
+        },
+        variants::BalloonProvider,
     },
+    util::plist::get_data_from_dict,
 };
 
 /// Parsed business payload supported by the exporters.
@@ -30,28 +38,35 @@ pub enum BusinessMessage {
     ListPicker(ListPicker),
 }
 
-impl BusinessMessage {
+impl<'a> BalloonProvider<'a> for BusinessMessage {
     /// Classify a resolved business `NSKeyedArchiver` payload.
     ///
-    /// Returns [`PlistParseError::WrongMessageType`] when the payload carries no
-    /// supported business schema. Callers use that to preserve the generic app
-    /// card fallback for older query-string payloads.
-    pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
-        if let Ok(quick_reply) = QuickReply::from_map(payload) {
-            return Ok(Self::QuickReply(quick_reply));
+    /// Decodes the embedded JSON once and dispatches on its structure. Returns
+    /// [`PlistParseError::WrongMessageType`] when the payload carries no
+    /// supported business schema, but the source data may still be rendered generically.
+    fn from_map(payload: &'a Value) -> Result<Self, PlistParseError> {
+        let data = get_data_from_dict(payload, "data").ok_or(PlistParseError::WrongMessageType)?;
+        let text = from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
+        let json = parse(text).map_err(|_| PlistParseError::WrongMessageType)?;
+
+        if json[QUICK_REPLY_KEY]["items"].is_array() {
+            Ok(Self::QuickReply(QuickReply::from_json(&json, payload)))
+        } else if json[LIST_PICKER_KEY]["sections"].is_array() {
+            Ok(Self::ListPicker(ListPicker::from_json(&json, payload)))
+        } else if json[DYNAMIC_KEY].is_object() {
+            // Responses carry submitted answers under `dynamic.selections`;
+            // requests leave it null.
+            if json[DYNAMIC_KEY][SELECTIONS_KEY]
+                .as_array()
+                .is_some_and(|selections| !selections.is_empty())
+            {
+                Ok(Self::FormResponse(FormResponse::from_json(&json, payload)))
+            } else {
+                Ok(Self::FormRequest(FormRequest::from_json(&json, payload)))
+            }
+        } else {
+            Err(PlistParseError::WrongMessageType)
         }
-        // Form responses carry `dynamic.selections`. Requests also carry
-        // `dynamic`, so the more specific parser has to run first.
-        if let Ok(response) = FormResponse::from_map(payload) {
-            return Ok(Self::FormResponse(response));
-        }
-        if let Ok(request) = FormRequest::from_map(payload) {
-            return Ok(Self::FormRequest(request));
-        }
-        if let Ok(list_picker) = ListPicker::from_map(payload) {
-            return Ok(Self::ListPicker(list_picker));
-        }
-        Err(PlistParseError::WrongMessageType)
     }
 }
 
@@ -62,7 +77,8 @@ mod tests {
     use plist::Value;
 
     use crate::{
-        error::plist::PlistParseError, message_types::business_chat::BusinessMessage,
+        error::plist::PlistParseError,
+        message_types::{business_chat::BusinessMessage, variants::BalloonProvider},
         util::plist::parse_ns_keyed_archiver,
     };
 
@@ -73,6 +89,14 @@ mod tests {
             .join(filename);
         let plist = Value::from_reader(File::open(path).unwrap()).unwrap();
         BusinessMessage::from_map(&parse_ns_keyed_archiver(&plist).unwrap())
+    }
+
+    /// Build a resolved business payload wrapping `json` in the `data` field,
+    /// matching the shape [`parse_ns_keyed_archiver`] produces.
+    fn business_payload(json: &str) -> Value {
+        let mut dict = plist::Dictionary::new();
+        dict.insert("data".to_string(), Value::Data(json.as_bytes().to_vec()));
+        Value::Dictionary(dict)
     }
 
     #[test]
@@ -121,6 +145,28 @@ mod tests {
         assert!(matches!(
             classify("Business.plist"),
             Err(PlistParseError::WrongMessageType)
+        ));
+    }
+
+    #[test]
+    fn empty_form_selections_classify_as_request() {
+        // `dynamic` with an empty `selections` array is a blank request, not a
+        // response carrying submitted answers.
+        assert!(matches!(
+            BusinessMessage::from_map(&business_payload(r#"{"dynamic": {"selections": []}}"#)),
+            Ok(BusinessMessage::FormRequest(_))
+        ));
+    }
+
+    #[test]
+    fn value_text_does_not_spoof_classification() {
+        // A quick reply whose option title contains the other schemas' marker
+        // words still classifies structurally as a quick reply.
+        assert!(matches!(
+            BusinessMessage::from_map(&business_payload(
+                r#"{"quick-reply": {"items": [{"title": "listPicker dynamic selections"}]}}"#
+            )),
+            Ok(BusinessMessage::QuickReply(_))
         ));
     }
 }

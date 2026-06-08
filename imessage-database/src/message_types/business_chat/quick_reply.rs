@@ -5,15 +5,10 @@
  the available options. Reply payloads add `selectedIndex`.
 */
 
-use std::str::from_utf8;
-
-use jzon::parse;
+use jzon::JsonValue;
 use plist::Value;
 
-use crate::{
-    error::plist::PlistParseError,
-    util::plist::{get_data_from_dict, get_string_from_dict},
-};
+use crate::{message_types::business_chat::QUICK_REPLY_KEY, util::plist::get_string_from_dict};
 
 /// One option in a [`QuickReply`] prompt.
 #[derive(Debug, PartialEq, Eq)]
@@ -38,45 +33,30 @@ pub struct QuickReply {
 }
 
 impl QuickReply {
-    /// Parse a [`QuickReply`] from a resolved business `NSKeyedArchiver` payload.
+    /// Extract a [`QuickReply`] from a decoded business JSON payload.
     ///
-    /// Returns [`PlistParseError::WrongMessageType`] when `data` does not carry
-    /// a quick reply schema.
-    pub fn from_map(payload: &Value) -> Result<Self, PlistParseError> {
-        let data = get_data_from_dict(payload, "data").ok_or(PlistParseError::WrongMessageType)?;
-
-        let text = from_utf8(data).map_err(|_| PlistParseError::WrongMessageType)?;
-
-        // Forms and legacy business payloads reuse this bundle ID. This parser
-        // should only parse quick reply JSON.
-        if !text.contains("\"quick-reply\"") {
-            return Err(PlistParseError::WrongMessageType);
-        }
-
-        let parsed = parse(text).map_err(|_| PlistParseError::WrongMessageType)?;
-        let quick_reply = &parsed["quick-reply"];
+    /// The caller has already matched the `quick-reply` schema; `payload`
+    /// supplies the plist-level `ldtext` fallback.
+    pub(super) fn from_json(json: &JsonValue, payload: &Value) -> Self {
+        let quick_reply = &json[QUICK_REPLY_KEY];
 
         let options = quick_reply["items"]
-            .as_array()
-            .ok_or(PlistParseError::WrongMessageType)?
-            .iter()
+            .members()
             .map(|item| QuickReplyOption {
                 title: item["title"].as_str().unwrap_or_default().to_string(),
             })
             .collect();
-
-        let selected_index = quick_reply["selectedIndex"].as_usize();
 
         let summary_text = quick_reply["summaryText"]
             .as_str()
             .map(str::to_string)
             .or_else(|| get_string_from_dict(payload, "ldtext").map(str::to_string));
 
-        Ok(QuickReply {
+        QuickReply {
             summary_text,
             options,
-            selected_index,
-        })
+            selected_index: quick_reply["selectedIndex"].as_usize(),
+        }
     }
 }
 
@@ -87,21 +67,24 @@ mod tests {
     use plist::Value;
 
     use crate::{
-        error::plist::PlistParseError,
-        message_types::business_chat::{QuickReply, QuickReplyOption},
+        message_types::{
+            business_chat::{BusinessMessage, QuickReply, QuickReplyOption},
+            variants::BalloonProvider,
+        },
         util::plist::parse_ns_keyed_archiver,
     };
 
-    fn parse(filename: &str) -> Result<QuickReply, PlistParseError> {
+    fn parse(filename: &str) -> QuickReply {
         let plist_path = current_dir()
             .unwrap()
             .as_path()
             .join("test_data/app_message")
             .join(filename);
-        let plist_data = File::open(plist_path).unwrap();
-        let plist = Value::from_reader(plist_data).unwrap();
-        let parsed = parse_ns_keyed_archiver(&plist).unwrap();
-        QuickReply::from_map(&parsed)
+        let plist = Value::from_reader(File::open(plist_path).unwrap()).unwrap();
+        match BusinessMessage::from_map(&parse_ns_keyed_archiver(&plist).unwrap()) {
+            Ok(BusinessMessage::QuickReply(quick_reply)) => quick_reply,
+            other => panic!("expected quick reply, got {other:?}"),
+        }
     }
 
     fn option(title: &str) -> QuickReplyOption {
@@ -112,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_parse_business_quick_reply_prompt() {
-        let balloon = parse("BusinessQuickReply.plist").unwrap();
+        let balloon = parse("BusinessQuickReply.plist");
         let expected = QuickReply {
             summary_text: Some("Choose an option".to_string()),
             options: vec![option("Yes"), option("No")],
@@ -123,23 +106,13 @@ mod tests {
 
     #[test]
     fn test_parse_business_quick_reply_response() {
-        let balloon = parse("BusinessQuickReplyResponse.plist").unwrap();
+        let balloon = parse("BusinessQuickReplyResponse.plist");
         let expected = QuickReply {
-            // Replies in this fixture have no `summaryText`.
-            // `ldtext` is the fallback.
+            // Replies in this fixture have no `summaryText`; `ldtext` is the fallback.
             summary_text: Some("Replied to a question".to_string()),
             options: vec![option("Yes"), option("No")],
             selected_index: Some(0),
         };
         assert_eq!(balloon, expected);
-    }
-
-    #[test]
-    fn test_legacy_business_is_not_quick_reply() {
-        // The legacy fixture stores hash data, not quick reply JSON.
-        assert!(matches!(
-            parse("Business.plist"),
-            Err(PlistParseError::WrongMessageType)
-        ));
     }
 }
