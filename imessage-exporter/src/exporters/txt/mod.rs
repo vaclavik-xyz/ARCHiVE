@@ -2680,6 +2680,191 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_txt_business_quick_reply_prompt() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, QuickReply, QuickReplyOption,
+        };
+
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = BusinessMessage::QuickReply(QuickReply {
+            summary: Some("Choose an option".to_string()),
+            options: vec![
+                QuickReplyOption {
+                    title: "Yes".to_string(),
+                },
+                QuickReplyOption {
+                    title: "No".to_string(),
+                },
+            ],
+            selected_index: None,
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "Choose an option\n- Yes\n- No";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_business_quick_reply_selected() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, QuickReply, QuickReplyOption,
+        };
+
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = BusinessMessage::QuickReply(QuickReply {
+            summary: Some("Replied to a question".to_string()),
+            options: vec![
+                QuickReplyOption {
+                    title: "Yes".to_string(),
+                },
+                QuickReplyOption {
+                    title: "No".to_string(),
+                },
+            ],
+            selected_index: Some(0),
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "Replied to a question\n- Yes ✓\n- No";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_business_form_request() {
+        use imessage_database::message_types::business_chat::{BusinessMessage, FormRequest};
+
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = BusinessMessage::FormRequest(FormRequest {
+            title: Some("Report an Issue".to_string()),
+            subtitle: Some("Tap to get started".to_string()),
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "Report an Issue\nTap to get started";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_business_form_response() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, FormAnswer, FormResponse,
+        };
+
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = BusinessMessage::FormResponse(FormResponse {
+            summary: Some("Here's my completed form".to_string()),
+            answers: vec![
+                FormAnswer {
+                    question: "Which option best describes your request?".to_string(),
+                    answers: vec!["The first example option".to_string()],
+                },
+                FormAnswer {
+                    question: "When did this happen?".to_string(),
+                    answers: vec!["01/01/2024".to_string()],
+                },
+                FormAnswer {
+                    question: "Anything else to add?".to_string(),
+                    answers: vec!["Example free-text response.".to_string()],
+                },
+            ],
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "Here's my completed form\n- Which option best describes your request? → The first example option\n- When did this happen? → 01/01/2024\n- Anything else to add? → Example free-text response.";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_business_list_picker_prompt() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, ListPicker, ListPickerItem,
+        };
+
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = BusinessMessage::ListPicker(ListPicker {
+            summary: Some("Select a Product".to_string()),
+            items: vec![
+                ListPickerItem {
+                    title: "iPhone".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "AirPods".to_string(),
+                    subtitle: Some("Wireless".to_string()),
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "Apple Watch".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+            ],
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "Select a Product\n- iPhone\n- AirPods (Wireless)\n- Apple Watch";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_txt_business_list_picker_reply() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, ListPicker, ListPickerItem,
+        };
+
+        let options = Options::fake_options(Txt);
+        let config = Config::fake_app(options);
+        let exporter = TXT::new(&config).unwrap();
+
+        let balloon = BusinessMessage::ListPicker(ListPicker {
+            summary: Some("Select a Product".to_string()),
+            items: vec![
+                ListPickerItem {
+                    title: "iPhone".to_string(),
+                    subtitle: None,
+                    selected: true,
+                },
+                ListPickerItem {
+                    title: "AirPods".to_string(),
+                    subtitle: Some("Wireless".to_string()),
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "Apple Watch".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+            ],
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "Select a Product\n- iPhone ✓\n- AirPods (Wireless)\n- Apple Watch";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_txt_generic_app() {
         let options = Options::fake_options(Txt);
         let config = Config::fake_app(options);

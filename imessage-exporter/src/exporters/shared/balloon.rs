@@ -2,6 +2,7 @@ use imessage_database::{
     error::plist::PlistParseError,
     message_types::{
         app::{AppMessage, CheckInKind},
+        business_chat::BusinessMessage,
         digital_touch::DigitalTouchMessage,
         handwriting::HandwrittenMessage,
         url::URLMessage,
@@ -12,7 +13,7 @@ use imessage_database::{
         messages::Message,
         table::{FITNESS_RECEIVER, YOU},
     },
-    util::{dates::format, plist::parse_ns_keyed_archiver},
+    util::{bundle_id::parse_balloon_bundle_id, dates::format, plist::parse_ns_keyed_archiver},
 };
 
 use crate::{
@@ -97,6 +98,18 @@ pub fn dispatch_app_balloon<F: BalloonFormatter>(
                 CustomBalloon::Slideshow => formatter.format_slideshow(&bubble),
                 CustomBalloon::CheckIn => formatter.format_check_in(&bubble),
                 CustomBalloon::FindMy => formatter.format_find_my(&bubble),
+                CustomBalloon::Business => match BusinessMessage::from_map(&parsed) {
+                    Ok(business) => formatter.format_business(&business),
+                    // Older business payloads use the same bundle ID but do
+                    // not carry a supported interactive schema. Preserve the
+                    // generic app-card fallback for those rows.
+                    Err(_) => {
+                        let bundle_id =
+                            parse_balloon_bundle_id(message.balloon_bundle_id.as_deref())
+                                .unwrap_or_default();
+                        formatter.format_generic_app(&bubble, bundle_id, attachments, message)
+                    }
+                },
                 CustomBalloon::Polls
                 | CustomBalloon::Handwriting
                 | CustomBalloon::DigitalTouch

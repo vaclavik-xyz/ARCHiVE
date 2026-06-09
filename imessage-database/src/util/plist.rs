@@ -334,6 +334,12 @@ pub fn get_bool_from_dict<'a>(payload: &'a Value, key: &'a str) -> Option<bool> 
     payload.as_dictionary()?.get(key)?.as_boolean()
 }
 
+/// Extract a byte slice from `{key: Data(...)}`.
+#[must_use]
+pub fn get_data_from_dict<'a>(payload: &'a Value, key: &'a str) -> Option<&'a [u8]> {
+    payload.as_dictionary()?.get(key)?.as_data()
+}
+
 /// Extract a non-empty string from `{key: {key: String("value")}}`.
 #[must_use]
 pub fn get_string_from_nested_dict<'a>(payload: &'a Value, key: &'a str) -> Option<&'a str> {

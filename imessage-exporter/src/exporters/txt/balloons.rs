@@ -2,9 +2,10 @@ use askama::Template;
 
 use imessage_database::{
     message_types::{
-        app::AppMessage, app_store::AppStoreMessage, collaboration::CollaborationMessage,
-        digital_touch::DigitalTouchMessage, handwriting::HandwrittenMessage, music::MusicMessage,
-        placemark::PlacemarkMessage, polls::Poll, url::URLMessage,
+        app::AppMessage, app_store::AppStoreMessage, business_chat::BusinessMessage,
+        collaboration::CollaborationMessage, digital_touch::DigitalTouchMessage,
+        handwriting::HandwrittenMessage, music::MusicMessage, placemark::PlacemarkMessage,
+        polls::Poll, url::URLMessage,
     },
     tables::{attachment::Attachment, messages::Message},
 };
@@ -18,7 +19,9 @@ use crate::{
             TXT,
             view_model::{
                 AppStoreVM, ApplePayVM, CheckInVM, CollaborationVM, FindMyVM, FitnessVM,
-                GenericAppVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, SlideshowVM, UrlVM,
+                FormAnswerVM, FormRequestVM, FormResponseVM, GenericAppVM, ListPickerItemVM,
+                ListPickerVM, MusicVM, PlacemarkVM, PollOptionVM, PollVM, QuickReplyOptionVM,
+                QuickReplyVM, SlideshowVM, UrlVM,
             },
         },
     },
@@ -160,6 +163,59 @@ impl BalloonFormatter for TXT<'_> {
             .collect();
 
         render_balloon(&PollVM { options })
+    }
+
+    fn format_business(&self, balloon: &BusinessMessage) -> String {
+        match balloon {
+            BusinessMessage::QuickReply(quick_reply) => {
+                let options = quick_reply
+                    .options
+                    .iter()
+                    .enumerate()
+                    .map(|(index, option)| QuickReplyOptionVM {
+                        text: &option.title,
+                        selected: quick_reply.selected_index == Some(index),
+                    })
+                    .collect();
+                render_balloon(&QuickReplyVM {
+                    summary: quick_reply.summary.as_deref().into(),
+                    options,
+                })
+            }
+            BusinessMessage::FormResponse(form) => {
+                let answers = form
+                    .answers
+                    .iter()
+                    .map(|answer| FormAnswerVM {
+                        question: &answer.question,
+                        answer: answer.answers.join(", "),
+                    })
+                    .collect();
+                render_balloon(&FormResponseVM {
+                    summary: form.summary.as_deref().into(),
+                    answers,
+                })
+            }
+            BusinessMessage::FormRequest(form) => render_balloon(&FormRequestVM {
+                title: form.title.as_deref().into(),
+                subtitle: form.subtitle.as_deref().into(),
+            }),
+            BusinessMessage::ListPicker(list_picker) => {
+                let items = list_picker
+                    .items
+                    .iter()
+                    .map(|item| ListPickerItemVM {
+                        title: &item.title,
+                        subtitle: item.subtitle.as_deref().into(),
+                        selected: item.selected,
+                    })
+                    .collect();
+                render_balloon(&ListPickerVM {
+                    summary: list_picker.summary.as_deref().into(),
+                    items,
+                })
+            }
+        }
     }
 
     fn format_generic_app(

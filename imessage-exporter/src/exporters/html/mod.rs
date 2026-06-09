@@ -3966,6 +3966,191 @@ mod balloon_format_tests {
     }
 
     #[test]
+    fn can_format_html_business_quick_reply_prompt() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, QuickReply, QuickReplyOption,
+        };
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = BusinessMessage::QuickReply(QuickReply {
+            summary: Some("Choose an option".to_string()),
+            options: vec![
+                QuickReplyOption {
+                    title: "Yes".to_string(),
+                },
+                QuickReplyOption {
+                    title: "No".to_string(),
+                },
+            ],
+            selected_index: None,
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Choose an option\n    </div>\n    <ul class=\"business-options\"><li\n            class=\"business-option\">Yes</li><li\n            class=\"business-option\">No</li>\n    </ul>\n</div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_business_quick_reply_selected() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, QuickReply, QuickReplyOption,
+        };
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = BusinessMessage::QuickReply(QuickReply {
+            summary: Some("Replied to a question".to_string()),
+            options: vec![
+                QuickReplyOption {
+                    title: "Yes".to_string(),
+                },
+                QuickReplyOption {
+                    title: "No".to_string(),
+                },
+            ],
+            selected_index: Some(0),
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Replied to a question\n    </div>\n    <ul class=\"business-options\"><li\n            class=\"business-option selected\">Yes</li><li\n            class=\"business-option\">No</li>\n    </ul>\n</div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_business_form_request() {
+        use imessage_database::message_types::business_chat::{BusinessMessage, FormRequest};
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = BusinessMessage::FormRequest(FormRequest {
+            title: Some("Report an Issue".to_string()),
+            subtitle: Some("Tap to get started".to_string()),
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Report an Issue</div><div class=\"business-subtitle\">Tap to get started</div></div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_business_form_response() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, FormAnswer, FormResponse,
+        };
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = BusinessMessage::FormResponse(FormResponse {
+            summary: Some("Here's my completed form".to_string()),
+            answers: vec![
+                FormAnswer {
+                    question: "Which option best describes your request?".to_string(),
+                    answers: vec!["The first example option".to_string()],
+                },
+                FormAnswer {
+                    question: "When did this happen?".to_string(),
+                    answers: vec!["01/01/2024".to_string()],
+                },
+                FormAnswer {
+                    question: "Anything else to add?".to_string(),
+                    answers: vec!["Example free-text response.".to_string()],
+                },
+            ],
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Here&apos;s my completed form\n    </div><dl class=\"business-answers\"><dt class=\"business-question\">Which option best describes your request?</dt>\n        <dd class=\"business-answer\">The first example option</dd><dt class=\"business-question\">When did this happen?</dt>\n        <dd class=\"business-answer\">01/01/2024</dd><dt class=\"business-question\">Anything else to add?</dt>\n        <dd class=\"business-answer\">Example free-text response.</dd>\n    </dl>\n</div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_business_list_picker_prompt() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, ListPicker, ListPickerItem,
+        };
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = BusinessMessage::ListPicker(ListPicker {
+            summary: Some("Select a Product".to_string()),
+            items: vec![
+                ListPickerItem {
+                    title: "iPhone".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "AirPods".to_string(),
+                    subtitle: Some("Wireless".to_string()),
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "Apple Watch".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+            ],
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Select a Product\n    </div><ul class=\"business-options\"><li\n            class=\"business-option\">iPhone</li><li\n            class=\"business-option\">AirPods <span class=\"business-option-detail\">Wireless</span></li><li\n            class=\"business-option\">Apple Watch</li></ul>\n</div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn can_format_html_business_list_picker_reply() {
+        use imessage_database::message_types::business_chat::{
+            BusinessMessage, ListPicker, ListPickerItem,
+        };
+
+        let options = Options::fake_options(Html);
+        let config = Config::fake_app(options);
+        let exporter = HTML::new(&config).unwrap();
+
+        let balloon = BusinessMessage::ListPicker(ListPicker {
+            summary: Some("Select a Product".to_string()),
+            items: vec![
+                ListPickerItem {
+                    title: "iPhone".to_string(),
+                    subtitle: None,
+                    selected: true,
+                },
+                ListPickerItem {
+                    title: "AirPods".to_string(),
+                    subtitle: Some("Wireless".to_string()),
+                    selected: false,
+                },
+                ListPickerItem {
+                    title: "Apple Watch".to_string(),
+                    subtitle: None,
+                    selected: false,
+                },
+            ],
+        });
+
+        let actual = exporter.format_business(&balloon);
+        let expected = "<div class=\"business-balloon\"><div class=\"business-heading\">Select a Product\n    </div><ul class=\"business-options\"><li\n            class=\"business-option selected\">iPhone</li><li\n            class=\"business-option\">AirPods <span class=\"business-option-detail\">Wireless</span></li><li\n            class=\"business-option\">Apple Watch</li></ul>\n</div>";
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn can_format_html_generic_app() {
         let options = Options::fake_options(Html);
         let config = Config::fake_app(options);

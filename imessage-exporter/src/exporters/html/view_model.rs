@@ -180,6 +180,50 @@ pub(super) struct PollOptionVM<'a> {
 }
 
 #[derive(Template)]
+#[template(path = "balloons/business_quick_reply.html")]
+pub(super) struct QuickReplyVM<'a> {
+    pub summary: OptionalText<'a>,
+    pub options: Vec<QuickReplyOptionVM<'a>>,
+}
+
+pub(super) struct QuickReplyOptionVM<'a> {
+    pub text: &'a str,
+    pub selected: bool,
+}
+
+#[derive(Template)]
+#[template(path = "balloons/business_form_response.html")]
+pub(super) struct FormResponseVM<'a> {
+    pub summary: OptionalText<'a>,
+    pub answers: Vec<FormAnswerVM<'a>>,
+}
+
+pub(super) struct FormAnswerVM<'a> {
+    pub question: &'a str,
+    pub answer: String,
+}
+
+#[derive(Template)]
+#[template(path = "balloons/business_form_request.html")]
+pub(super) struct FormRequestVM<'a> {
+    pub title: OptionalText<'a>,
+    pub subtitle: OptionalText<'a>,
+}
+
+#[derive(Template)]
+#[template(path = "balloons/business_list_picker.html")]
+pub(super) struct ListPickerVM<'a> {
+    pub summary: OptionalText<'a>,
+    pub items: Vec<ListPickerItemVM<'a>>,
+}
+
+pub(super) struct ListPickerItemVM<'a> {
+    pub title: &'a str,
+    pub subtitle: OptionalText<'a>,
+    pub selected: bool,
+}
+
+#[derive(Template)]
 #[template(path = "attachments/attachment.html")]
 pub(super) struct AttachmentVM<'a> {
     pub lazy: bool,
