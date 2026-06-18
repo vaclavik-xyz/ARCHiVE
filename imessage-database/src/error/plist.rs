@@ -22,6 +22,8 @@ pub enum PlistParseError {
     InvalidTypeIndex(usize, String),
     /// Dictionary has mismatched number of keys and values
     InvalidDictionarySize(usize, usize),
+    /// UID value cannot be represented as an object-table index on this target.
+    UidOutOfRange(u64),
     /// No payload data was found
     NoPayload,
     /// Message is not of the expected type
@@ -62,6 +64,9 @@ impl Display for PlistParseError {
                 fmt,
                 "Invalid dictionary size, found {a} keys and {b} values"
             ),
+            PlistParseError::UidOutOfRange(uid) => {
+                write!(fmt, "UID value {uid} cannot be used as an object index")
+            }
             PlistParseError::NoPayload => write!(fmt, "Unable to acquire payload data!"),
             PlistParseError::WrongMessageType => write!(fmt, "Message is not an app message!"),
             PlistParseError::InvalidEditedMessage(message) => {

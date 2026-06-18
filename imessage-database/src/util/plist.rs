@@ -102,7 +102,7 @@ fn follow_uid<'a>(
                 if let Some(idx) = item.as_uid() {
                     array.push(follow_uid(
                         objects,
-                        idx.get() as usize,
+                        uid_to_index(idx)?,
                         parent,
                         None,
                         depth + 1,
@@ -120,7 +120,7 @@ fn follow_uid<'a>(
                 {
                     dictionary.insert(
                         value_to_key_string(p),
-                        follow_uid(objects, idx.get() as usize, Some(p), None, depth + 1)?,
+                        follow_uid(objects, uid_to_index(idx)?, Some(p), None, depth + 1)?,
                     );
                 }
             }
@@ -160,7 +160,7 @@ fn follow_uid<'a>(
                             key.clone(),
                             follow_uid(
                                 objects,
-                                idx.get() as usize,
+                                uid_to_index(idx)?,
                                 Some(&key_value),
                                 None,
                                 depth + 1,
@@ -178,7 +178,7 @@ fn follow_uid<'a>(
             }
             Ok(plist::Value::Dictionary(dictionary))
         }
-        Value::Uid(uid) => follow_uid(objects, uid.get() as usize, None, None, depth + 1),
+        Value::Uid(uid) => follow_uid(objects, uid_to_index(uid)?, None, None, depth + 1),
         _ => Ok(item.to_owned()),
     }
 }
@@ -254,12 +254,12 @@ pub fn extract_array_key<'a>(
 
 /// Extract a `UID` from a collection key.
 fn extract_uid_key(body: &Dictionary, key: &str) -> Result<usize, PlistParseError> {
-    Ok(body
+    let uid = body
         .get(key)
         .ok_or_else(|| PlistParseError::MissingKey(key.to_string()))?
         .as_uid()
-        .ok_or_else(|| PlistParseError::InvalidType(key.to_string(), "uid".to_string()))?
-        .get() as usize)
+        .ok_or_else(|| PlistParseError::InvalidType(key.to_string(), "uid".to_string()))?;
+    uid_to_index(uid)
 }
 
 /// Extract bytes from a collection key.
@@ -290,12 +290,17 @@ pub fn extract_string_key<'a>(body: &'a Dictionary, key: &str) -> Result<&'a str
 
 /// Extract a UID from a collection index.
 fn extract_uid_idx(body: &[Value], idx: usize) -> Result<usize, PlistParseError> {
-    Ok(body
+    let uid = body
         .get(idx)
         .ok_or(PlistParseError::NoValueAtIndex(idx))?
         .as_uid()
-        .ok_or_else(|| PlistParseError::InvalidTypeIndex(idx, "uid".to_string()))?
-        .get() as usize)
+        .ok_or_else(|| PlistParseError::InvalidTypeIndex(idx, "uid".to_string()))?;
+    uid_to_index(uid)
+}
+
+/// Convert a plist UID into an object-table index without narrowing.
+fn uid_to_index(uid: &plist::Uid) -> Result<usize, PlistParseError> {
+    usize::try_from(uid.get()).map_err(|_| PlistParseError::UidOutOfRange(uid.get()))
 }
 
 /// Extract a dictionary from a collection index.

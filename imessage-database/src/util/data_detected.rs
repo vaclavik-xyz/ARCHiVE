@@ -160,5 +160,5 @@ pub trait FromScannerResult: Sized {
 
 /// Interpret a plist `UID` as an index into the `$objects` table.
 fn uid_index(value: &Value) -> Option<usize> {
-    Some(value.as_uid()?.get() as usize)
+    usize::try_from(value.as_uid()?.get()).ok()
 }
