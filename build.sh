@@ -59,7 +59,7 @@ if [ -n "$VERSION" ]; then
     # Put the version number back
     sed -i '' "s/version = \"$VERSION\"/version = \"0.0.0\"/g" imessage-database/Cargo.toml
     sed -i '' "s/version = \"$VERSION\"/version = \"0.0.0\"/g" imessage-exporter/Cargo.toml
-    sed -i '' s/\"$VERSION\"/'{path = "..\/imessage-database"}'/g imessage-exporter/Cargo.toml
+    sed -i '' s/\"$VERSION\"/'{ path = "..\/imessage-database" }'/g imessage-exporter/Cargo.toml
 
     unset VERSION
 else
