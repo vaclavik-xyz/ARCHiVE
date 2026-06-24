@@ -133,7 +133,9 @@ fn dedup_streams(document: &mut Document) {
     use std::collections::HashMap;
     use std::hash::{Hash, Hasher};
 
-    let mut first_by_hash: HashMap<u64, ObjectId> = HashMap::new();
+    // Hash buckets group candidates; equality is then confirmed exactly, so a
+    // hash collision can never merge two genuinely different streams.
+    let mut buckets: HashMap<u64, Vec<ObjectId>> = HashMap::new();
     let mut remap: HashMap<ObjectId, ObjectId> = HashMap::new();
 
     // Deterministic order so the surviving object is stable.
@@ -146,31 +148,38 @@ fn dedup_streams(document: &mut Document) {
     stream_ids.sort();
 
     for id in stream_ids {
-        let Some(Object::Stream(stream)) = document.objects.get(&id) else {
-            continue;
-        };
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        stream.content.hash(&mut hasher);
-        // Fold in the dict fields that change how identical bytes are interpreted.
-        for key in [
-            b"Subtype".as_slice(),
-            b"Filter".as_slice(),
-            b"Width".as_slice(),
-            b"Height".as_slice(),
-            b"ColorSpace".as_slice(),
-        ] {
-            if let Ok(value) = stream.dict.get(key) {
-                format!("{value:?}").hash(&mut hasher);
+        let digest = {
+            let Some(Object::Stream(stream)) = document.objects.get(&id) else {
+                continue;
+            };
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            stream.content.hash(&mut hasher);
+            // Hash the whole dictionary (except the byte-length bookkeeping) so
+            // any field that changes interpretation participates.
+            let mut keys: Vec<Vec<u8>> = stream.dict.iter().map(|(k, _)| k.clone()).collect();
+            keys.sort();
+            for key in &keys {
+                if key.as_slice() == b"Length" {
+                    continue;
+                }
+                if let Ok(value) = stream.dict.get(key) {
+                    key.hash(&mut hasher);
+                    format!("{value:?}").hash(&mut hasher);
+                }
             }
-        }
-        let digest = hasher.finish();
-        match first_by_hash.get(&digest) {
-            Some(&keeper) => {
+            hasher.finish()
+        };
+
+        let bucket = buckets.entry(digest).or_default();
+        let survivor = bucket
+            .iter()
+            .copied()
+            .find(|&keeper| streams_equivalent(document, id, keeper));
+        match survivor {
+            Some(keeper) => {
                 remap.insert(id, keeper);
             }
-            None => {
-                first_by_hash.insert(digest, id);
-            }
+            None => bucket.push(id),
         }
     }
 
@@ -184,6 +193,24 @@ fn dedup_streams(document: &mut Document) {
     for duplicate in remap.keys() {
         document.objects.remove(duplicate);
     }
+}
+
+/// Whether two stream objects are interchangeable: identical content and
+/// identical dictionaries apart from the `/Length` bookkeeping entry.
+fn streams_equivalent(document: &Document, a: ObjectId, b: ObjectId) -> bool {
+    let (Some(Object::Stream(sa)), Some(Object::Stream(sb))) =
+        (document.objects.get(&a), document.objects.get(&b))
+    else {
+        return false;
+    };
+    if sa.content != sb.content {
+        return false;
+    }
+    let mut da = sa.dict.clone();
+    let mut db = sb.dict.clone();
+    da.remove(b"Length");
+    db.remove(b"Length");
+    da == db
 }
 
 /// Recursively repoint references in `object` from duplicate ids to survivors.
