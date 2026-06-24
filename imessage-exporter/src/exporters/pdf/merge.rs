@@ -116,11 +116,99 @@ pub(super) fn merge_pdfs(inputs: &[std::path::PathBuf], output: &Path) -> Result
     document.trailer.set("Root", catalog_id);
     document.max_id = document.objects.len() as u32;
     document.renumber_objects();
+    // Collapse the duplicate images/masks/fonts each chunk re-embedded.
+    dedup_streams(&mut document);
     document.compress();
     document
         .save(output)
         .map_err(|why| format!("could not write {}: {why}", output.display()))?;
     Ok(())
+}
+
+/// Collapse byte-identical streams (duplicate images, masks, and font subsets
+/// that the per-chunk renders each embedded) into a single shared object,
+/// rewriting every reference to the survivor. Reply quotes and repeated stickers
+/// can otherwise embed the same image many times across chunks.
+fn dedup_streams(document: &mut Document) {
+    use std::collections::HashMap;
+    use std::hash::{Hash, Hasher};
+
+    let mut first_by_hash: HashMap<u64, ObjectId> = HashMap::new();
+    let mut remap: HashMap<ObjectId, ObjectId> = HashMap::new();
+
+    // Deterministic order so the surviving object is stable.
+    let mut stream_ids: Vec<ObjectId> = document
+        .objects
+        .iter()
+        .filter(|(_, object)| matches!(object, Object::Stream(_)))
+        .map(|(id, _)| *id)
+        .collect();
+    stream_ids.sort();
+
+    for id in stream_ids {
+        let Some(Object::Stream(stream)) = document.objects.get(&id) else {
+            continue;
+        };
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        stream.content.hash(&mut hasher);
+        // Fold in the dict fields that change how identical bytes are interpreted.
+        for key in [
+            b"Subtype".as_slice(),
+            b"Filter".as_slice(),
+            b"Width".as_slice(),
+            b"Height".as_slice(),
+            b"ColorSpace".as_slice(),
+        ] {
+            if let Ok(value) = stream.dict.get(key) {
+                format!("{value:?}").hash(&mut hasher);
+            }
+        }
+        let digest = hasher.finish();
+        match first_by_hash.get(&digest) {
+            Some(&keeper) => {
+                remap.insert(id, keeper);
+            }
+            None => {
+                first_by_hash.insert(digest, id);
+            }
+        }
+    }
+
+    if remap.is_empty() {
+        return;
+    }
+
+    for (_, object) in document.objects.iter_mut() {
+        rewrite_references(object, &remap);
+    }
+    for duplicate in remap.keys() {
+        document.objects.remove(duplicate);
+    }
+}
+
+/// Recursively repoint references in `object` from duplicate ids to survivors.
+fn rewrite_references(
+    object: &mut Object,
+    remap: &std::collections::HashMap<ObjectId, ObjectId>,
+) {
+    match object {
+        Object::Reference(id) => {
+            if let Some(&keeper) = remap.get(id) {
+                *id = keeper;
+            }
+        }
+        Object::Array(items) => items.iter_mut().for_each(|o| rewrite_references(o, remap)),
+        Object::Dictionary(dict) => {
+            dict.iter_mut().for_each(|(_, o)| rewrite_references(o, remap));
+        }
+        Object::Stream(stream) => {
+            stream
+                .dict
+                .iter_mut()
+                .for_each(|(_, o)| rewrite_references(o, remap));
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -198,6 +286,68 @@ mod tests {
         assert!(texts[0].contains("Alpha"), "first page is Alpha");
         assert!(texts[1].contains("Bravo"), "second page is Bravo");
         assert!(texts[2].contains("Charlie"), "third page is Charlie");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Build a one-page PDF embedding a fixed 16x16 RGB image.
+    fn make_image_pdf(path: &Path) {
+        use lopdf::Stream;
+        let (w, h) = (16i64, 16i64);
+        let mut image = Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Image",
+                "Width" => w, "Height" => h,
+                "BitsPerComponent" => 8, "ColorSpace" => "DeviceRGB",
+            },
+            vec![77u8; (w * h * 3) as usize],
+        );
+        image.compress().unwrap();
+
+        let mut doc = Document::with_version("1.5");
+        let image_id = doc.add_object(image);
+        let resources_id =
+            doc.add_object(dictionary! { "XObject" => dictionary! { "Im0" => image_id } });
+        let content_id = doc.add_object(Stream::new(dictionary! {}, b"q /Im0 Do Q".to_vec()));
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages_id, "Contents" => content_id,
+            "Resources" => resources_id,
+            "MediaBox" => vec![0.into(), 0.into(), 16.into(), 16.into()],
+        });
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        doc.save(path).unwrap();
+    }
+
+    #[test]
+    fn merge_deduplicates_identical_images() {
+        let dir = crate::app::test_dir::unique_test_dir("merge-dedup");
+        let a = dir.join("a.pdf");
+        let b = dir.join("b.pdf");
+        let out = dir.join("out.pdf");
+        make_image_pdf(&a);
+        make_image_pdf(&b); // identical image bytes
+
+        merge_pdfs(&[a, b], &out).expect("merge succeeds");
+
+        let merged = Document::load(&out).unwrap();
+        let images = merged
+            .objects
+            .values()
+            .filter(|o| {
+                matches!(o, Object::Stream(s)
+                    if s.dict.get(b"Subtype").ok().and_then(|v| v.as_name().ok()) == Some(&b"Image"[..]))
+            })
+            .count();
+        assert_eq!(images, 1, "identical images across inputs collapse to one");
+        assert_eq!(merged.get_pages().len(), 2, "both pages survive");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
