@@ -168,3 +168,44 @@ Minimal additions with sensible defaults (YAGNI):
   rejected in favor of a side-by-side attachments folder).
 - Combined single-PDF-for-all-conversations mode (rejected: this is the case that
   bloated and slowed previous attempts).
+
+## Implementation outcome & findings (2026-06-24)
+
+Built and validated against the real target conversation (handle
+`+420776452878`, 40,806 chat rows / 35,398 rendered message bubbles,
+1,306 images, 2025-10-03 → 2026-06-23) from the latest unencrypted iOS backup.
+imessage-exporter reads all 40,806 rows — more than the prior iExplorer export,
+which dropped messages.
+
+Two problems surfaced during real-data runs and shaped the final design beyond
+the original spec:
+
+1. **Chrome hangs after writing with `--virtual-time-budget`.** Some Chrome
+   builds write the PDF and never exit when that flag is set. Fixed by using
+   classic `--headless` without it, plus a watchdog that stops the browser once
+   a complete (`%%EOF`) PDF is on disk.
+
+2. **One giant page is superlinear in Chrome.** Rendering the whole 40k-message
+   conversation as a single HTML page did not finish in 30+ minutes. Fixed by
+   splitting each conversation into `MESSAGES_PER_CHUNK` (1000) top-level
+   messages, rendering each chunk quickly (~10-20 s), and merging the chunk PDFs
+   into one document with `lopdf` (added dependency). Chunk boundaries are
+   line-start `<div class="message"` matches (covering attributed reply
+   variants); the merge preserves page order.
+
+3. **Chrome stores print images losslessly (FlateDecode RGB/Gray).** PDF size
+   therefore scales with image *pixel count*, independent of source JPEG
+   quality, and neither display-size, device-scale-factor, nor border-radius
+   changes it. At 1600 px the conversation produced ~810 MB. Fixed by a
+   post-render pass (`recompress.rs`, `jpeg-encoder` dependency) that re-encodes
+   each lossless photographic image as JPEG (DCTDecode) at `--image-quality`,
+   skipping masks/SMasks, color-key masks, indexed/CMYK, and non-8-bit images.
+   This cuts size by roughly an order of magnitude at full resolution.
+
+**Tuning:** `--max-image-size` controls embedded image resolution;
+`--image-quality` controls the JPEG recompression quality. Both are the levers
+for the size/quality trade-off.
+
+**Dependencies added:** `lopdf` (pure-Rust PDF merge + image rewrite),
+`jpeg-encoder` (pure-Rust JPEG encoding). Both cross-compile cleanly; no system
+tools required beyond a headless browser and `sips`/ImageMagick.
