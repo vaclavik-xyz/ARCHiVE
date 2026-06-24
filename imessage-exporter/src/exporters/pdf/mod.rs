@@ -105,7 +105,10 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
     let _ = remove_dir_all(&work_root);
 
     if failures > 0 {
-        eprintln!("{failures} conversation(s) could not be converted to PDF; their HTML was kept.");
+        return Err(RuntimeError::InvalidOptions(format!(
+            "{failures} of {} conversation(s) could not be converted to PDF; their HTML was kept",
+            html_files.len()
+        )));
     }
     Ok(())
 }

@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Arg, ArgAction, ArgMatches, Command, crate_version};
+use clap::{Arg, ArgAction, ArgMatches, Command, crate_version, parser::ValueSource};
 
 use imessage_database::{
     tables::{attachment::DEFAULT_MESSAGES_ROOT, table::DEFAULT_PATH_IOS},
@@ -217,6 +217,26 @@ impl Options {
             }
             None => None,
         };
+
+        // These options only affect the PDF exporter; reject them for other
+        // formats (and when no format is selected) so they are never silently
+        // ignored. Defaulted values count as set only when supplied on the CLI.
+        if !matches!(export_type, Some(ExportType::Pdf)) {
+            let explicit = |name: &str| args.value_source(name) == Some(ValueSource::CommandLine);
+            let pdf_only = [
+                (explicit(OPTION_MAX_IMAGE_SIZE), OPTION_MAX_IMAGE_SIZE),
+                (explicit(OPTION_IMAGE_QUALITY), OPTION_IMAGE_QUALITY),
+                (chrome_path.is_some(), OPTION_CHROME_PATH),
+                (keep_html, OPTION_KEEP_HTML),
+            ];
+            for (set, opt) in pdf_only {
+                if set {
+                    return Err(RuntimeError::InvalidOptions(format!(
+                        "Option --{opt} requires --{OPTION_EXPORT_TYPE} pdf"
+                    )));
+                }
+            }
+        }
 
         // Anything in here requires `--format`
         if export_file_type.is_none() {
@@ -957,6 +977,34 @@ mod arg_tests {
         );
         assert!(actual.no_lazy);
         assert_eq!(actual.pdf, PdfOptions::default());
+    }
+
+    #[test]
+    fn rejects_pdf_only_flags_for_other_formats() {
+        for flag in [
+            vec!["--keep-html"],
+            vec!["--chrome-path", "/tmp/chrome"],
+            vec!["--max-image-size", "800"],
+            vec!["--image-quality", "60"],
+        ] {
+            let command = get_command();
+            let mut argv = vec!["imessage-exporter", "-f", "txt"];
+            argv.extend(flag.iter().copied());
+            let args = command.get_matches_from(argv);
+            assert!(
+                Options::from_args(&args).is_err(),
+                "expected {flag:?} to be rejected for txt"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_defaulted_image_options_for_non_pdf() {
+        // Defaults are present in ArgMatches but not "set on the CLI", so a
+        // plain txt export must still succeed.
+        let command = get_command();
+        let args = command.get_matches_from(["imessage-exporter", "-f", "txt"]);
+        assert!(Options::from_args(&args).is_ok());
     }
 
     #[test]
