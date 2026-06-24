@@ -618,7 +618,7 @@ fn get_command() -> Command {
         .arg(
             Arg::new(OPTION_IMAGE_QUALITY)
                 .long(OPTION_IMAGE_QUALITY)
-                .help("PDF export only: JPEG quality (1-100) used when re-encoding downscaled image attachments\n")
+                .help("PDF export only: JPEG quality (1-100) for images embedded in the PDF\nThe browser embeds images losslessly; they are re-encoded to JPEG at this quality to keep the PDF small\n")
                 .default_value(DEFAULT_IMAGE_QUALITY)
                 .value_name("quality")
                 .display_order(18),

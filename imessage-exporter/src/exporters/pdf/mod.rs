@@ -37,6 +37,7 @@ const PDF_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const MESSAGES_PER_CHUNK: usize = 1000;
 
 mod merge;
+mod recompress;
 
 use crate::{
     app::{
@@ -100,9 +101,18 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
         std::env::temp_dir().join(format!("imessage-exporter-chrome-{}", std::process::id()));
     let _ = create_dir_all(&work_root);
     let mut failures = 0u32;
+    let image_quality = config.options.pdf.image_quality;
     for (idx, html) in html_files.iter().enumerate() {
         let pdf = html.with_extension("pdf");
-        match convert_conversation(&chrome.launcher, html, &pdf, export_path, &work_root, idx) {
+        match convert_conversation(
+            &chrome.launcher,
+            html,
+            &pdf,
+            export_path,
+            &work_root,
+            idx,
+            image_quality,
+        ) {
             Ok(()) => {
                 if !config.options.pdf.keep_html {
                     let _ = remove_file(html);
@@ -239,6 +249,7 @@ fn convert_conversation(
     export_path: &Path,
     work_root: &Path,
     idx: usize,
+    image_quality: u8,
 ) -> Result<(), String> {
     let html = read_to_string(html_path)
         .map_err(|why| format!("could not read {}: {why}", html_path.display()))?;
@@ -247,7 +258,9 @@ fn convert_conversation(
     // A fresh browser profile per render avoids singleton-lock contention.
     if chunks.len() <= 1 {
         let profile = work_root.join(format!("{idx}-0"));
-        return html_to_pdf(launcher, html_path, pdf_path, &profile);
+        html_to_pdf(launcher, html_path, pdf_path, &profile)?;
+        recompress_quietly(pdf_path, image_quality);
+        return Ok(());
     }
 
     println!(
@@ -281,6 +294,8 @@ fn convert_conversation(
             error = Some(format!("chunk {ci} failed: {why}"));
             break;
         }
+        // Shrink the chunk's lossless images to JPEG before merging.
+        recompress_quietly(&chunk_pdf, image_quality);
         chunk_pdfs.push(chunk_pdf);
     }
 
@@ -304,6 +319,15 @@ fn convert_conversation(
         let _ = remove_file(chunk_html);
     }
     result
+}
+
+/// Recompress a rendered PDF's lossless images to JPEG in place. Failures are
+/// non-fatal: the PDF stays valid (just larger), so a problem here must not
+/// abort the export.
+fn recompress_quietly(pdf: &Path, quality: u8) {
+    if let Err(why) = recompress::recompress_images(pdf, quality) {
+        eprintln!("Image recompression skipped for {}: {why}", pdf.display());
+    }
 }
 
 /// Print a single HTML file to PDF with a headless browser.
