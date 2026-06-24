@@ -480,3 +480,46 @@ td {
         --muted-text: lightgray;
     }
 }
+
+/*
+ * Print rules, used by the `pdf` export (HTML rendered to PDF via headless
+ * Chrome). Declared last so that, when printing under a dark system theme,
+ * this light, paper-friendly palette wins over the dark-mode block above.
+ */
+@media print {
+    @page {
+        size: A4;
+        margin: 12mm;
+    }
+
+    /* Force a light palette regardless of the system color scheme. */
+    :root {
+        --background-color: white;
+        --text-color: black;
+        --muted-text: dimgray;
+    }
+
+    body {
+        background: white;
+    }
+
+    /* Preserve bubble background colors in the printed output. */
+    * {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    /* Keep a bubble on one page when it fits, rather than splitting it. */
+    .message,
+    .announcement,
+    .reply {
+        break-inside: avoid;
+    }
+
+    /* Ensure every attachment fits within a single printed page. */
+    img,
+    video {
+        max-width: 100%;
+        max-height: 92vh;
+    }
+}
