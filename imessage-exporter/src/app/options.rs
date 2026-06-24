@@ -43,16 +43,49 @@ pub const OPTION_CONVERSATION_FILTER: &str = "conversation-filter";
 pub const OPTION_CLEARTEXT_PASSWORD: &str = "cleartext-password";
 pub const OPTION_CUSTOM_CONTACTS_DB_PATH: &str = "contacts-path";
 pub const OPTION_NO_PROGRESS: &str = "no-progress";
+pub const OPTION_MAX_IMAGE_SIZE: &str = "max-image-size";
+pub const OPTION_IMAGE_QUALITY: &str = "image-quality";
+pub const OPTION_CHROME_PATH: &str = "chrome-path";
+pub const OPTION_KEEP_HTML: &str = "keep-html";
 
 // Other CLI Text
-pub const SUPPORTED_FILE_TYPES: &str = "txt, html";
+pub const SUPPORTED_FILE_TYPES: &str = "txt, html, pdf";
 pub const SUPPORTED_PLATFORMS: &str = "macOS, iOS";
 pub const SUPPORTED_ATTACHMENT_MANAGER_MODES: &str = "clone, basic, full, disabled";
+/// Default longest-edge pixel cap for image attachments in PDF exports.
+pub const DEFAULT_MAX_IMAGE_SIZE: &str = "1600";
+/// Default JPEG quality for downscaled image attachments in PDF exports.
+pub const DEFAULT_IMAGE_QUALITY: &str = "80";
 pub const ABOUT: &str = concat!(
     "The `imessage-exporter` binary exports iMessage data to\n",
-    "`txt` or `html` formats. It can also run diagnostics\n",
+    "`txt`, `html`, or `pdf` formats. It can also run diagnostics\n",
     "to find problems with the iMessage database."
 );
+
+// MARK: PDF Options
+/// Tuning knobs for the PDF exporter.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PdfOptions {
+    /// Longest-edge pixel cap applied to image attachments before embedding.
+    pub max_image_size: u32,
+    /// JPEG quality (0-100) applied when re-encoding downscaled images.
+    pub image_quality: u8,
+    /// Explicit path to a Chrome/Chromium/Edge binary, overriding detection.
+    pub chrome_path: Option<String>,
+    /// Keep the intermediate per-conversation HTML next to the PDFs.
+    pub keep_html: bool,
+}
+
+impl Default for PdfOptions {
+    fn default() -> Self {
+        Self {
+            max_image_size: 1600,
+            image_quality: 80,
+            chrome_path: None,
+            keep_html: false,
+        }
+    }
+}
 
 // MARK: Options
 #[derive(PartialEq, Eq)]
@@ -89,6 +122,8 @@ pub struct Options {
     pub contacts_path: Option<PathBuf>,
     /// Whether to show the export progress bar when the terminal supports it.
     pub show_progress: bool,
+    /// PDF-export tuning knobs (only meaningful when `export_type` is `Pdf`).
+    pub pdf: PdfOptions,
 }
 
 // Redact the cleartext backup password from debug output.
@@ -115,6 +150,7 @@ impl std::fmt::Debug for Options {
             )
             .field("contacts_path", &self.contacts_path)
             .field("show_progress", &self.show_progress)
+            .field("pdf", &self.pdf)
             .finish()
     }
 }
@@ -139,6 +175,38 @@ impl Options {
         let cleartext_password: Option<&String> = args.get_one(OPTION_CLEARTEXT_PASSWORD);
         let contacts_path: Option<&String> = args.get_one(OPTION_CUSTOM_CONTACTS_DB_PATH);
         let show_progress = !args.get_flag(OPTION_NO_PROGRESS);
+        let chrome_path: Option<&String> = args.get_one(OPTION_CHROME_PATH);
+        let keep_html = args.get_flag(OPTION_KEEP_HTML);
+        let max_image_size: u32 = args
+            .get_one::<String>(OPTION_MAX_IMAGE_SIZE)
+            .map(|s| s.parse())
+            .transpose()
+            .map_err(|_| {
+                RuntimeError::InvalidOptions(format!(
+                    "--{OPTION_MAX_IMAGE_SIZE} must be a positive integer"
+                ))
+            })?
+            .filter(|&px| px > 0)
+            .ok_or_else(|| {
+                RuntimeError::InvalidOptions(format!(
+                    "--{OPTION_MAX_IMAGE_SIZE} must be a positive integer"
+                ))
+            })?;
+        let image_quality: u8 = args
+            .get_one::<String>(OPTION_IMAGE_QUALITY)
+            .map(|s| s.parse())
+            .transpose()
+            .map_err(|_| {
+                RuntimeError::InvalidOptions(format!(
+                    "--{OPTION_IMAGE_QUALITY} must be an integer between 1 and 100"
+                ))
+            })?
+            .filter(|&q| (1..=100).contains(&q))
+            .ok_or_else(|| {
+                RuntimeError::InvalidOptions(format!(
+                    "--{OPTION_IMAGE_QUALITY} must be an integer between 1 and 100"
+                ))
+            })?;
 
         // Build the export type
         let export_type: Option<ExportType> = match export_file_type {
@@ -272,15 +340,22 @@ impl Options {
             );
         }
 
-        // Determine the attachment manager mode
+        // Determine the attachment manager mode. PDF exports need image
+        // attachments copied and HEIC converted to JPEG (Chrome cannot render
+        // HEIC), so default to `Basic` when the user did not pick a mode.
         let attachment_manager_mode = match attachment_manager_type {
             Some(manager) => {
                 AttachmentManagerMode::from_cli(manager).ok_or(RuntimeError::InvalidOptions(format!(
                     "{manager} is not a valid attachment manager mode! Must be one of <{SUPPORTED_ATTACHMENT_MANAGER_MODES}>"
                 )))?
             }
+            None if matches!(export_type, Some(ExportType::Pdf)) => AttachmentManagerMode::Basic,
             None => AttachmentManagerMode::default(),
         };
+
+        // PDF generation requires every image to be present at print time, so
+        // force lazy loading off regardless of the user's `--no-lazy` flag.
+        let no_lazy = no_lazy || matches!(export_type, Some(ExportType::Pdf));
 
         // Validate the provided export path
         let export_path = validate_path(user_export_path, export_type.as_ref())?;
@@ -302,6 +377,12 @@ impl Options {
             cleartext_password: cleartext_password.cloned(),
             contacts_path: contacts_path.cloned().map(PathBuf::from),
             show_progress,
+            pdf: PdfOptions {
+                max_image_size,
+                image_quality,
+                chrome_path: chrome_path.cloned(),
+                keep_html,
+            },
         })
     }
 
@@ -506,6 +587,36 @@ fn get_command() -> Command {
                 .action(ArgAction::SetTrue)
                 .display_order(16),
         )
+        .arg(
+            Arg::new(OPTION_MAX_IMAGE_SIZE)
+                .long(OPTION_MAX_IMAGE_SIZE)
+                .help("PDF export only: cap the longest edge of image attachments to this many pixels before embedding\nLarger images are downscaled with `sips` (macOS) or ImageMagick; smaller images are left untouched\nThis is the dominant lever on PDF size\n")
+                .default_value(DEFAULT_MAX_IMAGE_SIZE)
+                .value_name("pixels")
+                .display_order(17),
+        )
+        .arg(
+            Arg::new(OPTION_IMAGE_QUALITY)
+                .long(OPTION_IMAGE_QUALITY)
+                .help("PDF export only: JPEG quality (1-100) used when re-encoding downscaled image attachments\n")
+                .default_value(DEFAULT_IMAGE_QUALITY)
+                .value_name("quality")
+                .display_order(18),
+        )
+        .arg(
+            Arg::new(OPTION_CHROME_PATH)
+                .long(OPTION_CHROME_PATH)
+                .help("PDF export only: explicit path to a Chrome, Chromium, or Edge binary\nIf omitted, common install locations are probed automatically\n")
+                .value_name("path/to/chrome")
+                .display_order(19),
+        )
+        .arg(
+            Arg::new(OPTION_KEEP_HTML)
+                .long(OPTION_KEEP_HTML)
+                .help("PDF export only: keep the intermediate per-conversation HTML files next to the generated PDFs\nBy default they are removed after a successful conversion\n")
+                .action(ArgAction::SetTrue)
+                .display_order(20),
+        )
 }
 
 #[cfg(test)]
@@ -534,6 +645,7 @@ impl Options {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         }
     }
 }
@@ -552,7 +664,7 @@ mod arg_tests {
     use crate::app::{
         compatibility::attachment_manager::{AttachmentManager, AttachmentManagerMode},
         export_type::ExportType,
-        options::{Options, get_command, validate_path},
+        options::{Options, PdfOptions, get_command, validate_path},
         test_dir::unique_test_dir,
     };
 
@@ -582,6 +694,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -658,6 +771,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -689,6 +803,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -763,6 +878,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -802,6 +918,7 @@ mod arg_tests {
             cleartext_password: Some("password".to_string()),
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -825,8 +942,48 @@ mod arg_tests {
     #[test]
     fn cant_build_option_invalid_export_type() {
         let command = get_command();
-        let args = command.get_matches_from(["imessage-exporter", "-f", "pdf"]);
+        let args = command.get_matches_from(["imessage-exporter", "-f", "json"]);
         assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn pdf_export_forces_basic_attachments_and_no_lazy() {
+        let command = get_command();
+        let args = command.get_matches_from(["imessage-exporter", "-f", "pdf"]);
+        let actual = Options::from_args(&args).unwrap();
+        assert_eq!(
+            actual.attachment_manager,
+            AttachmentManager::from(AttachmentManagerMode::Basic)
+        );
+        assert!(actual.no_lazy);
+        assert_eq!(actual.pdf, PdfOptions::default());
+    }
+
+    #[test]
+    fn pdf_export_rejects_invalid_image_quality() {
+        let command = get_command();
+        let args =
+            command.get_matches_from(["imessage-exporter", "-f", "pdf", "--image-quality", "0"]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn pdf_export_accepts_custom_image_options() {
+        let command = get_command();
+        let args = command.get_matches_from([
+            "imessage-exporter",
+            "-f",
+            "pdf",
+            "--max-image-size",
+            "1000",
+            "--image-quality",
+            "70",
+            "--keep-html",
+        ]);
+        let actual = Options::from_args(&args).unwrap();
+        assert_eq!(actual.pdf.max_image_size, 1000);
+        assert_eq!(actual.pdf.image_quality, 70);
+        assert!(actual.pdf.keep_html);
     }
 
     #[test]
@@ -855,6 +1012,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -886,6 +1044,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -918,6 +1077,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -949,6 +1109,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -980,6 +1141,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -1050,6 +1212,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
