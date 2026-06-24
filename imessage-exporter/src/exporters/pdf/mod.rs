@@ -11,8 +11,9 @@
 */
 
 use std::{
+    collections::HashSet,
     ffi::OsString,
-    fs::{File, read_dir, remove_dir_all, remove_file},
+    fs::{File, read_dir, remove_dir_all, remove_file, rename},
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -51,6 +52,12 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
         },
     )?;
 
+    // Remember the HTML files that already existed so we only ever convert
+    // and delete intermediates this run produces, never the user's unrelated
+    // HTML exports living in the same directory.
+    let export_path = &config.options.export_path;
+    let preexisting: HashSet<PathBuf> = collect_html_files(export_path)?.into_iter().collect();
+
     // Render conversations to HTML and copy/convert their attachments.
     run_export(&mut HTML::new(config)?)?;
 
@@ -64,9 +71,11 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
         );
     }
 
-    // Convert every per-conversation HTML file to PDF.
-    let export_path = &config.options.export_path;
-    let html_files = collect_html_files(export_path)?;
+    // Convert only the per-conversation HTML files this run created.
+    let html_files: Vec<PathBuf> = collect_html_files(export_path)?
+        .into_iter()
+        .filter(|file| !preexisting.contains(file))
+        .collect();
     if html_files.is_empty() {
         eprintln!("No HTML files were produced, so there is nothing to convert to PDF.");
         return Ok(());
@@ -218,7 +227,14 @@ fn resize_image(converter: &ImageConverter, file: &Path, max_size: u32, quality:
 /// guards against any remaining hang — once a complete PDF is on disk, the
 /// browser is stopped even if it has not exited on its own.
 fn html_to_pdf(launcher: &str, html: &Path, pdf: &Path, user_data_dir: &Path) -> Result<(), String> {
-    let _ = remove_file(pdf);
+    // Render to a temporary sibling and only replace the destination once the
+    // new PDF is known-complete, so a stale `pdf` is never mistaken for fresh
+    // output and the destination is updated atomically.
+    let mut tmp = pdf.as_os_str().to_owned();
+    tmp.push(".part");
+    let tmp = PathBuf::from(tmp);
+    let _ = remove_file(&tmp);
+
     let mut child = Command::new(launcher)
         .arg("--headless")
         .arg("--disable-gpu")
@@ -228,7 +244,7 @@ fn html_to_pdf(launcher: &str, html: &Path, pdf: &Path, user_data_dir: &Path) ->
         .arg("--no-pdf-header-footer")
         .arg("--run-all-compositor-stages-before-draw")
         .arg(format!("--user-data-dir={}", user_data_dir.display()))
-        .arg(format!("--print-to-pdf={}", pdf.display()))
+        .arg(format!("--print-to-pdf={}", tmp.display()))
         .arg(file_url(html))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -236,35 +252,39 @@ fn html_to_pdf(launcher: &str, html: &Path, pdf: &Path, user_data_dir: &Path) ->
         .spawn()
         .map_err(|why| format!("could not launch {launcher}: {why}"))?;
 
+    let finalize = |tmp: &Path| -> Result<(), String> {
+        rename(tmp, pdf).map_err(|why| format!("could not finalize {}: {why}", pdf.display()))
+    };
+
     let deadline = Instant::now() + PDF_RENDER_TIMEOUT;
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                return if status.success() || pdf_is_complete(pdf) {
-                    Ok(())
-                } else {
-                    Err(format!("{launcher} exited with {status} without writing a usable PDF"))
-                };
+                if pdf_is_complete(&tmp) {
+                    return finalize(&tmp);
+                }
+                let _ = remove_file(&tmp);
+                return Err(format!("{launcher} exited with {status} without writing a usable PDF"));
             }
             Ok(None) => {
                 // The browser is still running. If it has already written a
                 // complete PDF (some builds never exit afterward), stop it.
-                if pdf_is_complete(pdf) {
+                if pdf_is_complete(&tmp) {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Ok(());
+                    return finalize(&tmp);
                 }
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return if pdf_is_complete(pdf) {
-                        Ok(())
-                    } else {
-                        Err(format!(
-                            "{launcher} did not finish within {}s",
-                            PDF_RENDER_TIMEOUT.as_secs()
-                        ))
-                    };
+                    if pdf_is_complete(&tmp) {
+                        return finalize(&tmp);
+                    }
+                    let _ = remove_file(&tmp);
+                    return Err(format!(
+                        "{launcher} did not finish within {}s",
+                        PDF_RENDER_TIMEOUT.as_secs()
+                    ));
                 }
                 sleep(PDF_POLL_INTERVAL);
             }
