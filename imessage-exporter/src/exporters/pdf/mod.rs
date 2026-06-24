@@ -13,7 +13,9 @@
 use std::{
     collections::HashSet,
     ffi::OsString,
-    fs::{File, read_dir, remove_dir_all, remove_file, rename},
+    fs::{
+        File, create_dir_all, read_dir, read_to_string, remove_dir_all, remove_file, rename, write,
+    },
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -21,13 +23,20 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Upper bound on how long to wait for one conversation to render to PDF.
-/// Large conversations (thousands of images) legitimately take minutes; this
-/// only guards against a browser that never finishes.
-const PDF_RENDER_TIMEOUT: Duration = Duration::from_secs(1800);
+/// Upper bound on how long to wait for a single browser render to finish.
+/// A chunk legitimately takes seconds; this only guards against a browser that
+/// never finishes.
+const PDF_RENDER_TIMEOUT: Duration = Duration::from_secs(900);
 
 /// How often to poll a running browser for completion.
 const PDF_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+/// Top-level messages per chunk. Rendering one enormous page is superlinear in
+/// the browser, so each conversation is rendered in chunks of this many
+/// messages and the chunk PDFs are merged back into one document.
+const MESSAGES_PER_CHUNK: usize = 1000;
+
+mod merge;
 
 use crate::{
     app::{
@@ -89,13 +98,11 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
 
     let work_root =
         std::env::temp_dir().join(format!("imessage-exporter-chrome-{}", std::process::id()));
+    let _ = create_dir_all(&work_root);
     let mut failures = 0u32;
     for (idx, html) in html_files.iter().enumerate() {
         let pdf = html.with_extension("pdf");
-        // A fresh profile per conversation avoids the singleton-lock contention
-        // a shared profile can cause across sequential browser launches.
-        let profile = work_root.join(idx.to_string());
-        match html_to_pdf(&chrome.launcher, html, &pdf, &profile) {
+        match convert_conversation(&chrome.launcher, html, &pdf, export_path, &work_root, idx) {
             Ok(()) => {
                 if !config.options.pdf.keep_html {
                     let _ = remove_file(html);
@@ -218,6 +225,85 @@ fn resize_image(converter: &ImageConverter, file: &Path, max_size: u32, quality:
     };
 
     run_quiet(converter.name(), args)
+}
+
+/// Convert one conversation's HTML into a single PDF. Small conversations
+/// render in one shot; large ones are split into [`MESSAGES_PER_CHUNK`]-message
+/// chunks that each render quickly, and the chunk PDFs are merged back into one
+/// document. Splitting sidesteps the superlinear cost of paginating one huge
+/// page in the browser.
+fn convert_conversation(
+    launcher: &str,
+    html_path: &Path,
+    pdf_path: &Path,
+    export_path: &Path,
+    work_root: &Path,
+    idx: usize,
+) -> Result<(), String> {
+    let html = read_to_string(html_path)
+        .map_err(|why| format!("could not read {}: {why}", html_path.display()))?;
+    let chunks = split_html_into_chunks(&html, MESSAGES_PER_CHUNK);
+
+    // A fresh browser profile per render avoids singleton-lock contention.
+    if chunks.len() <= 1 {
+        let profile = work_root.join(format!("{idx}-0"));
+        return html_to_pdf(launcher, html_path, pdf_path, &profile);
+    }
+
+    println!(
+        "  {} is large; rendering in {} chunks...",
+        html_path.file_name().unwrap_or_default().to_string_lossy(),
+        chunks.len()
+    );
+
+    // Chunk HTML must live beside the original so its relative `attachments/...`
+    // references keep resolving, hence a hidden conversation-unique prefix.
+    let stem = pdf_path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let mut chunk_htmls = Vec::new();
+    let mut chunk_pdfs = Vec::new();
+    let mut error: Option<String> = None;
+
+    for (ci, chunk) in chunks.iter().enumerate() {
+        let chunk_html = export_path.join(format!(".{stem}.chunk{ci}.html"));
+        if let Err(why) = write(&chunk_html, chunk) {
+            error = Some(format!("could not write chunk {ci}: {why}"));
+            break;
+        }
+        chunk_htmls.push(chunk_html.clone());
+
+        let chunk_pdf = work_root.join(format!("{idx}-{ci}.pdf"));
+        let profile = work_root.join(format!("{idx}-{ci}"));
+        if let Err(why) = html_to_pdf(launcher, &chunk_html, &chunk_pdf, &profile) {
+            error = Some(format!("chunk {ci} failed: {why}"));
+            break;
+        }
+        chunk_pdfs.push(chunk_pdf);
+    }
+
+    let result = match error {
+        Some(why) => Err(why),
+        None => {
+            // Merge to a temporary sibling, then move into place atomically.
+            let mut tmp = pdf_path.as_os_str().to_owned();
+            tmp.push(".part");
+            let tmp = PathBuf::from(tmp);
+            merge::merge_pdfs(&chunk_pdfs, &tmp).and_then(|()| {
+                rename(&tmp, pdf_path)
+                    .map_err(|why| format!("could not finalize {}: {why}", pdf_path.display()))
+            })
+        }
+    };
+
+    // Remove chunk HTML intermediates regardless of outcome (chunk PDFs live in
+    // the work root, cleaned up by the caller).
+    for chunk_html in &chunk_htmls {
+        let _ = remove_file(chunk_html);
+    }
+    result
 }
 
 /// Print a single HTML file to PDF with a headless browser.
@@ -373,6 +459,53 @@ fn is_image(path: &Path) -> bool {
         || has_extension(path, "gif")
 }
 
+/// Marker that begins each top-level message in the HTML export. Nested
+/// messages (inside replies) are indented, so a match at the start of a line
+/// reliably identifies a top-level message boundary.
+const TOP_LEVEL_MESSAGE: &str = "\n<div class=\"message\">";
+
+/// Split a conversation's HTML into chunks of at most `messages_per_chunk`
+/// top-level messages, each a self-contained document carrying the original
+/// `<head>`/styles. Rendering many small documents avoids the superlinear cost
+/// the browser incurs paginating one enormous page.
+///
+/// Returns a single chunk (the input unchanged) when the conversation has at
+/// most `messages_per_chunk` messages or no detectable message boundaries.
+fn split_html_into_chunks(html: &str, messages_per_chunk: usize) -> Vec<String> {
+    // Byte offsets where each top-level message begins (just after the newline).
+    let mut starts = Vec::new();
+    let mut from = 0;
+    while let Some(rel) = html[from..].find(TOP_LEVEL_MESSAGE) {
+        let newline = from + rel;
+        let start = newline + 1; // position of '<', just past the '\n'
+        starts.push(start);
+        from = newline + TOP_LEVEL_MESSAGE.len();
+    }
+
+    if messages_per_chunk == 0 || starts.len() <= messages_per_chunk {
+        return vec![html.to_string()];
+    }
+
+    let header = &html[..starts[0]];
+    let footer_pos = html.rfind("</body>").unwrap_or(html.len());
+    let footer = &html[footer_pos..];
+
+    let mut chunks = Vec::new();
+    let mut i = 0;
+    while i < starts.len() {
+        let chunk_start = starts[i];
+        let next = (i + messages_per_chunk).min(starts.len());
+        let chunk_end = if next < starts.len() {
+            starts[next]
+        } else {
+            footer_pos
+        };
+        chunks.push(format!("{header}{body}{footer}", body = &html[chunk_start..chunk_end]));
+        i = next;
+    }
+    chunks
+}
+
 #[cfg(test)]
 mod tests {
     use super::{file_url, has_extension, is_image};
@@ -406,6 +539,42 @@ mod tests {
     fn has_extension_matches_last_component_only() {
         assert!(has_extension(Path::new("Jana O. - 123.html"), "html"));
         assert!(!has_extension(Path::new("Jana O. - 123.html"), "pdf"));
+    }
+
+    #[test]
+    fn split_returns_single_chunk_when_small() {
+        use super::split_html_into_chunks;
+        let html = "<html><head>S</head>\n<div class=\"message\">a</div>\n<div class=\"message\">b</div>\n</body></html>";
+        let chunks = split_html_into_chunks(html, 5);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], html);
+    }
+
+    #[test]
+    fn split_breaks_into_multiple_chunks() {
+        use super::split_html_into_chunks;
+        let html = "<html><head>S</head>\n<div class=\"message\">a</div>\n<div class=\"message\">b</div>\n<div class=\"message\">c</div>\n</body></html>";
+        let chunks = split_html_into_chunks(html, 2);
+        assert_eq!(chunks.len(), 2);
+        for chunk in &chunks {
+            assert!(chunk.starts_with("<html><head>S</head>"));
+            assert!(chunk.trim_end().ends_with("</body></html>"));
+        }
+        assert!(chunks[0].contains(">a</div>") && chunks[0].contains(">b</div>"));
+        assert!(!chunks[0].contains(">c</div>"));
+        assert!(chunks[1].contains(">c</div>"));
+        assert!(!chunks[1].contains(">a</div>"));
+    }
+
+    #[test]
+    fn split_keeps_nested_messages_with_their_parent() {
+        use super::split_html_into_chunks;
+        // The nested message is indented, so it must not open a new chunk.
+        let html = "<html><head>S</head>\n<div class=\"message\">a\n    <div class=\"message\">nested</div>\n</div>\n<div class=\"message\">b</div>\n</body></html>";
+        let chunks = split_html_into_chunks(html, 1);
+        assert_eq!(chunks.len(), 2);
+        assert!(chunks[0].contains("nested"));
+        assert!(chunks[1].contains(">b</div>"));
     }
 
     #[test]
