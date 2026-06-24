@@ -115,3 +115,77 @@ pub(super) fn merge_pdfs(inputs: &[std::path::PathBuf], output: &Path) -> Result
         .map_err(|why| format!("could not write {}: {why}", output.display()))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::merge_pdfs;
+    use lopdf::content::{Content, Operation};
+    use lopdf::{Document, Object, Stream, dictionary};
+    use std::path::Path;
+
+    /// Build a minimal one-page PDF containing `text`.
+    fn make_pdf(path: &Path, text: &str) {
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let font_id = doc.add_object(dictionary! {
+            "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica",
+        });
+        let resources_id = doc.add_object(dictionary! {
+            "Font" => dictionary! { "F1" => font_id },
+        });
+        let content = Content {
+            operations: vec![
+                Operation::new("BT", vec![]),
+                Operation::new("Tf", vec!["F1".into(), 24.into()]),
+                Operation::new("Td", vec![100.into(), 600.into()]),
+                Operation::new("Tj", vec![Object::string_literal(text)]),
+                Operation::new("ET", vec![]),
+            ],
+        };
+        let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "Contents" => content_id,
+            "Resources" => resources_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        let pages = dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![page_id.into()],
+            "Count" => 1,
+        };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        doc.save(path).unwrap();
+    }
+
+    #[test]
+    fn merges_pdfs_preserving_all_pages() {
+        let dir = std::env::temp_dir().join(format!("ime-merge-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.pdf");
+        let b = dir.join("b.pdf");
+        let c = dir.join("c.pdf");
+        let out = dir.join("out.pdf");
+        make_pdf(&a, "Alpha");
+        make_pdf(&b, "Bravo");
+        make_pdf(&c, "Charlie");
+
+        merge_pdfs(&[a, b, c], &out).expect("merge succeeds");
+
+        let merged = Document::load(&out).expect("merged PDF loads");
+        assert_eq!(merged.get_pages().len(), 3, "all pages survive the merge");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn merge_rejects_empty_input() {
+        let out = std::env::temp_dir().join("ime-merge-empty.pdf");
+        assert!(merge_pdfs(&[], &out).is_err());
+    }
+}
