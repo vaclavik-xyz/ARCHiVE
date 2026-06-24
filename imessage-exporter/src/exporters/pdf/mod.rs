@@ -33,8 +33,10 @@ const PDF_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Top-level messages per chunk. Rendering one enormous page is superlinear in
 /// the browser, so each conversation is rendered in chunks of this many
-/// messages and the chunk PDFs are merged back into one document.
-const MESSAGES_PER_CHUNK: usize = 1000;
+/// messages and the chunk PDFs are merged back into one document. Larger chunks
+/// render slower but embed (and thus duplicate) the browser's font subsets
+/// across fewer files, keeping the merged PDF smaller.
+const MESSAGES_PER_CHUNK: usize = 2000;
 
 mod merge;
 mod recompress;

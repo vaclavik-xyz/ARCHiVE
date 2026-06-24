@@ -29,16 +29,23 @@ pub(super) fn recompress_images(path: &Path, quality: u8) -> Result<u64, String>
         .map(|(id, _)| *id)
         .collect();
 
-    // Object ids used as another image's mask must stay lossless: re-encoding a
-    // soft/stencil mask as JPEG would corrupt the transparency it represents.
-    let mask_ids = collect_mask_ids(&doc, &image_ids);
+    // Soft masks (`/SMask`) are smooth grayscale alpha and recompress safely at
+    // high quality; hard masks (`/Mask` references) key on exact values, so they
+    // are left lossless.
+    let (soft_mask_ids, hard_mask_ids) = collect_masks(&doc, &image_ids);
+    let mask_quality = quality.max(88);
 
     let mut recompressed = 0u64;
     for id in image_ids {
-        if mask_ids.contains(&id) {
+        if hard_mask_ids.contains(&id) {
             continue;
         }
-        let Some(jpeg) = encode_as_jpeg(&doc, id, quality) else {
+        let q = if soft_mask_ids.contains(&id) {
+            mask_quality
+        } else {
+            quality
+        };
+        let Some(jpeg) = encode_as_jpeg(&doc, id, q) else {
             continue;
         };
         if let Ok(Object::Stream(stream)) = doc.get_object_mut(id) {
@@ -65,21 +72,26 @@ pub(super) fn recompress_images(path: &Path, quality: u8) -> Result<u64, String>
     Ok(recompressed)
 }
 
-/// Collect object ids referenced as a `/SMask` or `/Mask` by any image, so they
-/// are excluded from recompression.
-fn collect_mask_ids(doc: &Document, image_ids: &[ObjectId]) -> HashSet<ObjectId> {
-    let mut masks = HashSet::new();
+/// Partition mask object ids into soft masks (`/SMask`, recompressible at high
+/// quality) and hard masks (`/Mask` references, left lossless).
+fn collect_masks(
+    doc: &Document,
+    image_ids: &[ObjectId],
+) -> (HashSet<ObjectId>, HashSet<ObjectId>) {
+    let mut soft = HashSet::new();
+    let mut hard = HashSet::new();
     for &id in image_ids {
         let Ok(Object::Stream(stream)) = doc.get_object(id) else {
             continue;
         };
-        for key in [b"SMask".as_slice(), b"Mask".as_slice()] {
-            if let Ok(reference) = stream.dict.get(key).and_then(|o| o.as_reference()) {
-                masks.insert(reference);
-            }
+        if let Ok(reference) = stream.dict.get(b"SMask").and_then(|o| o.as_reference()) {
+            soft.insert(reference);
+        }
+        if let Ok(reference) = stream.dict.get(b"Mask").and_then(|o| o.as_reference()) {
+            hard.insert(reference);
         }
     }
-    masks
+    (soft, hard)
 }
 
 /// Whether `object` is an image XObject stream.
@@ -254,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn recompresses_base_image_but_skips_its_soft_mask() {
+    fn recompresses_base_image_and_soft_mask() {
         let dir = crate::app::test_dir::unique_test_dir("recompress-smask");
         let path = dir.join("smask.pdf");
         let (w, h) = (32usize, 32usize);
@@ -300,32 +312,82 @@ mod tests {
         doc.trailer.set("Root", catalog_id);
         doc.save(&path).unwrap();
 
-        assert_eq!(recompress_images(&path, 70).unwrap(), 1, "only the base image");
+        // Both the base image and its soft mask are recompressed.
+        assert_eq!(recompress_images(&path, 70).unwrap(), 2, "base image and soft mask");
 
         let reloaded = Document::load(&path).unwrap();
-        let base_filter = reloaded
-            .get_object(base_id)
-            .unwrap()
-            .as_stream()
-            .unwrap()
-            .dict
-            .get(b"Filter")
-            .unwrap()
-            .as_name()
-            .unwrap();
-        assert_eq!(base_filter, b"DCTDecode", "base image becomes JPEG");
+        let filter_of = |id| {
+            reloaded
+                .get_object(id)
+                .unwrap()
+                .as_stream()
+                .unwrap()
+                .dict
+                .get(b"Filter")
+                .unwrap()
+                .as_name()
+                .unwrap()
+                .to_vec()
+        };
+        assert_eq!(filter_of(base_id), b"DCTDecode", "base image becomes JPEG");
+        assert_eq!(filter_of(mask_id), b"DCTDecode", "soft mask becomes JPEG");
 
-        let mask_filter = reloaded
-            .get_object(mask_id)
-            .unwrap()
-            .as_stream()
-            .unwrap()
-            .dict
-            .get(b"Filter")
-            .unwrap()
-            .as_name()
-            .unwrap();
-        assert_eq!(mask_filter, b"FlateDecode", "soft mask stays lossless");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn skips_hard_mask_references() {
+        let dir = crate::app::test_dir::unique_test_dir("recompress-hardmask");
+        let path = dir.join("hardmask.pdf");
+        let (w, h) = (16usize, 16usize);
+
+        let mut hard = Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Image",
+                "Width" => w as i64, "Height" => h as i64,
+                "BitsPerComponent" => 8, "ColorSpace" => "DeviceGray",
+            },
+            vec![255u8; w * h],
+        );
+        hard.compress().unwrap();
+
+        let mut doc = Document::with_version("1.5");
+        let hard_id = doc.add_object(hard);
+        let mut base = Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Image",
+                "Width" => w as i64, "Height" => h as i64,
+                "BitsPerComponent" => 8, "ColorSpace" => "DeviceRGB",
+                "Mask" => hard_id,
+            },
+            vec![10u8; w * h * 3],
+        );
+        base.compress().unwrap();
+        doc.add_object(base);
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 16.into(), 16.into()],
+        });
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        doc.save(&path).unwrap();
+
+        // The base recompresses; the hard mask it references is left lossless.
+        assert_eq!(recompress_images(&path, 70).unwrap(), 1, "only the base image");
+        let reloaded = Document::load(&path).unwrap();
+        assert_eq!(
+            reloaded.get_object(hard_id).unwrap().as_stream().unwrap()
+                .dict.get(b"Filter").unwrap().as_name().unwrap(),
+            b"FlateDecode",
+            "hard mask stays lossless"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
