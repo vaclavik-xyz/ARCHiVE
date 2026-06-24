@@ -588,10 +588,7 @@ impl Config {
                     run_export(&mut TXT::new(self)?)?;
                 }
                 ExportType::Pdf => {
-                    // Wired up in the PDF orchestration task.
-                    return Err(RuntimeError::InvalidOptions(
-                        "PDF export is not yet implemented".to_string(),
-                    ));
+                    crate::exporters::pdf::run_pdf_export(self)?;
                 }
             }
         }
