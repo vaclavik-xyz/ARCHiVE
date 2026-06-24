@@ -10,13 +10,13 @@
  match the expected layout) are left untouched.
 */
 
-use std::path::Path;
+use std::{collections::HashSet, fs::rename, path::Path, path::PathBuf};
 
 use jpeg_encoder::{ColorType, Encoder};
 use lopdf::{Document, Object, ObjectId};
 
 /// Recompress every eligible lossless image in `path` to JPEG at `quality`,
-/// saving in place. Returns the number of images converted.
+/// saving atomically. Returns the number of images converted.
 pub(super) fn recompress_images(path: &Path, quality: u8) -> Result<u64, String> {
     let mut doc =
         Document::load(path).map_err(|why| format!("could not load {}: {why}", path.display()))?;
@@ -29,8 +29,15 @@ pub(super) fn recompress_images(path: &Path, quality: u8) -> Result<u64, String>
         .map(|(id, _)| *id)
         .collect();
 
+    // Object ids used as another image's mask must stay lossless: re-encoding a
+    // soft/stencil mask as JPEG would corrupt the transparency it represents.
+    let mask_ids = collect_mask_ids(&doc, &image_ids);
+
     let mut recompressed = 0u64;
     for id in image_ids {
+        if mask_ids.contains(&id) {
+            continue;
+        }
         let Some(jpeg) = encode_as_jpeg(&doc, id, quality) else {
             continue;
         };
@@ -45,10 +52,34 @@ pub(super) fn recompress_images(path: &Path, quality: u8) -> Result<u64, String>
     }
 
     if recompressed > 0 {
-        doc.save(path)
-            .map_err(|why| format!("could not write {}: {why}", path.display()))?;
+        // Write to a sibling and rename, so a failed save never truncates the
+        // already-valid rendered PDF.
+        let mut tmp = path.as_os_str().to_owned();
+        tmp.push(".rc.tmp");
+        let tmp = PathBuf::from(tmp);
+        doc.save(&tmp)
+            .map_err(|why| format!("could not write {}: {why}", tmp.display()))?;
+        rename(&tmp, path)
+            .map_err(|why| format!("could not finalize {}: {why}", path.display()))?;
     }
     Ok(recompressed)
+}
+
+/// Collect object ids referenced as a `/SMask` or `/Mask` by any image, so they
+/// are excluded from recompression.
+fn collect_mask_ids(doc: &Document, image_ids: &[ObjectId]) -> HashSet<ObjectId> {
+    let mut masks = HashSet::new();
+    for &id in image_ids {
+        let Ok(Object::Stream(stream)) = doc.get_object(id) else {
+            continue;
+        };
+        for key in [b"SMask".as_slice(), b"Mask".as_slice()] {
+            if let Ok(reference) = stream.dict.get(key).and_then(|o| o.as_reference()) {
+                masks.insert(reference);
+            }
+        }
+    }
+    masks
 }
 
 /// Whether `object` is an image XObject stream.
@@ -76,6 +107,10 @@ fn encode_as_jpeg(doc: &Document, id: ObjectId, quality: u8) -> Option<Vec<u8>> 
         .and_then(|o| o.as_bool().ok())
         .unwrap_or(false)
     {
+        return None;
+    }
+    // Color-key masking keys on exact pixel values; lossy JPEG would break it.
+    if matches!(dict.get(b"Mask").ok(), Some(Object::Array(_))) {
         return None;
     }
     if dict.get(b"BitsPerComponent").ok()?.as_i64().ok()? != 8 {
@@ -214,6 +249,83 @@ mod tests {
             stream.content.len() < w * h * 3,
             "JPEG is smaller than raw RGB"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recompresses_base_image_but_skips_its_soft_mask() {
+        let dir = crate::app::test_dir::unique_test_dir("recompress-smask");
+        let path = dir.join("smask.pdf");
+        let (w, h) = (32usize, 32usize);
+
+        // Grayscale soft mask.
+        let mut mask = Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Image",
+                "Width" => w as i64, "Height" => h as i64,
+                "BitsPerComponent" => 8, "ColorSpace" => "DeviceGray",
+            },
+            vec![200u8; w * h],
+        );
+        mask.compress().unwrap();
+
+        let mut doc = Document::with_version("1.5");
+        let mask_id = doc.add_object(mask);
+
+        let mut base = Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Image",
+                "Width" => w as i64, "Height" => h as i64,
+                "BitsPerComponent" => 8, "ColorSpace" => "DeviceRGB",
+                "SMask" => mask_id,
+            },
+            vec![64u8; w * h * 3],
+        );
+        base.compress().unwrap();
+        let base_id = doc.add_object(base);
+
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 32.into(), 32.into()],
+        });
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        doc.save(&path).unwrap();
+
+        assert_eq!(recompress_images(&path, 70).unwrap(), 1, "only the base image");
+
+        let reloaded = Document::load(&path).unwrap();
+        let base_filter = reloaded
+            .get_object(base_id)
+            .unwrap()
+            .as_stream()
+            .unwrap()
+            .dict
+            .get(b"Filter")
+            .unwrap()
+            .as_name()
+            .unwrap();
+        assert_eq!(base_filter, b"DCTDecode", "base image becomes JPEG");
+
+        let mask_filter = reloaded
+            .get_object(mask_id)
+            .unwrap()
+            .as_stream()
+            .unwrap()
+            .dict
+            .get(b"Filter")
+            .unwrap()
+            .as_name()
+            .unwrap();
+        assert_eq!(mask_filter, b"FlateDecode", "soft mask stays lossless");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
