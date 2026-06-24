@@ -19,6 +19,10 @@ pub(super) fn merge_pdfs(inputs: &[std::path::PathBuf], output: &Path) -> Result
     }
 
     let mut max_id = 1;
+    // `page_order` preserves page sequence across inputs; `documents_pages`
+    // maps each page id to its object. Page object ids are not guaranteed to be
+    // monotonic, so the ordered vector — not the map's key order — drives `Kids`.
+    let mut page_order: Vec<ObjectId> = Vec::new();
     let mut documents_pages: BTreeMap<ObjectId, Object> = BTreeMap::new();
     let mut documents_objects: BTreeMap<ObjectId, Object> = BTreeMap::new();
     let mut document = Document::with_version("1.5");
@@ -29,8 +33,10 @@ pub(super) fn merge_pdfs(inputs: &[std::path::PathBuf], output: &Path) -> Result
         doc.renumber_objects_with(max_id);
         max_id = doc.max_id + 1;
 
+        // `get_pages` is keyed by page number, so iteration is in page order.
         for (_, object_id) in doc.get_pages() {
             if let Ok(object) = doc.get_object(object_id) {
+                page_order.push(object_id);
                 documents_pages.insert(object_id, object.to_owned());
             }
         }
@@ -84,14 +90,15 @@ pub(super) fn merge_pdfs(inputs: &[std::path::PathBuf], output: &Path) -> Result
         }
     }
 
-    // Rebuild the Pages node with all collected pages as its kids.
+    // Rebuild the Pages node with all collected pages as its kids, in page
+    // order (not object-id order).
     if let Ok(dict) = pages_obj.as_dict() {
         let mut dict = dict.clone();
-        dict.set("Count", documents_pages.len() as u32);
+        dict.set("Count", page_order.len() as u32);
         dict.set(
             "Kids",
-            documents_pages
-                .keys()
+            page_order
+                .iter()
                 .map(|id| Object::Reference(*id))
                 .collect::<Vec<_>>(),
         );
@@ -164,9 +171,8 @@ mod tests {
     }
 
     #[test]
-    fn merges_pdfs_preserving_all_pages() {
-        let dir = std::env::temp_dir().join(format!("ime-merge-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+    fn merges_pdfs_preserving_page_order_and_content() {
+        let dir = crate::app::test_dir::unique_test_dir("merge-pdfs");
         let a = dir.join("a.pdf");
         let b = dir.join("b.pdf");
         let c = dir.join("c.pdf");
@@ -178,14 +184,28 @@ mod tests {
         merge_pdfs(&[a, b, c], &out).expect("merge succeeds");
 
         let merged = Document::load(&out).expect("merged PDF loads");
-        assert_eq!(merged.get_pages().len(), 3, "all pages survive the merge");
+        let pages: Vec<_> = merged.get_pages().into_values().collect();
+        assert_eq!(pages.len(), 3, "all pages survive the merge");
+
+        // Page content must appear in input order, not be dropped or shuffled.
+        let texts: Vec<String> = pages
+            .iter()
+            .map(|&page_id| {
+                let content = merged.get_page_content(page_id).expect("page content");
+                String::from_utf8_lossy(&content).into_owned()
+            })
+            .collect();
+        assert!(texts[0].contains("Alpha"), "first page is Alpha");
+        assert!(texts[1].contains("Bravo"), "second page is Bravo");
+        assert!(texts[2].contains("Charlie"), "third page is Charlie");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn merge_rejects_empty_input() {
-        let out = std::env::temp_dir().join("ime-merge-empty.pdf");
-        assert!(merge_pdfs(&[], &out).is_err());
+        let dir = crate::app::test_dir::unique_test_dir("merge-empty");
+        assert!(merge_pdfs(&[], &dir.join("out.pdf")).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

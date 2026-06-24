@@ -461,8 +461,11 @@ fn is_image(path: &Path) -> bool {
 
 /// Marker that begins each top-level message in the HTML export. Nested
 /// messages (inside replies) are indented, so a match at the start of a line
-/// reliably identifies a top-level message boundary.
-const TOP_LEVEL_MESSAGE: &str = "\n<div class=\"message\">";
+/// reliably identifies a top-level message boundary. The trailing `"` (closing
+/// the `class` value) is included but `>` is not, so both `<div class="message">`
+/// and attributed variants like `<div class="message" id="r-...">` match, while
+/// other classes such as `message_part` do not.
+const TOP_LEVEL_MESSAGE: &str = "\n<div class=\"message\"";
 
 /// Split a conversation's HTML into chunks of at most `messages_per_chunk`
 /// top-level messages, each a self-contained document carrying the original
@@ -564,6 +567,17 @@ mod tests {
         assert!(!chunks[0].contains(">c</div>"));
         assert!(chunks[1].contains(">c</div>"));
         assert!(!chunks[1].contains(">a</div>"));
+    }
+
+    #[test]
+    fn split_counts_attributed_top_level_messages() {
+        use super::split_html_into_chunks;
+        // Reply messages carry an `id`; they must still count as chunk boundaries.
+        let html = "<html><head>S</head>\n<div class=\"message\">a</div>\n<div class=\"message\" id=\"r-1\">b</div>\n<div class=\"message\">c</div>\n</body></html>";
+        let chunks = split_html_into_chunks(html, 1);
+        assert_eq!(chunks.len(), 3);
+        assert!(chunks[1].contains("id=\"r-1\""));
+        assert!(chunks[1].contains(">b</div>"));
     }
 
     #[test]
