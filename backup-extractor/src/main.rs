@@ -16,10 +16,10 @@ struct Cli {
     #[arg(long)]
     backup: PathBuf,
     /// Password for an encrypted backup (ignored for unencrypted backups).
-    #[arg(long)]
+    #[arg(long, global = true)]
     password: Option<String>,
     /// Output directory (required for export commands; unused by `inspect`).
-    #[arg(long, short = 'o')]
+    #[arg(long, short = 'o', global = true)]
     out: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
@@ -99,9 +99,12 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     let device = device_json(backup.device_info());
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
-    let db = out.join(".AddressBook.sqlitedb");
+    // Decrypt the address book to a unique temp file OUTSIDE the export dir, and
+    // always remove it (success or failure) so the plaintext DB never lingers.
+    let tmp = std::env::temp_dir().join(format!("be-addressbook-{}.sqlitedb", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
     let Some(db) = backup
-        .fetch("HomeDomain", "Library/AddressBook/AddressBook.sqlitedb", &db)
+        .fetch("HomeDomain", "Library/AddressBook/AddressBook.sqlitedb", &tmp)
         .map_err(|e| AppError::other(e.to_string()))?
     else {
         // Store absent is a clean success with zero output.
@@ -111,8 +114,9 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
         }));
     };
 
-    let people = contacts::parse(&db).map_err(|e| AppError::other(e.to_string()))?;
+    let parsed = contacts::parse(&db);
     let _ = std::fs::remove_file(&db);
+    let people = parsed.map_err(|e| AppError::other(e.to_string()))?;
 
     let rendered = match format {
         Format::Csv => format::contacts_csv(&people),
@@ -156,5 +160,15 @@ mod cli_tests {
     fn open_error_maps_locked_to_auth_else_other() {
         assert_eq!(open_error(backup_core::BackupError::Locked("x".into())).code, 2);
         assert_eq!(open_error(backup_core::BackupError::Open("x".into())).code, 1);
+    }
+
+    #[test]
+    fn parses_out_after_subcommand() {
+        let cli = Cli::try_parse_from([
+            "backup-extractor", "--backup", "/b", "contacts", "-f", "csv", "-o", "/out",
+        ])
+        .unwrap();
+        assert_eq!(cli.backup, PathBuf::from("/b"));
+        assert_eq!(cli.out, Some(PathBuf::from("/out")));
     }
 }
