@@ -85,6 +85,25 @@ fn run() -> Result<serde_json::Value, AppError> {
     }
 }
 
+/// Fetch and parse the address book from a backup into memory, using a secure
+/// auto-cleaned temp dir (random name, removed on every return path so the
+/// decrypted DB never lingers). `Ok(None)` when the backup has no contacts store.
+fn load_contacts(
+    backup: &backup_core::Backup,
+) -> Result<Option<Vec<contacts::Contact>>, AppError> {
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let tmp = scratch.path().join("AddressBook.sqlitedb");
+    let Some(db) = backup
+        .fetch("HomeDomain", "Library/AddressBook/AddressBook.sqlitedb", &tmp)
+        .map_err(|e| AppError::other(e.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let people = contacts::parse(&db).map_err(|e| AppError::other(e.to_string()))?;
+    Ok(Some(people))
+    // `scratch` drops here, removing the temp dir and the decrypted DB.
+}
+
 fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = Format::from_cli(format)
         .ok_or_else(|| AppError::usage(format!("unknown contacts format `{format}` (use csv, json, vcf, html)")))?;
@@ -99,24 +118,13 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     let device = device_json(backup.device_info());
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
-    // Decrypt the address book to a unique temp file OUTSIDE the export dir, and
-    // always remove it (success or failure) so the plaintext DB never lingers.
-    let tmp = std::env::temp_dir().join(format!("be-addressbook-{}.sqlitedb", std::process::id()));
-    let _ = std::fs::remove_file(&tmp);
-    let Some(db) = backup
-        .fetch("HomeDomain", "Library/AddressBook/AddressBook.sqlitedb", &tmp)
-        .map_err(|e| AppError::other(e.to_string()))?
-    else {
+    let Some(people) = load_contacts(&backup)? else {
         // Store absent is a clean success with zero output.
         return Ok(serde_json::json!({
             "ok": true, "command": "contacts", "count": 0, "outputs": [],
             "note": "this backup has no contacts", "device": device
         }));
     };
-
-    let parsed = contacts::parse(&db);
-    let _ = std::fs::remove_file(&db);
-    let people = parsed.map_err(|e| AppError::other(e.to_string()))?;
 
     let rendered = match format {
         Format::Csv => format::contacts_csv(&people),
