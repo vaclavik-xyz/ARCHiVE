@@ -123,3 +123,36 @@
 - Spec coverage: ExportType (T1), CLI+defaults (T2), PdfConverter (T3), print CSS (T4), orchestration+downscale+Chrome+cleanup+runtime (T5), testing+real-data validation (T6). All spec sections covered.
 - Non-image attachments: handled by reusing HTML exporter's attachment copying (Basic mode keeps video/audio originals in the folder; HTML references them) — no extra task needed.
 - Video poster frames (ffmpeg) are out of scope for the target conversation (photos only; remote has no ffmpeg) — Basic mode keeps originals; revisit if a video-heavy conversation is requested.
+
+---
+
+## Addendum 2026-06-25: Quartz/WebKit PDF engine
+
+The Chrome path works but produces large PDFs. We added a second engine,
+selectable with `--pdf-engine` (`quartz` is the default on macOS, `chrome`
+elsewhere and via the flag). An explicit `--chrome-path` implies `chrome`.
+
+**What we measured (the 35k-message test conversation, ~5,900 pages):**
+The PDF size is dominated by the *text*, not images or the engine.
+Definitive composition at 400 px images: embedded images ~55 MB, message text
+~140 MB, duplicated font subsets ~30–45 MB. iExplorer's 223 MB output is *also*
+searchable; it is smaller mainly because it shares ~8 embedded fonts (we emit
+one subset per page) and packs ~2,800 pages vs our ~5,900. The text of 35k
+messages is the floor every engine pays — so neither engine, nor image
+downscaling, makes this conversation dramatically smaller. Quartz lands at
+~236 MB (≈ iExplorer) while being complete (~4,700 more messages) and
+reproducible.
+
+**Engine design (`native/webkit2pdf/main.swift`, built by `build.rs`):**
+A faceless `WKWebView` renders the HTML. `NSPrintOperation` deadlocks in a
+headless process, so we paginate ourselves: read every top-level message's
+`offsetTop`, break pages at message boundaries (never mid-bubble), render each
+A4 slice with `WKWebView.createPDF` (Quartz output: compact, searchable, keeps
+embedded JPEGs so no recompression pass), and merge slices with PDFKit. The
+helper is compiled for the target arch and embedded via `include_bytes!`;
+`exporters/pdf/mod.rs` extracts it and renders chunks in parallel
+(`QUARTZ_PARALLELISM`).
+
+**Not implemented (diminishing returns, text floor remains):** font sharing
+across pages (super-page render + lopdf MediaBox crop-split, ~ -30–45 MB) and
+denser pagination (smaller print font, less faithful look).
