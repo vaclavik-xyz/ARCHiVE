@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Kontakty</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+.c{border-bottom:1px solid #ddd;padding:8px 0}.n{font-weight:600}.o{color:#666}
+.v{margin-left:12px}</style></head><body>
+<h1>Kontakty ({{ contacts.len() }})</h1>
+{% for c in contacts %}
+<div class="c">
+  <div class="n">{{ c.first }} {{ c.last }}{% if !c.organization.is_empty() %} <span class="o">— {{ c.organization }}</span>{% endif %}</div>
+  {% for p in &c.phones %}<div class="v">📞 {{ p.label }}: {{ p.value }}</div>{% endfor %}
+  {% for e in &c.emails %}<div class="v">✉️ {{ e.label }}: {{ e.value }}</div>{% endfor %}
+  {% if !c.note.is_empty() %}<div class="v">📝 {{ c.note }}</div>{% endif %}
+</div>
+{% endfor %}
+</body></html>
