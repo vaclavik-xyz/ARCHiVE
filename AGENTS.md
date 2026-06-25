@@ -84,14 +84,22 @@ If the backup has no contacts: `"ok": true, "count": 0, "outputs": []` plus a
 
 ## Exit codes
 
+A command that runs far enough to produce a result prints the JSON envelope
+(above) to **stdout** and exits with:
+
 | code | meaning |
 |------|---------|
 | 0 | success (including "store absent — nothing to export") |
-| 2 | `kind: "auth"` — backup locked, or wrong/missing password |
-| 1 | `kind: "usage"` or `"other"` — bad flags, parse/IO error |
+| 2 | `{ "ok": false, "kind": "auth" }` — encrypted backup locked, or wrong/missing password |
+| 1 | `{ "ok": false, "kind": "usage" }` or `"other"` — unknown `-f` format, missing `--out`, parse/IO error |
 
-clap usage errors (e.g. a missing required flag) print plain-text usage to
-stderr and exit 2; run `inspect` or `--help` to learn the contract first.
+**Argument-parsing errors are a separate channel.** If the invocation itself is
+malformed (a missing required flag such as `--backup`, or an unknown flag),
+`clap` prints plain-text usage to **stderr**, writes **nothing** to stdout, and
+also exits **2** — there is no JSON envelope. Disambiguate exit 2 by inspecting
+stdout: a JSON object with `"kind": "auth"` is an authentication failure; empty
+stdout (with usage text on stderr) is a malformed invocation. When unsure, run
+`--help` or `inspect` first to learn the contract.
 
 ## Examples
 
