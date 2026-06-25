@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Open, decrypt, and read files from an on-disk iOS backup.
 
 use std::io::Write;
