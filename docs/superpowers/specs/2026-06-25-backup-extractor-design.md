@@ -39,6 +39,34 @@ engine). The format is chosen at export time with `-f`, exactly like
 - Live Photo pairing / edit-render selection beyond copying the asset files.
 - iCloud backups (only local backups).
 
+## Agent-friendliness (first-class requirement)
+
+The tool must be drivable by autonomous agents without guesswork — this is a
+primary design goal, not a nicety:
+
+- **Machine-readable outcome.** Every command prints exactly one JSON object to
+  **stdout** describing the result: on success `{ "ok": true, "command": "...",
+  "count": N, "outputs": ["<path>", …], "device": {…} }`; on failure
+  `{ "ok": false, "error": "<message>", "kind": "<machine-stable-kind>" }`.
+  Extracted data and reports go to files under `--out`; human-oriented progress
+  goes to **stderr**. An agent never has to scrape prose.
+- **Discovery before extraction.** An `inspect` command reports, as JSON, the
+  device info plus which stores are present and their record counts, so an agent
+  can decide what to extract before running an export.
+- **Never block on a prompt.** The encrypted-backup password comes from
+  `--password` or the `BACKUP_EXTRACTOR_PASSWORD` environment variable; an
+  interactive prompt is used *only* when stdout/stderr is a TTY and neither is
+  set. Headless/agent runs get a clean `kind: "auth"` error instead of hanging.
+- **Stable exit codes.** `0` success (including "store absent — nothing to
+  export"); `2` backup locked / wrong or missing password; `1` usage or other
+  errors. Codes are documented and will not change meaning.
+- **Self-describing + a written contract.** `clap` provides `--help` for every
+  command; a top-level `AGENTS.md` is the canonical reference an agent reads
+  first: every command, flag, the JSON result schema, exit codes, and copy-paste
+  examples. All public `backup-core` items carry rustdoc.
+- **Deterministic.** `--out` is required; output filenames are fixed per type and
+  format (e.g. `contacts.vcf`); no hidden state or current-directory surprises.
+
 ## Prior art (why build anyway)
 
 Researched 2026-06-25. Extracting these artifacts from iOS backups is solved

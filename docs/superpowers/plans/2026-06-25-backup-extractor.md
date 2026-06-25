@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Stand up the `backup-core` library and a `backup-extractor` CLI that extracts **contacts** from an on-disk iOS backup (encrypted or not) to `csv`, `json`, `vcf`, and `html`.
+**Goal:** Stand up the `backup-core` library and an agent-first `backup-extractor` CLI that **inspects** an on-disk iOS backup (encrypted or not) and extracts **contacts** to `csv`, `json`, `vcf`, and `html` — every command emitting one JSON result object with stable exit codes, documented in `AGENTS.md`.
 
 **Architecture:** `backup-core` wraps `crabapple` and is the only crate that opens/decrypts a backup and yields plain files. `backup-extractor` is a `clap` CLI whose `contacts` subcommand reads `AddressBook.sqlitedb` (via `backup-core`) into a `Vec<Contact>` model and renders it through format functions. SQLite is read read-only with `rusqlite`.
 
@@ -17,6 +17,7 @@
 - A missing store (data not in the backup) is a clean exit, never a panic.
 - crabapple opens unencrypted backups too; pass `Authentication::Password(pw.unwrap_or_default())` — the password is ignored when the backup is not encrypted.
 - This increment defers: addresses on contacts, the `pdf` format, and the calls/photos/notes extractors. Each is a follow-on plan reusing these patterns.
+- **Agent-friendliness (first-class):** every command prints exactly one JSON result object to **stdout** (`{ "ok": true, "command", "count", "outputs", "device" }` or `{ "ok": false, "error", "kind" }`); progress/logs go to **stderr**. Password comes from `--password` or `BACKUP_EXTRACTOR_PASSWORD` (no blocking prompt in headless runs). Exit codes are stable: `0` success (incl. store-absent), `2` auth/locked backup, `1` usage/other. All public `backup-core` items carry `///` rustdoc. A top-level `AGENTS.md` is the canonical agent contract.
 
 ---
 
@@ -836,9 +837,9 @@ struct Cli {
     /// Password for an encrypted backup (ignored for unencrypted backups).
     #[arg(long)]
     password: Option<String>,
-    /// Output directory.
+    /// Output directory (required for export commands; unused by `inspect`).
     #[arg(long, short = 'o')]
-    out: PathBuf,
+    out: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -853,33 +854,73 @@ enum Command {
     },
 }
 
+/// A failure with a machine-stable `kind` and a documented exit code.
+struct AppError {
+    kind: &'static str,
+    message: String,
+    code: i32,
+}
+impl AppError {
+    fn auth(m: impl Into<String>) -> Self { Self { kind: "auth", message: m.into(), code: 2 } }
+    fn usage(m: impl Into<String>) -> Self { Self { kind: "usage", message: m.into(), code: 1 } }
+    fn other(m: impl Into<String>) -> Self { Self { kind: "other", message: m.into(), code: 1 } }
+}
+
+fn device_json(d: &backup_core::DeviceInfo) -> serde_json::Value {
+    serde_json::json!({ "name": d.device_name, "ios": d.product_version, "udid": d.udid })
+}
+
 fn main() {
-    if let Err(why) = run() {
-        eprintln!("error: {why}");
-        std::process::exit(1);
+    match run() {
+        // Success: one JSON object to stdout (the agent contract).
+        Ok(value) => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+        Err(e) => {
+            let envelope = serde_json::json!({ "ok": false, "error": e.message, "kind": e.kind });
+            println!("{}", serde_json::to_string_pretty(&envelope).unwrap());
+            std::process::exit(e.code);
+        }
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<serde_json::Value, AppError> {
     let cli = Cli::parse();
+    // Password: flag wins, else env var; never prompt in this increment.
+    let password = cli
+        .password
+        .clone()
+        .or_else(|| std::env::var("BACKUP_EXTRACTOR_PASSWORD").ok());
     match &cli.command {
-        Command::Contacts { format } => run_contacts(&cli, format),
+        Command::Contacts { format } => run_contacts(&cli, password.as_deref(), format),
     }
 }
 
-fn run_contacts(cli: &Cli, format: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = Format::from_cli(format)
-        .ok_or_else(|| format!("unknown contacts format `{format}` (use csv, json, vcf, html)"))?;
+        .ok_or_else(|| AppError::usage(format!("unknown contacts format `{format}` (use csv, json, vcf, html)")))?;
 
-    let backup = backup_core::Backup::open(&cli.backup, cli.password.as_deref())?;
-    std::fs::create_dir_all(&cli.out)?;
-    let db = cli.out.join(".AddressBook.sqlitedb");
-    let Some(db) = backup.fetch("HomeDomain", "Library/AddressBook/AddressBook.sqlitedb", &db)? else {
-        println!("This backup has no contacts; nothing to export.");
-        return Ok(());
+    let out = cli
+        .out
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--out is required to export contacts"))?;
+
+    let backup = backup_core::Backup::open(&cli.backup, password)
+        .map_err(|e| AppError::auth(e.to_string()))?;
+    let device = device_json(backup.device_info());
+
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let db = out.join(".AddressBook.sqlitedb");
+    let Some(db) = backup
+        .fetch("HomeDomain", "Library/AddressBook/AddressBook.sqlitedb", &db)
+        .map_err(|e| AppError::other(e.to_string()))?
+    else {
+        // Store absent is a clean success with zero output.
+        return Ok(serde_json::json!({
+            "ok": true, "command": "contacts", "count": 0, "outputs": [],
+            "note": "this backup has no contacts", "device": device
+        }));
     };
 
-    let people = contacts::parse(&db)?;
+    let people = contacts::parse(&db).map_err(|e| AppError::other(e.to_string()))?;
     let _ = std::fs::remove_file(&db);
 
     let rendered = match format {
@@ -888,10 +929,15 @@ fn run_contacts(cli: &Cli, format: &str) -> Result<(), Box<dyn std::error::Error
         Format::Vcf => format::contacts_vcard(&people),
         Format::Html => format::contacts_html(&people),
     };
-    let out_file = cli.out.join(format!("contacts.{}", format.extension()));
-    std::fs::write(&out_file, rendered)?;
-    println!("Wrote {} contact(s) to {}", people.len(), out_file.display());
-    Ok(())
+    let out_file = out.join(format!("contacts.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    // Human progress to stderr; the machine-readable result goes to stdout.
+    eprintln!("Wrote {} contact(s) to {}", people.len(), out_file.display());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "contacts", "count": people.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
 }
 
 #[cfg(test)]
@@ -926,7 +972,10 @@ Expected: PASS once it compiles (the CLI types are defined in this same file). I
 
 Run (only where a real backup exists):
 `cargo run -p backup-extractor -- --backup "<backup dir>" --password "<pw>" -o /tmp/be-out contacts -f vcf`
-Expected: prints `Wrote N contact(s) to /tmp/be-out/contacts.vcf` and the file opens in Contacts.app.
+Expected: **stdout** is a single JSON object
+`{ "ok": true, "command": "contacts", "count": N, "outputs": ["/tmp/be-out/contacts.vcf"], "device": {…} }`;
+**stderr** has `Wrote N contact(s) …`; the `.vcf` opens in Contacts.app. Also try
+`BACKUP_EXTRACTOR_PASSWORD=<pw> cargo run -p backup-extractor -- --backup "<dir>" -o /tmp/be-out contacts -f json` to confirm the env-var password path.
 
 - [ ] **Step 4: Run the full crate test suite**
 
@@ -942,43 +991,323 @@ git commit -m "feat: wire contacts subcommand end to end"
 
 ---
 
-## Task 7: Docs and review
+## Task 7: `inspect` discovery command
 
 **Files:**
-- Create: `backup-extractor/README.md`
+- Modify: `backup-core/src/lib.rs` (add `has`)
+- Modify: `backup-extractor/src/main.rs` (`StoreStatus`, `inspect_json`, `Inspect` command, `run_inspect`)
 
-- [ ] **Step 1: Write the README**
+**Interfaces:**
+- Consumes: `Backup`, `contacts::parse`, `device_json`, `AppError` from earlier tasks.
+- Produces: `pub fn Backup::has(&self, domain: &str, relative_path: &str) -> Result<bool, BackupError>` and an `inspect` subcommand.
 
-Create `backup-extractor/README.md`:
+- [ ] **Step 1: Add `has` to backup-core**
+
+Add to `impl Backup` in `backup-core/src/lib.rs`:
+
+```rust
+    /// Whether the backup contains a file at `domain` + `relative_path`, without
+    /// decrypting it.
+    pub fn has(&self, domain: &str, relative_path: &str) -> Result<bool, BackupError> {
+        let entries = self
+            .raw
+            .entries()
+            .map_err(|why| BackupError::Open(why.to_string()))?;
+        Ok(entries
+            .iter()
+            .any(|e| e.domain == domain && e.relative_path == relative_path))
+    }
+```
+
+Run: `cargo build -p backup-core` — Expected: compiles.
+
+- [ ] **Step 2: Write the failing test for `inspect_json`**
+
+Add to the `cli_tests` module in `backup-extractor/src/main.rs`:
+
+```rust
+    #[test]
+    fn inspect_json_has_typed_stores() {
+        let device = serde_json::json!({ "name": "iPhone", "ios": "17.5", "udid": "x" });
+        let v = inspect_json(
+            device,
+            &[
+                StoreStatus { name: "contacts", present: true, supported: true, count: Some(12) },
+                StoreStatus { name: "calls", present: true, supported: false, count: None },
+            ],
+        );
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["command"], "inspect");
+        assert_eq!(v["stores"][0]["type"], "contacts");
+        assert_eq!(v["stores"][0]["count"], 12);
+        assert_eq!(v["stores"][1]["count"], serde_json::Value::Null);
+        assert_eq!(v["stores"][1]["supported"], false);
+    }
+```
+
+- [ ] **Step 3: Run the test to verify it fails**
+
+Run: `cargo test -p backup-extractor inspect_json`
+Expected: FAIL to compile — `inspect_json`, `StoreStatus` undefined.
+
+- [ ] **Step 4: Implement the command**
+
+Add the `Inspect` variant to `enum Command`:
+
+```rust
+    /// Report (as JSON) which data stores the backup contains. Read-only;
+    /// does not need `--out`.
+    Inspect,
+```
+
+Add its dispatch arm inside the `match &cli.command` in `run`:
+
+```rust
+        Command::Inspect => run_inspect(&cli, password.as_deref()),
+```
+
+Add the supporting code after `run_contacts`:
+
+```rust
+/// One row of `inspect` output: a known store and its availability.
+struct StoreStatus {
+    name: &'static str,
+    present: bool,
+    supported: bool,
+    count: Option<usize>,
+}
+
+fn inspect_json(device: serde_json::Value, stores: &[StoreStatus]) -> serde_json::Value {
+    let stores: Vec<_> = stores
+        .iter()
+        .map(|s| serde_json::json!({
+            "type": s.name, "present": s.present, "supported": s.supported, "count": s.count
+        }))
+        .collect();
+    serde_json::json!({ "ok": true, "command": "inspect", "device": device, "stores": stores })
+}
+
+// Known stores: (type, supported-in-this-build, domain, relative_path).
+const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
+    ("contacts", true, "HomeDomain", "Library/AddressBook/AddressBook.sqlitedb"),
+    ("calls", false, "HomeDomain", "Library/CallHistoryDB/CallHistory.storedata"),
+    ("photos", false, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
+    ("notes", false, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
+];
+
+fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, AppError> {
+    let backup = backup_core::Backup::open(&cli.backup, password)
+        .map_err(|e| AppError::auth(e.to_string()))?;
+    let device = device_json(backup.device_info());
+
+    let mut stores = Vec::new();
+    for &(name, supported, domain, path) in KNOWN_STORES {
+        let present = backup.has(domain, path).map_err(|e| AppError::other(e.to_string()))?;
+        // Only supported + present stores get a record count.
+        let count = if supported && present {
+            let tmp = std::env::temp_dir().join(format!("be-inspect-{}.sqlitedb", std::process::id()));
+            backup
+                .fetch(domain, path, &tmp)
+                .map_err(|e| AppError::other(e.to_string()))?
+                .map(|db| {
+                    let c = contacts::parse(&db).map(|p| p.len()).unwrap_or(0);
+                    let _ = std::fs::remove_file(&db);
+                    c
+                })
+        } else {
+            None
+        };
+        stores.push(StoreStatus { name, present, supported, count });
+    }
+    Ok(inspect_json(device, &stores))
+}
+```
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run: `cargo test -p backup-extractor`
+Expected: PASS (incl. `inspect_json_has_typed_stores`).
+
+- [ ] **Step 6: Manually verify (env-gated)**
+
+Run: `cargo run -p backup-extractor -- --backup "<dir>" --password "<pw>" inspect`
+Expected: stdout JSON with `device` and a `stores` array; `contacts` has a real `count`, the rest `present` true/false with `count: null`.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add backup-core/src/lib.rs backup-extractor/src/main.rs
+git commit -m "feat: inspect command reporting available stores as JSON"
+```
+
+---
+
+## Task 8: Agent contract docs (AGENTS.md) and review
+
+**Files:**
+- Create: `AGENTS.md` (workspace root — the canonical agent contract)
+- Create: `backup-extractor/README.md` (short human pointer)
+- Modify: `backup-core/src/lib.rs` (enforce rustdoc with `#![warn(missing_docs)]`)
+
+**Interfaces:**
+- Consumes: the CLI behavior, JSON envelope, and exit codes from Tasks 6–7.
+- Produces: documentation only.
+
+- [ ] **Step 1: Write `AGENTS.md` (the contract an agent reads first)**
+
+Create `AGENTS.md` at the workspace root. It MUST stay in sync with the actual
+CLI; update it whenever a command, flag, JSON field, or exit code changes.
+
+````markdown
+# Agent guide: backup-extractor
+
+`backup-extractor` extracts personal data from an on-disk iOS backup. It is
+built to be driven by agents: every command prints exactly one JSON object to
+**stdout**, human progress goes to **stderr**, and exit codes are stable.
+
+## Invocation
+
+```
+backup-extractor --backup <DIR> [--password <PW>] [-o <OUT>] <COMMAND> [ARGS]
+```
+
+- `--backup <DIR>` (required): the iOS backup directory.
+- `--password <PW>` (optional): encrypted-backup password. May also be supplied
+  via the `BACKUP_EXTRACTOR_PASSWORD` environment variable. Not needed for
+  unencrypted backups. Headless runs never prompt.
+- `-o, --out <OUT>`: output directory. Required for export commands; ignored by
+  `inspect`.
+
+## Commands
+
+### `inspect` — discover what is extractable (read-only)
+
+```
+backup-extractor --backup <DIR> [--password <PW>] inspect
+```
+
+stdout:
+
+```json
+{
+  "ok": true,
+  "command": "inspect",
+  "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." },
+  "stores": [
+    { "type": "contacts", "present": true, "supported": true, "count": 1234 },
+    { "type": "calls", "present": true, "supported": false, "count": null },
+    { "type": "photos", "present": true, "supported": false, "count": null },
+    { "type": "notes", "present": false, "supported": false, "count": null }
+  ]
+}
+```
+
+`supported` = this build can export the type; `present` = the store exists in
+this backup; `count` is filled only for supported + present stores.
+
+### `contacts` — export contacts
+
+```
+backup-extractor --backup <DIR> [--password <PW>] -o <OUT> contacts -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | vcf | html`. Writes `<OUT>/contacts.<ext>`.
+
+stdout:
+
+```json
+{
+  "ok": true,
+  "command": "contacts",
+  "count": 1234,
+  "outputs": ["<OUT>/contacts.vcf"],
+  "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." }
+}
+```
+
+If the backup has no contacts: `"ok": true, "count": 0, "outputs": []` plus a
+`"note"` field.
+
+## Result envelope (every command)
+
+- Success → the per-command object above (always `"ok": true`).
+- Failure →
+
+```json
+{ "ok": false, "error": "<human message>", "kind": "auth|usage|other" }
+```
+
+`kind` is machine-stable; the `error` text may change.
+
+## Exit codes
+
+| code | meaning |
+|------|---------|
+| 0 | success (including "store absent — nothing to export") |
+| 2 | `kind: "auth"` — backup locked, or wrong/missing password |
+| 1 | `kind: "usage"` or `"other"` — bad flags, parse/IO error |
+
+clap usage errors (e.g. a missing required flag) print plain-text usage to
+stderr and exit 2; run `inspect` or `--help` to learn the contract first.
+
+## Examples
+
+```bash
+# Discover
+backup-extractor --backup ~/Backup/UDID inspect
+
+# Export contacts as importable vCard
+backup-extractor --backup ~/Backup/UDID -o /tmp/out contacts -f vcf
+
+# Encrypted backup via env var (no prompt)
+BACKUP_EXTRACTOR_PASSWORD=secret \
+  backup-extractor --backup ~/Backup/UDID -o /tmp/out contacts -f json
+```
+````
+
+- [ ] **Step 2: Write a short `backup-extractor/README.md`**
 
 ```markdown
 # backup-extractor
 
-Extract personal data from an on-disk iOS backup (encrypted or not).
+Extract personal data from an on-disk iOS backup (encrypted or not) into
+machine-readable and human-readable formats.
 
-## Usage
+**Agents:** read [`../AGENTS.md`](../AGENTS.md) — every command emits one JSON
+object on stdout with stable exit codes.
+
+## Quick start
 
 ```
-backup-extractor --backup <backup-dir> [--password <pw>] -o <out> contacts -f <csv|json|vcf|html>
+backup-extractor --backup <backup-dir> inspect
+backup-extractor --backup <backup-dir> -o <out> contacts -f vcf
 ```
-
-`--password` is only needed for encrypted backups. A backup that does not
-contain a given data store exits cleanly without writing output.
 
 ## Status
 
+- [x] inspect (store discovery)
 - [x] contacts (csv, json, vcf, html)
-- [ ] calls
-- [ ] photos
-- [ ] notes
-- [ ] pdf output
+- [ ] calls · photos · notes · pdf output
 ```
 
-- [ ] **Step 2: Commit and run roborev**
+- [ ] **Step 3: Enforce rustdoc on the public API**
+
+Add as the first line of `backup-core/src/lib.rs`:
+
+```rust
+#![warn(missing_docs)]
+```
+
+Run: `cargo build -p backup-core`
+Expected: no `missing_docs` warnings (every public item — `BackupError`,
+`Backup`, `DeviceInfo`, and their public fields/methods — already has `///`
+docs; add any that the warning flags).
+
+- [ ] **Step 4: Commit and run roborev**
 
 ```bash
-git add backup-extractor/README.md
-git commit -m "docs: backup-extractor usage and status"
+git add AGENTS.md backup-extractor/README.md backup-core/src/lib.rs
+git commit -m "docs: AGENTS.md contract, README, and rustdoc enforcement"
 ```
 
 Then `roborev show HEAD` and fix any reported findings before opening a PR.
@@ -987,7 +1316,8 @@ Then `roborev show HEAD` and fix any reported findings before opening a PR.
 
 ## Self-Review notes
 
-- **Spec coverage (this increment):** `backup-core` open/decrypt/fetch (Tasks 2–3 ✓), Contacts extractor + model (Task 4 ✓), structured + readable formats csv/json/vcf/html (Task 5 ✓), CLI mirroring `imessage-exporter` (Task 6 ✓), missing-store clean exit (Task 6 ✓), fixture-based tests (Tasks 4–5 ✓), encrypted-backup support via password (Tasks 2,6 ✓).
-- **Deferred to follow-on plans (per spec build order):** calls, photos, notes extractors; the `pdf` formatter and the shared `webkit2pdf` engine; contact addresses (`property 5` + `ABMultiValueEntry`). Each reuses the extractor + formatter pattern established here.
-- **Type consistency:** `Contact`/`Labeled` fields and the `Format` variants are referenced identically across Tasks 4–6; `Backup::{open,device_info,fetch}` signatures match between `backup-core` (Tasks 2–3) and the CLI (Task 6).
+- **Spec coverage (this increment):** `backup-core` open/decrypt/fetch/has (Tasks 2–3, 7 ✓), Contacts extractor + model (Task 4 ✓), structured + readable formats csv/json/vcf/html (Task 5 ✓), CLI mirroring `imessage-exporter` (Task 6 ✓), missing-store clean exit (Task 6 ✓), fixture-based tests (Tasks 4–5 ✓), encrypted-backup support via password (Tasks 2,6 ✓).
+- **Agent-friendliness coverage:** JSON result envelope on stdout + progress on stderr (Task 6 ✓), `inspect` discovery command (Task 7 ✓), `--password`/`BACKUP_EXTRACTOR_PASSWORD` with no headless prompt (Task 6 ✓), stable exit codes 0/1/2 (Task 6 ✓), `AGENTS.md` contract + `#![warn(missing_docs)]` rustdoc (Task 8 ✓).
+- **Deferred to follow-on plans (per spec build order):** calls, photos, notes extractors; the `pdf` formatter and the shared `webkit2pdf` engine; contact addresses (`property 5` + `ABMultiValueEntry`). Each reuses the extractor + formatter pattern established here, and MUST keep the JSON envelope, exit codes, and `AGENTS.md` in sync.
+- **Type consistency:** `Contact`/`Labeled` fields and the `Format` variants are referenced identically across Tasks 4–6; `AppError`, `device_json`, `StoreStatus`, and `inspect_json` are defined in Task 6/7 and reused consistently; `Backup::{open,device_info,fetch,has}` signatures match between `backup-core` (Tasks 2–3, 7) and the CLI (Tasks 6–7).
 - **Risk:** crabapple's exact `lockdown()`/`udid()`/`entries()`/`decrypt_entry()` names were taken from docs.rs; if a name differs in 0.4.7, adjust in Task 2/3 only (the rest of the plan is insulated by `backup-core`).
