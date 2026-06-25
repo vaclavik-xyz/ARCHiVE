@@ -812,24 +812,48 @@ pub fn contacts_json(contacts: &[Contact]) -> String {
     serde_json::to_string_pretty(contacts).unwrap()
 }
 
+/// Escape a vCard 3.0 (RFC 2426) text VALUE: backslash, semicolon, comma,
+/// newlines. Prevents malformed cards / property injection from arbitrary data.
+fn vcard_escape(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace(';', "\\;")
+        .replace(',', "\\,")
+        .replace('\r', "")
+        .replace('\n', "\\n")
+}
+
+/// Sanitize a vCard PARAMETER value (e.g. a TYPE label): drop characters that
+/// would break the parameter or inject structure.
+fn vcard_param(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| !matches!(c, '\r' | '\n' | ';' | ':' | ',' | '"' | '\\'))
+        .collect()
+}
+
 pub fn contacts_vcard(contacts: &[Contact]) -> String {
     let mut out = String::new();
     for c in contacts {
         out.push_str("BEGIN:VCARD\r\nVERSION:3.0\r\n");
-        out.push_str(&format!("N:{};{};;;\r\n", c.last, c.first));
-        let fticket = format!("{} {}", c.first, c.last);
-        out.push_str(&format!("FN:{}\r\n", fticket.trim()));
+        out.push_str(&format!("N:{};{};;;\r\n", vcard_escape(&c.last), vcard_escape(&c.first)));
+        // vCard 3.0 requires a non-empty FN; fall back to the organization for
+        // company-only contacts.
+        let full_name = format!("{} {}", c.first, c.last);
+        let full_name = full_name.trim();
+        let fn_value = if full_name.is_empty() { c.organization.as_str() } else { full_name };
+        out.push_str(&format!("FN:{}\r\n", vcard_escape(fn_value)));
         if !c.organization.is_empty() {
-            out.push_str(&format!("ORG:{}\r\n", c.organization));
+            out.push_str(&format!("ORG:{}\r\n", vcard_escape(&c.organization)));
         }
         for p in &c.phones {
-            out.push_str(&format!("TEL;TYPE={}:{}\r\n", p.label, p.value));
+            out.push_str(&format!("TEL;TYPE={}:{}\r\n", vcard_param(&p.label), vcard_escape(&p.value)));
         }
         for e in &c.emails {
-            out.push_str(&format!("EMAIL;TYPE={}:{}\r\n", e.label, e.value));
+            out.push_str(&format!("EMAIL;TYPE={}:{}\r\n", vcard_param(&e.label), vcard_escape(&e.value)));
         }
         if !c.note.is_empty() {
-            out.push_str(&format!("NOTE:{}\r\n", c.note));
+            out.push_str(&format!("NOTE:{}\r\n", vcard_escape(&c.note)));
         }
         out.push_str("END:VCARD\r\n");
     }
