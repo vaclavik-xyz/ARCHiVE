@@ -1,5 +1,10 @@
 //! Open, decrypt, and read files from an on-disk iOS backup.
 
+use std::path::Path;
+
+use crabapple::error::BackupError as CrabError;
+use crabapple::{Authentication, Backup as RawBackup};
+
 /// Errors from opening or reading a backup.
 #[derive(Debug)]
 pub enum BackupError {
@@ -27,11 +32,6 @@ impl From<std::io::Error> for BackupError {
     }
 }
 
-use std::path::Path;
-
-use crabapple::error::BackupError as CrabError;
-use crabapple::{Authentication, Backup as RawBackup};
-
 /// Device metadata read from the backup's lockdown record.
 pub struct DeviceInfo {
     /// User-facing device name (e.g. "Jana's iPhone").
@@ -42,8 +42,18 @@ pub struct DeviceInfo {
     pub udid: String,
 }
 
+/// Pick the crabapple authentication for a given optional password.
+/// No (or empty) password → `None` (unencrypted backups); otherwise `Password`.
+fn choose_auth(password: Option<&str>) -> Authentication {
+    match password {
+        Some(pw) if !pw.is_empty() => Authentication::Password(pw.to_string()),
+        _ => Authentication::None,
+    }
+}
+
 /// An opened (and, if needed, unlocked) iOS backup.
 pub struct Backup {
+    // First read by the file-fetch methods added in the next change; unused here.
     #[allow(dead_code)]
     raw: RawBackup,
     info: DeviceInfo,
@@ -59,10 +69,7 @@ impl Backup {
     /// unencrypted backup. `Backup::open` accepts any `AsRef<Path>`, so the
     /// directory path is passed through directly.
     pub fn open(dir: &Path, password: Option<&str>) -> Result<Self, BackupError> {
-        let auth = match password {
-            Some(pw) if !pw.is_empty() => Authentication::Password(pw.to_string()),
-            _ => Authentication::None,
-        };
+        let auth = choose_auth(password);
         let raw = match RawBackup::open(dir, &auth) {
             Ok(raw) => raw,
             // A password was supplied but the backup is not encrypted: retry unauthenticated.
@@ -113,5 +120,23 @@ mod tests {
     fn error_display_is_readable() {
         let e = BackupError::Open("bad password".into());
         assert_eq!(e.to_string(), "could not open backup: bad password");
+    }
+
+    #[test]
+    fn choose_auth_none_without_password() {
+        assert!(matches!(choose_auth(None), Authentication::None));
+    }
+
+    #[test]
+    fn choose_auth_none_for_empty_password() {
+        assert!(matches!(choose_auth(Some("")), Authentication::None));
+    }
+
+    #[test]
+    fn choose_auth_password_when_present() {
+        match choose_auth(Some("secret")) {
+            Authentication::Password(p) => assert_eq!(p, "secret"),
+            other => panic!("expected Password, got {other:?}"),
+        }
     }
 }
