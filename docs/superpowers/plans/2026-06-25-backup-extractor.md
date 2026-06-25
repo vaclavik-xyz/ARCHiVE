@@ -15,7 +15,7 @@
 - Pin dependency versions with `=` to match the existing style (e.g. `clap = "=4.6.1"`, `rusqlite = { version = "=0.40.0", features = ["bundled"] }`, `askama = "=0.16.0"`).
 - `backup-core` is the ONLY place that may reference `crabapple` or backup/encryption details.
 - A missing store (data not in the backup) is a clean exit, never a panic.
-- crabapple opens unencrypted backups too; pass `Authentication::Password(pw.unwrap_or_default())` — the password is ignored when the backup is not encrypted.
+- crabapple rejects a password on an *unencrypted* backup (returns `BackupError::NotEncrypted`) and requires one for an *encrypted* backup (`PasswordOrKeyRequired`). `Backup::open` therefore selects `Authentication::None` when no (or an empty) password is supplied and `Authentication::Password` otherwise, and transparently retries with `None` if a supplied password hits `NotEncrypted`. Unencrypted backups (our primary case) need no password. (Verified against crabapple 0.4.7 source.)
 - This increment defers: addresses on contacts, the `pdf` format, and the calls/photos/notes extractors. Each is a follow-on plan reusing these patterns.
 - **Agent-friendliness (first-class):** every command prints exactly one JSON result object to **stdout** (`{ "ok": true, "command", "count", "outputs", "device" }` or `{ "ok": false, "error", "kind" }`); progress/logs go to **stderr**. Password comes from `--password` or `BACKUP_EXTRACTOR_PASSWORD` (no blocking prompt in headless runs). Exit codes are stable: `0` success (incl. store-absent), `2` auth/locked backup, `1` usage/other. All public `backup-core` items carry `///` rustdoc. A top-level `AGENTS.md` is the canonical agent contract.
 
@@ -196,12 +196,16 @@ Insert into `backup-core/src/lib.rs` (above the tests):
 ```rust
 use std::path::Path;
 
+use crabapple::error::BackupError as CrabError;
 use crabapple::{Authentication, Backup as RawBackup};
 
 /// Device metadata read from the backup's lockdown record.
 pub struct DeviceInfo {
+    /// User-facing device name (e.g. "Jana's iPhone").
     pub device_name: String,
+    /// iOS version string (e.g. "17.5").
     pub product_version: String,
+    /// The backup's unique device identifier.
     pub udid: String,
 }
 
@@ -214,23 +218,38 @@ pub struct Backup {
 impl Backup {
     /// Open a backup directory. `password` is required for encrypted backups and
     /// ignored for unencrypted ones.
+    ///
+    /// crabapple rejects a password on an unencrypted backup (`NotEncrypted`), so
+    /// we pick `Authentication::None` when no password is given and transparently
+    /// retry without one if a supplied password turns out to be for an
+    /// unencrypted backup. `Backup::open` accepts any `AsRef<Path>`, so the
+    /// directory path is passed through directly.
     pub fn open(dir: &Path, password: Option<&str>) -> Result<Self, BackupError> {
-        let dir_str = dir.to_str().ok_or_else(|| {
-            BackupError::Open(format!("non-UTF-8 backup path {}", dir.display()))
-        })?;
-        let auth = Authentication::Password(password.unwrap_or_default().to_string());
-        let raw = RawBackup::open(dir_str, &auth)
-            .map_err(|why| BackupError::Open(why.to_string()))?;
+        let auth = match password {
+            Some(pw) if !pw.is_empty() => Authentication::Password(pw.to_string()),
+            _ => Authentication::None,
+        };
+        let raw = match RawBackup::open(dir, &auth) {
+            Ok(raw) => raw,
+            // A password was supplied but the backup is not encrypted: retry unauthenticated.
+            Err(CrabError::NotEncrypted) => RawBackup::open(dir, &Authentication::None)
+                .map_err(|why| BackupError::Open(why.to_string()))?,
+            Err(why) => return Err(BackupError::Open(why.to_string())),
+        };
 
         let lockdown = raw.lockdown();
         let info = DeviceInfo {
             device_name: lockdown.device_name.clone(),
             product_version: lockdown.product_version.clone(),
-            udid: raw.udid().map_err(|why| BackupError::Open(why.to_string()))?,
+            udid: raw
+                .udid()
+                .map_err(|why| BackupError::Open(why.to_string()))?
+                .to_string(),
         };
         Ok(Backup { raw, info })
     }
 
+    /// Device metadata read from the backup's lockdown record.
     pub fn device_info(&self) -> &DeviceInfo {
         &self.info
     }
@@ -1320,4 +1339,4 @@ Then `roborev show HEAD` and fix any reported findings before opening a PR.
 - **Agent-friendliness coverage:** JSON result envelope on stdout + progress on stderr (Task 6 ✓), `inspect` discovery command (Task 7 ✓), `--password`/`BACKUP_EXTRACTOR_PASSWORD` with no headless prompt (Task 6 ✓), stable exit codes 0/1/2 (Task 6 ✓), `AGENTS.md` contract + `#![warn(missing_docs)]` rustdoc (Task 8 ✓).
 - **Deferred to follow-on plans (per spec build order):** calls, photos, notes extractors; the `pdf` formatter and the shared `webkit2pdf` engine; contact addresses (`property 5` + `ABMultiValueEntry`). Each reuses the extractor + formatter pattern established here, and MUST keep the JSON envelope, exit codes, and `AGENTS.md` in sync.
 - **Type consistency:** `Contact`/`Labeled` fields and the `Format` variants are referenced identically across Tasks 4–6; `AppError`, `device_json`, `StoreStatus`, and `inspect_json` are defined in Task 6/7 and reused consistently; `Backup::{open,device_info,fetch,has}` signatures match between `backup-core` (Tasks 2–3, 7) and the CLI (Tasks 6–7).
-- **Risk:** crabapple's exact `lockdown()`/`udid()`/`entries()`/`decrypt_entry()` names were taken from docs.rs; if a name differs in 0.4.7, adjust in Task 2/3 only (the rest of the plan is insulated by `backup-core`).
+- **Risk:** crabapple's API was verified against the 0.4.7 source: `Backup::open<P: AsRef<Path>>`, `udid(&self) -> Result<&str>`, `lockdown(&self) -> &ManifestLockdownInfo` (`device_name`, `product_version`), `entries(&self) -> Result<Vec<BackupFileEntry>>` (`BackupFileEntry { file_id, domain, relative_path, .. }`), `decrypt_entry(&self, &BackupFileEntry) -> Result<Vec<u8>>`. The one behavioural gotcha (passing a password to an unencrypted backup errors with `NotEncrypted`) is handled in `Backup::open` (Task 2). Any remaining surprises are isolated to `backup-core` (Tasks 2–3).
