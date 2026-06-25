@@ -12,6 +12,8 @@ pub enum BackupError {
     /// The backup could not be opened or decrypted (wrong/missing password,
     /// corrupt manifest, …). Carries a human-readable reason.
     Open(String),
+    /// The backup is encrypted and the password was missing or incorrect.
+    Locked(String),
     /// An I/O error while materializing a decrypted file.
     Io(std::io::Error),
 }
@@ -20,6 +22,7 @@ impl std::fmt::Display for BackupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BackupError::Open(why) => write!(f, "could not open backup: {why}"),
+            BackupError::Locked(why) => write!(f, "backup is locked: {why}"),
             BackupError::Io(why) => write!(f, "backup I/O error: {why}"),
         }
     }
@@ -52,6 +55,18 @@ fn choose_auth(password: Option<&str>) -> Authentication {
     }
 }
 
+/// Classify a crabapple open failure: missing/incorrect password → `Locked`
+/// (the caller can surface an auth error); anything else (bad path, corrupt
+/// manifest, I/O) → `Open`.
+fn map_open_err(why: CrabError) -> BackupError {
+    match why {
+        CrabError::PasswordOrKeyRequired | CrabError::PasswordOrKeyIncorrect => {
+            BackupError::Locked(why.to_string())
+        }
+        other => BackupError::Open(other.to_string()),
+    }
+}
+
 /// An opened (and, if needed, unlocked) iOS backup.
 pub struct Backup {
     raw: RawBackup,
@@ -72,9 +87,10 @@ impl Backup {
         let raw = match RawBackup::open(dir, &auth) {
             Ok(raw) => raw,
             // A password was supplied but the backup is not encrypted: retry unauthenticated.
-            Err(CrabError::NotEncrypted) => RawBackup::open(dir, &Authentication::None)
-                .map_err(|why| BackupError::Open(why.to_string()))?,
-            Err(why) => return Err(BackupError::Open(why.to_string())),
+            Err(CrabError::NotEncrypted) => {
+                RawBackup::open(dir, &Authentication::None).map_err(map_open_err)?
+            }
+            Err(why) => return Err(map_open_err(why)),
         };
 
         let lockdown = raw.lockdown();
@@ -160,6 +176,13 @@ mod tests {
     fn error_display_is_readable() {
         let e = BackupError::Open("bad password".into());
         assert_eq!(e.to_string(), "could not open backup: bad password");
+    }
+
+    #[test]
+    fn classifies_auth_and_other_open_errors() {
+        assert!(matches!(map_open_err(CrabError::PasswordOrKeyRequired), BackupError::Locked(_)));
+        assert!(matches!(map_open_err(CrabError::PasswordOrKeyIncorrect), BackupError::Locked(_)));
+        assert!(matches!(map_open_err(CrabError::ManifestDbNotFound), BackupError::Open(_)));
     }
 
     #[test]

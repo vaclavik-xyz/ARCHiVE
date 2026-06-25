@@ -51,6 +51,16 @@ fn device_json(d: &backup_core::DeviceInfo) -> serde_json::Value {
     serde_json::json!({ "name": d.device_name, "ios": d.product_version, "udid": d.udid })
 }
 
+/// Map a `backup-core` open error to the right `AppError`: a locked/encrypted
+/// backup needs auth (exit 2); anything else is a usage/other error (exit 1).
+fn open_error(e: backup_core::BackupError) -> AppError {
+    let msg = e.to_string();
+    match e {
+        backup_core::BackupError::Locked(_) => AppError::auth(msg),
+        _ => AppError::other(msg),
+    }
+}
+
 fn main() {
     match run() {
         // Success: one JSON object to stdout (the agent contract).
@@ -85,7 +95,7 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
         .ok_or_else(|| AppError::usage("--out is required to export contacts"))?;
 
     let backup = backup_core::Backup::open(&cli.backup, password)
-        .map_err(|e| AppError::auth(e.to_string()))?;
+        .map_err(open_error)?;
     let device = device_json(backup.device_info());
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
@@ -140,5 +150,11 @@ mod cli_tests {
     #[test]
     fn rejects_missing_backup() {
         assert!(Cli::try_parse_from(["backup-extractor", "-o", "/out", "contacts", "-f", "csv"]).is_err());
+    }
+
+    #[test]
+    fn open_error_maps_locked_to_auth_else_other() {
+        assert_eq!(open_error(backup_core::BackupError::Locked("x".into())).code, 2);
+        assert_eq!(open_error(backup_core::BackupError::Open("x".into())).code, 1);
     }
 }
