@@ -1,6 +1,7 @@
 //! Open, decrypt, and read files from an on-disk iOS backup.
 
-use std::path::Path;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use crabapple::error::BackupError as CrabError;
 use crabapple::{Authentication, Backup as RawBackup};
@@ -53,8 +54,6 @@ fn choose_auth(password: Option<&str>) -> Authentication {
 
 /// An opened (and, if needed, unlocked) iOS backup.
 pub struct Backup {
-    // First read by the file-fetch methods added in the next change; unused here.
-    #[allow(dead_code)]
     raw: RawBackup,
     info: DeviceInfo,
 }
@@ -93,6 +92,35 @@ impl Backup {
     /// Device metadata read from the backup's lockdown record.
     pub fn device_info(&self) -> &DeviceInfo {
         &self.info
+    }
+
+    /// Decrypt the file at `domain` + `relative_path` to `dest` and return its
+    /// path, or `Ok(None)` when the backup contains no such file.
+    pub fn fetch(
+        &self,
+        domain: &str,
+        relative_path: &str,
+        dest: &Path,
+    ) -> Result<Option<PathBuf>, BackupError> {
+        let entries = self
+            .raw
+            .entries()
+            .map_err(|why| BackupError::Open(why.to_string()))?;
+        let Some(entry) = entries
+            .into_iter()
+            .find(|e| e.domain == domain && e.relative_path == relative_path)
+        else {
+            return Ok(None);
+        };
+        let bytes = self
+            .raw
+            .decrypt_entry(&entry)
+            .map_err(|why| BackupError::Open(why.to_string()))?;
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::File::create(dest)?.write_all(&bytes)?;
+        Ok(Some(dest.to_path_buf()))
     }
 }
 
@@ -137,6 +165,43 @@ mod tests {
         match choose_auth(Some("secret")) {
             Authentication::Password(p) => assert_eq!(p, "secret"),
             other => panic!("expected Password, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fetch_returns_none_for_absent_file() {
+        let Ok(dir) = std::env::var("BACKUP_EXTRACTOR_TEST_BACKUP") else {
+            eprintln!("skipping: set BACKUP_EXTRACTOR_TEST_BACKUP to run");
+            return;
+        };
+        let pw = std::env::var("BACKUP_EXTRACTOR_TEST_PASSWORD").ok();
+        let backup = Backup::open(std::path::Path::new(&dir), pw.as_deref()).unwrap();
+        let out = std::env::temp_dir().join("be-fetch-none.bin");
+        let got = backup
+            .fetch("NoSuchDomain", "no/such/file", &out)
+            .expect("fetch should not error");
+        assert!(got.is_none(), "absent file must return None");
+    }
+
+    #[test]
+    fn fetch_writes_address_book_when_present() {
+        let Ok(dir) = std::env::var("BACKUP_EXTRACTOR_TEST_BACKUP") else {
+            eprintln!("skipping: set BACKUP_EXTRACTOR_TEST_BACKUP to run");
+            return;
+        };
+        let pw = std::env::var("BACKUP_EXTRACTOR_TEST_PASSWORD").ok();
+        let backup = Backup::open(std::path::Path::new(&dir), pw.as_deref()).unwrap();
+        let out = std::env::temp_dir().join("be-fetch-ab.sqlitedb");
+        let _ = std::fs::remove_file(&out);
+        if let Some(path) = backup
+            .fetch("HomeDomain", "Library/AddressBook/AddressBook.sqlitedb", &out)
+            .unwrap()
+        {
+            // SQLite files start with the "SQLite format 3\0" magic.
+            let head = std::fs::read(&path).unwrap();
+            assert!(head.starts_with(b"SQLite format 3\0"), "decrypted a real DB");
+        } else {
+            eprintln!("backup has no AddressBook; skipping content assertion");
         }
     }
 }
