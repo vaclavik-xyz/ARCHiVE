@@ -42,6 +42,26 @@ fn join_labeled(items: &[crate::contacts::Labeled]) -> String {
         .join("; ")
 }
 
+/// Escape a vCard 3.0 (RFC 2426) text VALUE: backslash, semicolon, comma, newlines.
+/// Prevents malformed cards or property injection from arbitrary contact data.
+fn vcard_escape(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace(';', "\\;")
+        .replace(',', "\\,")
+        .replace('\r', "")
+        .replace('\n', "\\n")
+}
+
+/// Sanitize a vCard PARAMETER value (e.g. a TYPE label): drop characters that
+/// would break the parameter or inject structure.
+fn vcard_param(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| !matches!(c, '\r' | '\n' | ';' | ':' | ',' | '"' | '\\'))
+        .collect()
+}
+
 pub fn contacts_csv(contacts: &[Contact]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record(["first", "last", "organization", "phones", "emails", "note"])
@@ -68,20 +88,22 @@ pub fn contacts_vcard(contacts: &[Contact]) -> String {
     let mut out = String::new();
     for c in contacts {
         out.push_str("BEGIN:VCARD\r\nVERSION:3.0\r\n");
-        out.push_str(&format!("N:{};{};;;\r\n", c.last, c.first));
+        out.push_str(&format!("N:{};{};;;\r\n", vcard_escape(&c.last), vcard_escape(&c.first)));
         let full_name = format!("{} {}", c.first, c.last);
-        out.push_str(&format!("FN:{}\r\n", full_name.trim()));
+        let full_name = full_name.trim();
+        let fn_value = if full_name.is_empty() { c.organization.as_str() } else { full_name };
+        out.push_str(&format!("FN:{}\r\n", vcard_escape(fn_value)));
         if !c.organization.is_empty() {
-            out.push_str(&format!("ORG:{}\r\n", c.organization));
+            out.push_str(&format!("ORG:{}\r\n", vcard_escape(&c.organization)));
         }
         for p in &c.phones {
-            out.push_str(&format!("TEL;TYPE={}:{}\r\n", p.label, p.value));
+            out.push_str(&format!("TEL;TYPE={}:{}\r\n", vcard_param(&p.label), vcard_escape(&p.value)));
         }
         for e in &c.emails {
-            out.push_str(&format!("EMAIL;TYPE={}:{}\r\n", e.label, e.value));
+            out.push_str(&format!("EMAIL;TYPE={}:{}\r\n", vcard_param(&e.label), vcard_escape(&e.value)));
         }
         if !c.note.is_empty() {
-            out.push_str(&format!("NOTE:{}\r\n", c.note));
+            out.push_str(&format!("NOTE:{}\r\n", vcard_escape(&c.note)));
         }
         out.push_str("END:VCARD\r\n");
     }
@@ -159,5 +181,38 @@ mod tests {
         assert!(out.contains("<html"));
         assert!(out.contains("Jan Novák"));
         assert!(out.contains("+420776452878"));
+    }
+
+    #[test]
+    fn vcard_escapes_special_chars_and_resists_injection() {
+        let contacts = vec![Contact {
+            first: "A;B,C".into(),
+            last: "D\\E".into(),
+            organization: "Org\nInjected".into(),
+            phones: vec![Labeled { label: "Mobile".into(), value: "123".into() }],
+            emails: vec![],
+            note: "line1\nTEL:evil@inject".into(),
+        }];
+        let out = contacts_vcard(&contacts);
+        assert!(out.contains("N:D\\\\E;A\\;B\\,C;;;"));
+        assert!(out.contains("ORG:Org\\nInjected"));
+        assert!(out.contains("NOTE:line1\\nTEL:evil@inject"));
+        // The injected newline did NOT create a real standalone property line.
+        assert!(!out.contains("\nTEL:evil@inject"));
+    }
+
+    #[test]
+    fn vcard_fn_falls_back_to_organization() {
+        let contacts = vec![Contact {
+            first: String::new(),
+            last: String::new(),
+            organization: "Firma s.r.o.".into(),
+            phones: vec![],
+            emails: vec![],
+            note: String::new(),
+        }];
+        let out = contacts_vcard(&contacts);
+        assert!(out.contains("FN:Firma s.r.o."));
+        assert!(!out.contains("FN:\r\n"));
     }
 }
