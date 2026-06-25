@@ -33,6 +33,9 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Report (as JSON) which data stores the backup contains. Read-only;
+    /// does not need `--out`.
+    Inspect,
 }
 
 /// A failure with a machine-stable `kind` and a documented exit code.
@@ -82,6 +85,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         .or_else(|| std::env::var("BACKUP_EXTRACTOR_PASSWORD").ok());
     match &cli.command {
         Command::Contacts { format } => run_contacts(&cli, password.as_deref(), format),
+        Command::Inspect => run_inspect(&cli, password.as_deref()),
     }
 }
 
@@ -143,6 +147,53 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     }))
 }
 
+/// One row of `inspect` output: a known store and its availability.
+struct StoreStatus {
+    name: &'static str,
+    present: bool,
+    supported: bool,
+    count: Option<usize>,
+}
+
+fn inspect_json(device: serde_json::Value, stores: &[StoreStatus]) -> serde_json::Value {
+    let stores: Vec<_> = stores
+        .iter()
+        .map(|s| serde_json::json!({
+            "type": s.name, "present": s.present, "supported": s.supported, "count": s.count
+        }))
+        .collect();
+    serde_json::json!({ "ok": true, "command": "inspect", "device": device, "stores": stores })
+}
+
+// Known stores: (type, supported-in-this-build, domain, relative_path).
+const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
+    ("contacts", true, "HomeDomain", "Library/AddressBook/AddressBook.sqlitedb"),
+    ("calls", false, "HomeDomain", "Library/CallHistoryDB/CallHistory.storedata"),
+    ("photos", false, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
+    ("notes", false, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
+];
+
+fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, AppError> {
+    let backup = backup_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let device = device_json(backup.device_info());
+
+    let mut stores = Vec::new();
+    for &(name, supported, domain, path) in KNOWN_STORES {
+        let present = backup
+            .has(domain, path)
+            .map_err(|e| AppError::other(e.to_string()))?;
+        // Contacts is the only supported store this build can count; load it via
+        // the secure shared helper rather than a hand-rolled temp path.
+        let count = if supported && present {
+            load_contacts(&backup)?.map(|p| p.len())
+        } else {
+            None
+        };
+        stores.push(StoreStatus { name, present, supported, count });
+    }
+    Ok(inspect_json(device, &stores))
+}
+
 #[cfg(test)]
 mod cli_tests {
     use super::*;
@@ -156,6 +207,7 @@ mod cli_tests {
         assert_eq!(cli.backup, PathBuf::from("/b"));
         match cli.command {
             Command::Contacts { format } => assert_eq!(format, "vcf"),
+            _ => panic!("expected Contacts"),
         }
     }
 
@@ -178,5 +230,23 @@ mod cli_tests {
         .unwrap();
         assert_eq!(cli.backup, PathBuf::from("/b"));
         assert_eq!(cli.out, Some(PathBuf::from("/out")));
+    }
+
+    #[test]
+    fn inspect_json_has_typed_stores() {
+        let device = serde_json::json!({ "name": "iPhone", "ios": "17.5", "udid": "x" });
+        let v = inspect_json(
+            device,
+            &[
+                StoreStatus { name: "contacts", present: true, supported: true, count: Some(12) },
+                StoreStatus { name: "calls", present: true, supported: false, count: None },
+            ],
+        );
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["command"], "inspect");
+        assert_eq!(v["stores"][0]["type"], "contacts");
+        assert_eq!(v["stores"][0]["count"], 12);
+        assert_eq!(v["stores"][1]["count"], serde_json::Value::Null);
+        assert_eq!(v["stores"][1]["supported"], false);
     }
 }

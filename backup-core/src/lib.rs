@@ -110,6 +110,18 @@ impl Backup {
         &self.info
     }
 
+    /// Whether the backup contains a file at `domain` + `relative_path`, without
+    /// decrypting it.
+    pub fn has(&self, domain: &str, relative_path: &str) -> Result<bool, BackupError> {
+        let entries = self
+            .raw
+            .entries()
+            .map_err(|why| BackupError::Open(why.to_string()))?;
+        Ok(entries
+            .iter()
+            .any(|e| e.domain == domain && e.relative_path == relative_path))
+    }
+
     /// Decrypt the file at `domain` + `relative_path` to `dest` and return its
     /// path, or `Ok(None)` when the backup contains no such file.
     pub fn fetch(
