@@ -69,8 +69,8 @@ pub fn contacts_vcard(contacts: &[Contact]) -> String {
     for c in contacts {
         out.push_str("BEGIN:VCARD\r\nVERSION:3.0\r\n");
         out.push_str(&format!("N:{};{};;;\r\n", c.last, c.first));
-        let fticket = format!("{} {}", c.first, c.last);
-        out.push_str(&format!("FN:{}\r\n", fticket.trim()));
+        let full_name = format!("{} {}", c.first, c.last);
+        out.push_str(&format!("FN:{}\r\n", full_name.trim()));
         if !c.organization.is_empty() {
             out.push_str(&format!("ORG:{}\r\n", c.organization));
         }
@@ -118,6 +118,9 @@ mod tests {
     fn format_from_cli_parses_known() {
         assert_eq!(Format::from_cli("csv"), Some(Format::Csv));
         assert_eq!(Format::from_cli("VCF"), Some(Format::Vcf));
+        assert_eq!(Format::from_cli("json"), Some(Format::Json));
+        assert_eq!(Format::from_cli("html"), Some(Format::Html));
+        assert_eq!(Format::from_cli("vcard"), Some(Format::Vcf)); // lowercase alias
         assert_eq!(Format::from_cli("nope"), None);
     }
 
@@ -140,6 +143,7 @@ mod tests {
     fn vcard_is_wellformed() {
         let out = contacts_vcard(&sample());
         assert!(out.contains("BEGIN:VCARD"));
+        assert!(out.contains("BEGIN:VCARD\r\n"));
         assert!(out.contains("VERSION:3.0"));
         assert!(out.contains("FN:Jan Novák"));
         assert!(out.contains("N:Novák;Jan;;;"));
