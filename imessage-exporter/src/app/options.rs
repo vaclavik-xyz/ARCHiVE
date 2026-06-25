@@ -47,9 +47,11 @@ pub const OPTION_MAX_IMAGE_SIZE: &str = "max-image-size";
 pub const OPTION_IMAGE_QUALITY: &str = "image-quality";
 pub const OPTION_CHROME_PATH: &str = "chrome-path";
 pub const OPTION_KEEP_HTML: &str = "keep-html";
+pub const OPTION_PDF_ENGINE: &str = "pdf-engine";
 
 // Other CLI Text
 pub const SUPPORTED_FILE_TYPES: &str = "txt, html, pdf";
+pub const SUPPORTED_PDF_ENGINES: &str = "quartz, chrome";
 pub const SUPPORTED_PLATFORMS: &str = "macOS, iOS";
 pub const SUPPORTED_ATTACHMENT_MANAGER_MODES: &str = "clone, basic, full, disabled";
 /// Default longest-edge pixel cap for image attachments in PDF exports.
@@ -62,10 +64,56 @@ pub const ABOUT: &str = concat!(
     "to find problems with the iMessage database."
 );
 
+// MARK: PDF Engine
+/// Rendering engine that turns the HTML export into PDF.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum PdfEngine {
+    /// Headless Chrome/Chromium/Edge (Skia). Cross-platform.
+    Chrome,
+    /// Bundled WebKit + Quartz helper (macOS only). Produces far smaller,
+    /// searchable PDFs because Quartz writes compact text and preserves
+    /// embedded JPEGs instead of re-storing them losslessly.
+    Quartz,
+}
+
+impl PdfEngine {
+    /// Parse the `--pdf-engine` value.
+    pub fn from_cli(value: &str) -> Option<Self> {
+        match value.to_lowercase().as_str() {
+            "chrome" | "chromium" | "edge" => Some(Self::Chrome),
+            "quartz" | "webkit" => Some(Self::Quartz),
+            _ => None,
+        }
+    }
+}
+
+impl Default for PdfEngine {
+    fn default() -> Self {
+        // Quartz is the smaller, searchable default wherever the helper can be
+        // built; elsewhere fall back to the cross-platform Chrome path.
+        if cfg!(target_os = "macos") {
+            Self::Quartz
+        } else {
+            Self::Chrome
+        }
+    }
+}
+
+impl std::fmt::Display for PdfEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Chrome => write!(f, "chrome"),
+            Self::Quartz => write!(f, "quartz"),
+        }
+    }
+}
+
 // MARK: PDF Options
 /// Tuning knobs for the PDF exporter.
 #[derive(Debug, PartialEq, Eq)]
 pub struct PdfOptions {
+    /// Rendering engine.
+    pub engine: PdfEngine,
     /// Longest-edge pixel cap applied to image attachments before embedding.
     pub max_image_size: u32,
     /// JPEG quality (0-100) applied when re-encoding downscaled images.
@@ -79,6 +127,7 @@ pub struct PdfOptions {
 impl Default for PdfOptions {
     fn default() -> Self {
         Self {
+            engine: PdfEngine::default(),
             max_image_size: 1600,
             image_quality: 80,
             chrome_path: None,
@@ -177,6 +226,14 @@ impl Options {
         let show_progress = !args.get_flag(OPTION_NO_PROGRESS);
         let chrome_path: Option<&String> = args.get_one(OPTION_CHROME_PATH);
         let keep_html = args.get_flag(OPTION_KEEP_HTML);
+        let pdf_engine: PdfEngine = match args.get_one::<String>(OPTION_PDF_ENGINE) {
+            Some(value) => PdfEngine::from_cli(value).ok_or_else(|| {
+                RuntimeError::InvalidOptions(format!(
+                    "{value} is not a valid PDF engine! Must be one of <{SUPPORTED_PDF_ENGINES}>"
+                ))
+            })?,
+            None => PdfEngine::default(),
+        };
         let max_image_size: u32 = args
             .get_one::<String>(OPTION_MAX_IMAGE_SIZE)
             .map(|s| s.parse())
@@ -228,6 +285,7 @@ impl Options {
                 (explicit(OPTION_IMAGE_QUALITY), OPTION_IMAGE_QUALITY),
                 (chrome_path.is_some(), OPTION_CHROME_PATH),
                 (keep_html, OPTION_KEEP_HTML),
+                (explicit(OPTION_PDF_ENGINE), OPTION_PDF_ENGINE),
             ];
             for (set, opt) in pdf_only {
                 if set {
@@ -398,6 +456,7 @@ impl Options {
             contacts_path: contacts_path.cloned().map(PathBuf::from),
             show_progress,
             pdf: PdfOptions {
+                engine: pdf_engine,
                 max_image_size,
                 image_quality,
                 chrome_path: chrome_path.cloned(),
@@ -637,6 +696,13 @@ fn get_command() -> Command {
                 .action(ArgAction::SetTrue)
                 .display_order(20),
         )
+        .arg(
+            Arg::new(OPTION_PDF_ENGINE)
+                .long(OPTION_PDF_ENGINE)
+                .help("PDF export only: rendering engine to use\n`quartz` (macOS only, default there) renders with WebKit + Apple's Quartz PDF engine: much smaller, searchable PDFs with embedded JPEGs preserved\n`chrome` renders with a headless Chrome/Chromium/Edge browser and works on every platform\n")
+                .value_name(SUPPORTED_PDF_ENGINES)
+                .display_order(21),
+        )
 }
 
 #[cfg(test)]
@@ -684,7 +750,7 @@ mod arg_tests {
     use crate::app::{
         compatibility::attachment_manager::{AttachmentManager, AttachmentManagerMode},
         export_type::ExportType,
-        options::{Options, PdfOptions, get_command, validate_path},
+        options::{Options, PdfEngine, PdfOptions, get_command, validate_path},
         test_dir::unique_test_dir,
     };
 
@@ -1012,6 +1078,40 @@ mod arg_tests {
         let command = get_command();
         let args =
             command.get_matches_from(["imessage-exporter", "-f", "pdf", "--image-quality", "0"]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn pdf_engine_parses_known_values() {
+        assert_eq!(PdfEngine::from_cli("quartz"), Some(PdfEngine::Quartz));
+        assert_eq!(PdfEngine::from_cli("WebKit"), Some(PdfEngine::Quartz));
+        assert_eq!(PdfEngine::from_cli("chrome"), Some(PdfEngine::Chrome));
+        assert_eq!(PdfEngine::from_cli("chromium"), Some(PdfEngine::Chrome));
+        assert_eq!(PdfEngine::from_cli("nonsense"), None);
+    }
+
+    #[test]
+    fn pdf_export_accepts_engine_override() {
+        let command = get_command();
+        let args =
+            command.get_matches_from(["imessage-exporter", "-f", "pdf", "--pdf-engine", "chrome"]);
+        let actual = Options::from_args(&args).unwrap();
+        assert_eq!(actual.pdf.engine, PdfEngine::Chrome);
+    }
+
+    #[test]
+    fn pdf_export_rejects_invalid_engine() {
+        let command = get_command();
+        let args =
+            command.get_matches_from(["imessage-exporter", "-f", "pdf", "--pdf-engine", "skia"]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn rejects_pdf_engine_for_other_formats() {
+        let command = get_command();
+        let args =
+            command.get_matches_from(["imessage-exporter", "-f", "txt", "--pdf-engine", "quartz"]);
         assert!(Options::from_args(&args).is_err());
     }
 

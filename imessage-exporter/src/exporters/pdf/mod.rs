@@ -38,31 +38,72 @@ const PDF_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// across fewer files, keeping the merged PDF smaller.
 const MESSAGES_PER_CHUNK: usize = 2000;
 
+/// Number of chunks rendered concurrently by the Quartz engine. Each render is
+/// its own process; a small cap keeps memory bounded and avoids window-server
+/// contention while still cutting wall-clock time several-fold.
+const QUARTZ_PARALLELISM: usize = 3;
+
 mod merge;
 mod recompress;
+mod webkit;
+
+use std::sync::{Mutex, atomic::{AtomicUsize, Ordering}};
 
 use crate::{
     app::{
         compatibility::models::{Converter, ImageConverter, PdfConverter},
         error::RuntimeError,
+        options::PdfEngine,
         runtime::Config,
     },
     exporters::{html::HTML, shared::driver::run_export},
 };
+
+/// A resolved rendering backend with everything needed to convert a chunk.
+enum Engine {
+    /// Headless browser launcher path/name.
+    Chrome(String),
+    /// Extracted `webkit2pdf` helper path.
+    Quartz(PathBuf),
+}
 
 /// Render the selected conversations to PDF.
 ///
 /// Resolves a browser first so a missing dependency fails fast, then runs the
 /// HTML export, downscales images, and converts each conversation to PDF.
 pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
-    let chrome = PdfConverter::resolve(config.options.pdf.chrome_path.as_deref()).ok_or_else(
-        || {
-            RuntimeError::InvalidOptions(
-                "No Chrome, Chromium, or Edge found. Install Google Chrome or pass --chrome-path <path/to/chrome>"
-                    .to_string(),
-            )
-        },
-    )?;
+    let work_root =
+        std::env::temp_dir().join(format!("imessage-exporter-pdf-{}", std::process::id()));
+    let _ = create_dir_all(&work_root);
+
+    // Resolve the rendering backend first so a missing dependency fails fast.
+    let (engine, engine_name) = match config.options.pdf.engine {
+        PdfEngine::Quartz => {
+            if !webkit::is_available() {
+                let _ = remove_dir_all(&work_root);
+                return Err(RuntimeError::InvalidOptions(
+                    "The Quartz PDF engine is only available in macOS builds with swiftc; rebuild on macOS or pass --pdf-engine chrome"
+                        .to_string(),
+                ));
+            }
+            let helper = webkit::extract_helper(&work_root).map_err(|why| {
+                RuntimeError::InvalidOptions(format!("could not set up the webkit2pdf helper: {why}"))
+            })?;
+            (Engine::Quartz(helper), "WebKit/Quartz".to_string())
+        }
+        PdfEngine::Chrome => {
+            let chrome = PdfConverter::resolve(config.options.pdf.chrome_path.as_deref())
+                .ok_or_else(|| {
+                    let _ = remove_dir_all(&work_root);
+                    RuntimeError::InvalidOptions(
+                        "No Chrome, Chromium, or Edge found. Install Google Chrome or pass --chrome-path <path/to/chrome>"
+                            .to_string(),
+                    )
+                })?;
+            let name = chrome.launcher.clone();
+            (Engine::Chrome(chrome.launcher), name)
+        }
+    };
 
     // Remember the HTML files that already existed so we only ever convert
     // and delete intermediates this run produces, never the user's unrelated
@@ -89,25 +130,22 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
         .filter(|file| !preexisting.contains(file))
         .collect();
     if html_files.is_empty() {
+        let _ = remove_dir_all(&work_root);
         eprintln!("No HTML files were produced, so there is nothing to convert to PDF.");
         return Ok(());
     }
 
     println!(
-        "Converting {} conversation(s) to PDF using {}...",
+        "Converting {} conversation(s) to PDF using {engine_name}...",
         html_files.len(),
-        chrome.launcher
     );
 
-    let work_root =
-        std::env::temp_dir().join(format!("imessage-exporter-chrome-{}", std::process::id()));
-    let _ = create_dir_all(&work_root);
     let mut failures = 0u32;
     let image_quality = config.options.pdf.image_quality;
     for (idx, html) in html_files.iter().enumerate() {
         let pdf = html.with_extension("pdf");
         match convert_conversation(
-            &chrome.launcher,
+            &engine,
             html,
             &pdf,
             export_path,
@@ -129,7 +167,7 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
             }
         }
     }
-    // The throwaway browser profiles are no longer needed.
+    // The throwaway browser profiles / extracted helper are no longer needed.
     let _ = remove_dir_all(&work_root);
 
     if failures > 0 {
@@ -245,7 +283,7 @@ fn resize_image(converter: &ImageConverter, file: &Path, max_size: u32, quality:
 /// document. Splitting sidesteps the superlinear cost of paginating one huge
 /// page in the browser.
 fn convert_conversation(
-    launcher: &str,
+    engine: &Engine,
     html_path: &Path,
     pdf_path: &Path,
     export_path: &Path,
@@ -257,11 +295,21 @@ fn convert_conversation(
         .map_err(|why| format!("could not read {}: {why}", html_path.display()))?;
     let chunks = split_html_into_chunks(&html, MESSAGES_PER_CHUNK);
 
-    // A fresh browser profile per render avoids singleton-lock contention.
+    // Small conversations render in one shot.
     if chunks.len() <= 1 {
-        let profile = work_root.join(format!("{idx}-0"));
-        html_to_pdf(launcher, html_path, pdf_path, &profile)?;
-        recompress_quietly(pdf_path, image_quality);
+        match engine {
+            Engine::Chrome(launcher) => {
+                // A fresh browser profile per render avoids singleton-lock contention.
+                let profile = work_root.join(format!("{idx}-0"));
+                html_to_pdf(launcher, html_path, pdf_path, &profile)?;
+                // Chrome stores images losslessly; recompress them to JPEG.
+                recompress_quietly(pdf_path, image_quality);
+            }
+            Engine::Quartz(helper) => {
+                // Quartz keeps embedded JPEGs as-is, so no recompression pass.
+                webkit::render(helper, html_path, pdf_path, export_path)?;
+            }
+        }
         return Ok(());
     }
 
@@ -282,23 +330,32 @@ fn convert_conversation(
     let mut chunk_pdfs = Vec::new();
     let mut error: Option<String> = None;
 
+    // Write every chunk's HTML up front.
     for (ci, chunk) in chunks.iter().enumerate() {
         let chunk_html = export_path.join(format!(".{stem}.chunk{ci}.html"));
         if let Err(why) = write(&chunk_html, chunk) {
             error = Some(format!("could not write chunk {ci}: {why}"));
             break;
         }
-        chunk_htmls.push(chunk_html.clone());
+        chunk_htmls.push(chunk_html);
+        chunk_pdfs.push(work_root.join(format!("{idx}-{ci}.pdf")));
+    }
 
-        let chunk_pdf = work_root.join(format!("{idx}-{ci}.pdf"));
-        let profile = work_root.join(format!("{idx}-{ci}"));
-        if let Err(why) = html_to_pdf(launcher, &chunk_html, &chunk_pdf, &profile) {
-            error = Some(format!("chunk {ci} failed: {why}"));
-            break;
-        }
-        // Shrink the chunk's lossless images to JPEG before merging.
-        recompress_quietly(&chunk_pdf, image_quality);
-        chunk_pdfs.push(chunk_pdf);
+    // Render the chunks (Chrome sequentially, Quartz in parallel).
+    if error.is_none() {
+        error = match engine {
+            Engine::Chrome(launcher) => render_chunks_chrome(
+                launcher,
+                &chunk_htmls,
+                &chunk_pdfs,
+                work_root,
+                idx,
+                image_quality,
+            ),
+            Engine::Quartz(helper) => {
+                render_chunks_quartz(helper, &chunk_htmls, &chunk_pdfs, export_path)
+            }
+        };
     }
 
     let result = match error {
@@ -321,6 +378,61 @@ fn convert_conversation(
         let _ = remove_file(chunk_html);
     }
     result
+}
+
+/// Render chunk HTML files to PDF with Chrome, one at a time. Each chunk's
+/// lossless images are recompressed to JPEG before merging. Returns the first
+/// error encountered, or [`None`] on success.
+fn render_chunks_chrome(
+    launcher: &str,
+    chunk_htmls: &[PathBuf],
+    chunk_pdfs: &[PathBuf],
+    work_root: &Path,
+    idx: usize,
+    image_quality: u8,
+) -> Option<String> {
+    for (ci, (chunk_html, chunk_pdf)) in chunk_htmls.iter().zip(chunk_pdfs).enumerate() {
+        let profile = work_root.join(format!("{idx}-{ci}"));
+        if let Err(why) = html_to_pdf(launcher, chunk_html, chunk_pdf, &profile) {
+            return Some(format!("chunk {ci} failed: {why}"));
+        }
+        recompress_quietly(chunk_pdf, image_quality);
+    }
+    None
+}
+
+/// Render chunk HTML files to PDF with the Quartz helper, up to
+/// [`QUARTZ_PARALLELISM`] at a time. Quartz preserves embedded JPEGs, so no
+/// recompression is needed. Returns the first error encountered, or [`None`].
+fn render_chunks_quartz(
+    helper: &Path,
+    chunk_htmls: &[PathBuf],
+    chunk_pdfs: &[PathBuf],
+    root: &Path,
+) -> Option<String> {
+    let next = AtomicUsize::new(0);
+    let error: Mutex<Option<String>> = Mutex::new(None);
+    let total = chunk_htmls.len();
+
+    std::thread::scope(|scope| {
+        for _ in 0..QUARTZ_PARALLELISM.min(total.max(1)) {
+            scope.spawn(|| {
+                loop {
+                    let ci = next.fetch_add(1, Ordering::Relaxed);
+                    if ci >= total || error.lock().unwrap().is_some() {
+                        break;
+                    }
+                    if let Err(why) = webkit::render(helper, &chunk_htmls[ci], &chunk_pdfs[ci], root)
+                    {
+                        *error.lock().unwrap() = Some(format!("chunk {ci} failed: {why}"));
+                        break;
+                    }
+                }
+            });
+        }
+    });
+
+    error.into_inner().unwrap()
 }
 
 /// Recompress a rendered PDF's lossless images to JPEG in place. Failures are
