@@ -100,12 +100,10 @@ mod tests {
         let _ = std::fs::remove_file(&db);
         make_addressbook(&db);
 
-        let mut people = parse(&db).unwrap();
-        people.sort_by(|a, b| a.organization.cmp(&b.organization));
+        let people = parse(&db).unwrap();
 
         assert_eq!(people.len(), 2);
 
-        let firma = &people[1]; // "Firma s.r.o." sorts after "Acme"? -> sort by org
         let jan = people.iter().find(|c| c.first == "Jan").unwrap();
         assert_eq!(jan.last, "Novák");
         assert_eq!(jan.organization, "Acme");
@@ -116,7 +114,6 @@ mod tests {
         let company = people.iter().find(|c| c.organization == "Firma s.r.o.").unwrap();
         assert_eq!(company.first, "");
         assert!(company.phones.is_empty());
-        let _ = firma;
 
         std::fs::remove_dir_all(&dir).ok();
     }

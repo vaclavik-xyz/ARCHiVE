@@ -46,7 +46,8 @@ stdout:
 ```
 
 `supported` = this build can export the type; `present` = the store exists in
-this backup; `count` is filled only for supported + present stores.
+this backup; `count` is best-effort: filled for supported + present stores, and
+`null` otherwise (including the rare case where a present store cannot be read).
 
 ### `contacts` — export contacts
 
@@ -100,6 +101,8 @@ also exits **2** — there is no JSON envelope. Disambiguate exit 2 by inspectin
 stdout: a JSON object with `"kind": "auth"` is an authentication failure; empty
 stdout (with usage text on stderr) is a malformed invocation. When unsure, run
 `--help` or `inspect` first to learn the contract.
+
+> Note: argument/usage errors (an unknown `-f` format, a missing `--out`) are detected **before** the backup is opened, so they surface as exit 1 even when the backup is an encrypted one that would otherwise report an auth error.
 
 ## Examples
 

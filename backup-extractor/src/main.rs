@@ -13,7 +13,7 @@ use crate::format::Format;
 #[command(name = "backup-extractor", about = "Extract personal data from an iOS backup")]
 struct Cli {
     /// Path to the iOS backup directory.
-    #[arg(long)]
+    #[arg(long, required = true)]
     backup: PathBuf,
     /// Password for an encrypted backup (ignored for unencrypted backups).
     #[arg(long, global = true)]
