@@ -182,9 +182,10 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
         let present = backup
             .has(domain, path)
             .map_err(|e| AppError::other(e.to_string()))?;
-        // Contacts is the only supported store this build can count; load it via
-        // the secure shared helper rather than a hand-rolled temp path.
-        let count = if supported && present {
+        // `load_contacts` reads the address book specifically, so only the
+        // contacts store gets a count here; other (future) supported stores
+        // will need their own counters.
+        let count = if name == "contacts" && present {
             load_contacts(&backup)?.map(|p| p.len())
         } else {
             None
@@ -245,6 +246,7 @@ mod cli_tests {
         assert_eq!(v["ok"], true);
         assert_eq!(v["command"], "inspect");
         assert_eq!(v["stores"][0]["type"], "contacts");
+        assert_eq!(v["stores"][0]["present"], true);
         assert_eq!(v["stores"][0]["count"], 12);
         assert_eq!(v["stores"][1]["count"], serde_json::Value::Null);
         assert_eq!(v["stores"][1]["supported"], false);
