@@ -307,7 +307,10 @@ fn convert_conversation(
             }
             Engine::Quartz(helper) => {
                 // Quartz keeps embedded JPEGs as-is, so no recompression pass.
-                webkit::render(helper, html_path, pdf_path, export_path)?;
+                // Grant the web view filesystem-wide read access so absolute
+                // attachment paths (e.g. `--copy-method disabled`) resolve, not
+                // just the export-relative copies.
+                webkit::render(helper, html_path, pdf_path, Path::new("/"))?;
             }
         }
         return Ok(());
@@ -353,7 +356,9 @@ fn convert_conversation(
                 image_quality,
             ),
             Engine::Quartz(helper) => {
-                render_chunks_quartz(helper, &chunk_htmls, &chunk_pdfs, export_path)
+                // Filesystem-wide read access so absolute attachment paths
+                // resolve regardless of the copy method (see single-chunk case).
+                render_chunks_quartz(helper, &chunk_htmls, &chunk_pdfs, Path::new("/"))
             }
         };
     }

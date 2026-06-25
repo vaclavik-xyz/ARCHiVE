@@ -133,27 +133,25 @@ final class Renderer: NSObject, WKNavigationDelegate {
         }
     }
 
-    // Greedily pack messages into pages no taller than `pageHeight`, breaking
-    // before the message that would overflow. A message taller than a page
-    // becomes its own (over-tall) page rather than being cut mid-bubble.
+    // Pack messages into pages no taller than `pageHeight`, breaking before the
+    // message that would overflow. The break only fires once the page already
+    // holds a message, so the leading margin never becomes its own near-blank
+    // page and a message taller than a page becomes its own over-tall page
+    // instead of being cut mid-bubble.
     static func paginate(totalHeight: Double, messageTops: [Double], pageHeight: Double) -> [(Double, Double)] {
         if messageTops.isEmpty || totalHeight <= pageHeight { return [(0, totalHeight)] }
-        var bounds = messageTops.sorted()
-        if bounds.first != 0 { bounds.insert(0, at: 0) }
-        bounds.append(totalHeight)
 
         var ranges: [(Double, Double)] = []
         var pageStart = 0.0
-        var lastBoundary = 0.0
-        for b in bounds {
-            if b - pageStart > pageHeight && b > pageStart {
-                let end = lastBoundary > pageStart ? lastBoundary : b
-                ranges.append((pageStart, end))
-                pageStart = end
+        var placed = false
+        for top in messageTops.sorted() {
+            if placed && top - pageStart > pageHeight {
+                ranges.append((pageStart, top))
+                pageStart = top
             }
-            lastBoundary = b
+            placed = true
         }
-        if pageStart < totalHeight { ranges.append((pageStart, totalHeight)) }
+        ranges.append((pageStart, totalHeight))
         return ranges
     }
 

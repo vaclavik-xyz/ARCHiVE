@@ -232,6 +232,9 @@ impl Options {
                     "{value} is not a valid PDF engine! Must be one of <{SUPPORTED_PDF_ENGINES}>"
                 ))
             })?,
+            // An explicit --chrome-path is meaningless for Quartz, so treat it
+            // as selecting the Chrome engine when no engine was named.
+            None if chrome_path.is_some() => PdfEngine::Chrome,
             None => PdfEngine::default(),
         };
         let max_image_size: u32 = args
@@ -1105,6 +1108,22 @@ mod arg_tests {
         let args =
             command.get_matches_from(["imessage-exporter", "-f", "pdf", "--pdf-engine", "skia"]);
         assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn pdf_chrome_path_implies_chrome_engine() {
+        // An explicit --chrome-path with no --pdf-engine selects Chrome, so the
+        // path is honored instead of being ignored under the Quartz default.
+        let command = get_command();
+        let args = command.get_matches_from([
+            "imessage-exporter",
+            "-f",
+            "pdf",
+            "--chrome-path",
+            "/tmp/chrome",
+        ]);
+        let actual = Options::from_args(&args).unwrap();
+        assert_eq!(actual.pdf.engine, PdfEngine::Chrome);
     }
 
     #[test]
