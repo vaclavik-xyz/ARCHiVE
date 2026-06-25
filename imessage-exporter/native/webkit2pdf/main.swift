@@ -143,13 +143,22 @@ final class Renderer: NSObject, WKNavigationDelegate {
 
         var ranges: [(Double, Double)] = []
         var pageStart = 0.0
-        var placed = false
+        var lastTop = 0.0       // top of the most recent message on the current page
+        var placed = false      // page already holds at least one message
         for top in messageTops.sorted() {
             if placed && top - pageStart > pageHeight {
                 ranges.append((pageStart, top))
                 pageStart = top
             }
+            lastTop = top
             placed = true
+        }
+        // The trailing segment (last message to the bottom) has no boundary
+        // after it, so check it explicitly: if it overflows and the page holds
+        // more than that last message, give the last message its own page.
+        if placed && totalHeight - pageStart > pageHeight && lastTop > pageStart {
+            ranges.append((pageStart, lastTop))
+            pageStart = lastTop
         }
         ranges.append((pageStart, totalHeight))
         return ranges
