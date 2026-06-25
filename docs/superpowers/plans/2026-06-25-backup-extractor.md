@@ -350,19 +350,58 @@ Add the `use std::io::Write;` import at the top of `backup-core/src/lib.rs`, and
         else {
             return Ok(None);
         };
-        let bytes = self
-            .raw
-            .decrypt_entry(&entry)
-            .map_err(|why| BackupError::Open(why.to_string()))?;
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::File::create(dest)?.write_all(&bytes)?;
+        // crabapple's `decrypt_entry` only works on encrypted backups (it returns
+        // `NotEncrypted` otherwise). On an unencrypted backup the file already
+        // sits in plaintext under `backup_path/<id[..2]>/<id>`, so read it directly.
+        let bytes = if self.raw.is_encrypted() {
+            self.raw
+                .decrypt_entry(&entry)
+                .map_err(|why| BackupError::Open(why.to_string()))?
+        } else {
+            std::fs::read(self.raw.backup_path.join(entry.source()))?
+        };
+        write_file(dest, &bytes)?;
         Ok(Some(dest.to_path_buf()))
     }
 ```
 
+And this private helper (the always-testable I/O boundary — see the unit test below):
+
+```rust
+/// Write `bytes` to `dest`, creating parent directories as needed; returns `dest`.
+fn write_file(dest: &Path, bytes: &[u8]) -> Result<PathBuf, BackupError> {
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::File::create(dest)?.write_all(bytes)?;
+    Ok(dest.to_path_buf())
+}
+```
+
 Add `use std::path::PathBuf;` to the existing path import (`use std::path::{Path, PathBuf};`).
+
+> **Note (verified against crabapple 0.4.7):** `decrypt_entry` short-circuits to
+> `Err(NotEncrypted)` on unencrypted backups, so `fetch` MUST branch on
+> `Backup::is_encrypted()` and read the on-disk plaintext (`backup_path` is a
+> public field; `entry.source()` is the `<id[..2]>/<id>` relative path) for the
+> unencrypted case — which is the project's primary target. A unit test on
+> `write_file` covers parent-dir creation + write in normal CI runs; the full
+> `fetch` (which needs `crabapple` to open a real backup) stays env-gated.
+
+Also add this always-running unit test to the `tests` module:
+
+```rust
+    #[test]
+    fn write_file_creates_parent_dirs_and_writes() {
+        let base = std::env::temp_dir().join(format!("be-writefile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dest = base.join("nested/deeper/out.bin");
+        let returned = write_file(&dest, b"hello bytes").unwrap();
+        assert_eq!(returned, dest);
+        assert_eq!(std::fs::read(&dest).unwrap(), b"hello bytes");
+        std::fs::remove_dir_all(&base).ok();
+    }
+```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 

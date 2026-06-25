@@ -137,8 +137,12 @@ impl Backup {
 
     pub fn device_info(&self) -> &DeviceInfo;
 
-    /// Decrypt (if needed) the file at `domain` + `relative_path` to a temp
-    /// file and return its path. `None` when the file is absent from the backup.
+    /// Materialize the file at `domain` + `relative_path` to a temp file and
+    /// return its path; `None` when the file is absent from the backup.
+    /// Encrypted backups are decrypted via `crabapple::decrypt_entry`;
+    /// unencrypted backups (the primary target) are read straight from
+    /// `backup_path/<id[..2]>/<id>` — `decrypt_entry` errors with `NotEncrypted`
+    /// on them, so `fetch` branches on `Backup::is_encrypted()`.
     pub fn fetch(&self, domain: &str, relative_path: &str)
         -> Result<Option<PathBuf>, BackupError>;
 
@@ -286,9 +290,16 @@ error otherwise.
   gzip+protobuf body fixture.
 - **Formatters:** tested on fixed in-memory models (golden CSV/JSON/vCard/HTML
   strings).
-- **`backup-core`:** tested against a tiny synthetic backup directory (a couple
-  of files + a minimal `Manifest.db`); encryption path tested if a fixture
-  encrypted backup is feasible, otherwise covered by `crabapple`'s own tests.
+- **`backup-core`:** the open/decrypt/fetch paths need `crabapple` to parse a
+  real `Manifest.db` whose per-file `file` blob is an `NSKeyedArchiver` plist —
+  too fragile to synthesize by hand — so these are covered by **env-gated
+  integration tests** (`BACKUP_EXTRACTOR_TEST_BACKUP`, skipped in CI) plus
+  always-running unit tests on the pure boundaries we own (`choose_auth`
+  password→`Authentication` selection; `write_file` parent-dir creation + write).
+  `crabapple`'s own tests cover the decryption internals. (A committed
+  synthetic backup directory was assessed and rejected for increment 1 on the
+  `NSKeyedArchiver` blob complexity; a captured real `file` blob could revisit
+  this later.)
 - PDF rendering (which needs a GUI session) stays a manual/real-data check, as in
   `imessage-exporter`.
 
