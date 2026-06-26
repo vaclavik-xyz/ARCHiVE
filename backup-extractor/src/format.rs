@@ -159,7 +159,6 @@ pub fn calls_html(calls: &[crate::calls::Call]) -> String {
     CallsTemplate { calls }.render().unwrap()
 }
 
-#[allow(dead_code)]
 pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([
@@ -181,7 +180,6 @@ pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
     String::from_utf8(wtr.into_inner().unwrap()).unwrap()
 }
 
-#[allow(dead_code)]
 pub fn voicemail_json(items: &[crate::voicemail::Voicemail]) -> String {
     serde_json::to_string_pretty(items).unwrap()
 }
@@ -192,7 +190,6 @@ struct VoicemailTemplate<'a> {
     voicemails: &'a [crate::voicemail::Voicemail],
 }
 
-#[allow(dead_code)]
 pub fn voicemail_html(items: &[crate::voicemail::Voicemail]) -> String {
     VoicemailTemplate { voicemails: items }.render().unwrap()
 }

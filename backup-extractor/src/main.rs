@@ -3,7 +3,6 @@ mod contacts;
 mod datetime;
 mod format;
 mod sqlite_util;
-#[allow(dead_code)]
 mod voicemail;
 #[cfg(test)]
 mod test_fixtures;
@@ -40,6 +39,12 @@ enum Command {
     },
     /// Export call history.
     Calls {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// Export voicemail metadata.
+    Voicemail {
         /// Output format: csv, json, html.
         #[arg(long, short = 'f')]
         format: String,
@@ -98,6 +103,7 @@ fn run() -> Result<serde_json::Value, AppError> {
     match &cli.command {
         Command::Contacts { format } => run_contacts(&cli, password.as_deref(), format),
         Command::Calls { format } => run_calls(&cli, password.as_deref(), format),
+        Command::Voicemail { format } => run_voicemail(&cli, password.as_deref(), format),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
     }
 }
@@ -220,6 +226,65 @@ fn run_calls(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
     }))
 }
 
+/// Validate a `voicemail` format string: csv/json/html only.
+fn voicemail_format(format: &str) -> Result<Format, AppError> {
+    let f = Format::from_cli(format)
+        .ok_or_else(|| AppError::usage(format!("unknown voicemail format `{format}` (use csv, json, html)")))?;
+    if f == Format::Vcf {
+        return Err(AppError::usage("vcf is not a valid format for voicemail (use csv, json, html)"));
+    }
+    Ok(f)
+}
+
+/// Fetch and parse voicemail metadata into memory via a secure auto-cleaned temp
+/// dir. `Ok(None)` when the backup has no voicemail store.
+fn load_voicemail(backup: &backup_core::Backup) -> Result<Option<Vec<voicemail::Voicemail>>, AppError> {
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let tmp = scratch.path().join("voicemail.db");
+    let Some(db) = backup
+        .fetch("HomeDomain", "Library/Voicemail/voicemail.db", &tmp)
+        .map_err(|e| AppError::other(e.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let items = voicemail::parse(&db).map_err(|e| AppError::other(e.to_string()))?;
+    Ok(Some(items))
+}
+
+fn run_voicemail(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = voicemail_format(format)?;
+    let out = cli
+        .out
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--out is required to export voicemail"))?;
+
+    let backup = backup_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let device = device_json(backup.device_info());
+
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(items) = load_voicemail(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "voicemail", "count": 0, "outputs": [],
+            "note": "this backup has no voicemail", "device": device
+        }));
+    };
+
+    let rendered = match format {
+        Format::Csv => format::voicemail_csv(&items),
+        Format::Json => format::voicemail_json(&items),
+        Format::Html => format::voicemail_html(&items),
+        Format::Vcf => unreachable!("voicemail_format rejects vcf"),
+    };
+    let out_file = out.join(format!("voicemail.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} voicemail(s) to {}", items.len(), out_file.display());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "voicemail", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
 /// One row of `inspect` output: a known store and its availability.
 struct StoreStatus {
     name: &'static str,
@@ -242,6 +307,7 @@ fn inspect_json(device: serde_json::Value, stores: &[StoreStatus]) -> serde_json
 const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("contacts", true, "HomeDomain", "Library/AddressBook/AddressBook.sqlitedb"),
     ("calls", true, "HomeDomain", "Library/CallHistoryDB/CallHistory.storedata"),
+    ("voicemail", true, "HomeDomain", "Library/Voicemail/voicemail.db"),
     ("photos", false, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
     ("notes", false, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
 ];
@@ -263,6 +329,7 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
             match name {
                 "contacts" => load_contacts(&backup).ok().flatten().map(|p| p.len()),
                 "calls" => load_calls(&backup).ok().flatten().map(|c| c.len()),
+                "voicemail" => load_voicemail(&backup).ok().flatten().map(|v| v.len()),
                 _ => None,
             }
         } else {
@@ -321,6 +388,30 @@ mod cli_tests {
             Command::Calls { format } => assert_eq!(format, "json"),
             _ => panic!("expected Calls"),
         }
+    }
+
+    #[test]
+    fn parses_voicemail_invocation() {
+        let cli = Cli::try_parse_from([
+            "backup-extractor", "--backup", "/b", "-o", "/out", "voicemail", "-f", "csv",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Voicemail { format } => assert_eq!(format, "csv"),
+            _ => panic!("expected Voicemail"),
+        }
+    }
+
+    #[test]
+    fn voicemail_format_rejects_vcf() {
+        assert_eq!(voicemail_format("json").unwrap(), Format::Json);
+        assert_eq!(voicemail_format("vcf").unwrap_err().code, 1);
+    }
+
+    #[test]
+    fn known_stores_lists_voicemail_supported() {
+        let vm = KNOWN_STORES.iter().find(|(n, ..)| *n == "voicemail").unwrap();
+        assert!(vm.1, "voicemail must be supported");
     }
 
     #[test]
