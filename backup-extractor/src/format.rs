@@ -207,6 +207,7 @@ mod tests {
             phones: vec![Labeled { label: "Mobile".into(), value: "+420776452878".into() }],
             emails: vec![Labeled { label: "Home".into(), value: "jan@example.cz".into() }],
             note: "kamarád".into(),
+            addresses: vec![],
         }]
     }
 
@@ -266,6 +267,7 @@ mod tests {
             phones: vec![Labeled { label: "Mobile".into(), value: "123".into() }],
             emails: vec![],
             note: "line1\nTEL:evil@inject".into(),
+            addresses: vec![],
         }];
         let out = contacts_vcard(&contacts);
         assert!(out.contains("N:D\\\\E;A\\;B\\,C;;;"));
@@ -372,6 +374,7 @@ mod tests {
             phones: vec![],
             emails: vec![],
             note: String::new(),
+            addresses: vec![],
         }];
         let out = contacts_vcard(&contacts);
         assert!(out.contains("FN:Firma s.r.o."));

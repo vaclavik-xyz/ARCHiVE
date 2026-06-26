@@ -5,20 +5,30 @@ use std::path::Path;
 use rusqlite::Connection;
 
 /// Build a minimal real `AddressBook.sqlitedb` with two contacts:
-/// "Jan Novák" (Acme, mobile + home email) and a company-only row "Firma s.r.o.".
+/// "Jan Novák" (Acme, mobile + home email + work address) and a company-only row "Firma s.r.o.".
+/// Note: the address row has ROWID=10 but UID=3, so tests exercise the `parent_id = UID` join.
 pub fn make_addressbook(path: &Path) {
     let conn = Connection::open(path).unwrap();
     conn.execute_batch(
         "CREATE TABLE ABPerson (ROWID INTEGER PRIMARY KEY, First TEXT, Last TEXT, Organization TEXT, Note TEXT);
          CREATE TABLE ABMultiValueLabel (ROWID INTEGER PRIMARY KEY, value TEXT);
-         CREATE TABLE ABMultiValue (UID INTEGER PRIMARY KEY, record_id INTEGER, property INTEGER, label INTEGER, value TEXT);
-         INSERT INTO ABMultiValueLabel (ROWID, value) VALUES (1, '_$!<Mobile>!$_'), (2, '_$!<Home>!$_');
+         CREATE TABLE ABMultiValue (ROWID INTEGER PRIMARY KEY, UID INTEGER, record_id INTEGER, property INTEGER, label INTEGER, value TEXT);
+         CREATE TABLE ABMultiValueEntryKey (ROWID INTEGER PRIMARY KEY, value TEXT);
+         CREATE TABLE ABMultiValueEntry (ROWID INTEGER PRIMARY KEY, parent_id INTEGER, key INTEGER, value TEXT);
+         INSERT INTO ABMultiValueLabel (ROWID, value) VALUES (1, '_$!<Mobile>!$_'), (2, '_$!<Home>!$_'), (3, '_$!<Work>!$_');
+         INSERT INTO ABMultiValueEntryKey (ROWID, value) VALUES (1,'Street'),(2,'State'),(3,'ZIP'),(4,'City'),(5,'CountryCode'),(8,'Country');
          INSERT INTO ABPerson (ROWID, First, Last, Organization, Note) VALUES
             (1, 'Jan', 'Novák', 'Acme', 'kamarád'),
             (2, NULL, NULL, 'Firma s.r.o.', NULL);
-         INSERT INTO ABMultiValue (UID, record_id, property, label, value) VALUES
-            (1, 1, 3, 1, '+420776452878'),
-            (2, 1, 4, 2, 'jan@example.cz');",
+         INSERT INTO ABMultiValue (ROWID, UID, record_id, property, label, value) VALUES
+            (1, 101, 1, 3, 1, '+420776452878'),
+            (2, 102, 1, 4, 2, 'jan@example.cz'),
+            (10, 3, 1, 5, 3, NULL);
+         INSERT INTO ABMultiValueEntry (ROWID, parent_id, key, value) VALUES
+            (1, 3, 1, 'Hlavní 1'),
+            (2, 3, 4, 'Praha'),
+            (3, 3, 3, '11000'),
+            (4, 3, 8, 'Czechia');",
     )
     .unwrap();
 }
