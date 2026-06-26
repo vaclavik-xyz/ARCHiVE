@@ -14,8 +14,14 @@ pub fn unix_to_iso(seconds: i64) -> Option<String> {
 
 /// Seconds since the Cocoa / Core Data reference date (2001-01-01 UTC) → ISO 8601
 /// (RFC 3339) UTC, or `None` when out of range. Fractional seconds are truncated.
+/// Non-finite (`NaN`/`inf`) inputs and values that overflow on conversion to the
+/// Unix epoch both yield `None` rather than a bogus or panicking result.
 pub fn cocoa_to_iso(seconds: f64) -> Option<String> {
-    unix_to_iso(seconds.trunc() as i64 + COCOA_EPOCH_OFFSET)
+    if !seconds.is_finite() {
+        return None;
+    }
+    let unix = (seconds.trunc() as i64).checked_add(COCOA_EPOCH_OFFSET)?;
+    unix_to_iso(unix)
 }
 
 #[cfg(test)]
@@ -40,5 +46,13 @@ mod tests {
     #[test]
     fn cocoa_truncates_fractional_seconds() {
         assert_eq!(cocoa_to_iso(100.9).unwrap(), "2001-01-01T00:01:40+00:00");
+    }
+
+    #[test]
+    fn cocoa_rejects_non_finite_and_overflow() {
+        assert_eq!(cocoa_to_iso(f64::NAN), None);
+        assert_eq!(cocoa_to_iso(f64::INFINITY), None);
+        assert_eq!(cocoa_to_iso(f64::NEG_INFINITY), None);
+        assert_eq!(cocoa_to_iso(f64::MAX), None);
     }
 }
