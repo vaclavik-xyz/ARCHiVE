@@ -118,7 +118,7 @@ archive --backup <DIR> [--password <PW>] -o <OUT> voicemail -f <FORMAT> [--audio
 
 With `--audio`, each voicemail's audio is fetched from `HomeDomain/Library/Voicemail/<rowid>.amr` into `<out>/voicemail_audio/` and linked from each record's `audio_file` field. Each audio file is named `<date>_<sender>_<rowid>.<ext>` (date is `YYYY-MM-DD_HHMMSS` UTC or `unknown`; sender is the sanitized caller number or `unknown` when withheld). `--audio-format` defaults to `amr` (raw copy, no dependencies); `m4a`/`wav` transcode via `ffmpeg` (required only then). `--audio-format` without `--audio` is a usage error.
 
-Each record gains `rowid` (stable per-backup id) and `audio_file` (output-relative path, or `null` when no audio exists for that row).
+Each record gains `rowid` (stable per-backup id, JSON output only) and `audio_file` (output-relative path in all formats, or `null` when no audio exists for that row).
 
 stdout envelope:
 
@@ -138,7 +138,7 @@ The `audio` envelope is present only when `--audio` ran. `extracted` counts file
 Each voicemail object: `sender` (caller number; empty when withheld), `date`
 (ISO 8601 UTC), `duration_seconds`, `trashed` (bool — moved to Deleted),
 `trashed_at` (ISO 8601 UTC or `null`), `expiration` (ISO 8601 UTC or `null`),
-`flags` (raw bitmask, **not decoded** — use `trashed` for deletion status), `rowid` (stable per-backup identifier), `audio_file` (output-relative path to extracted audio file, e.g. `voicemail_audio/<name>`, or `null` when no audio exists for that row). No
+`flags` (raw bitmask, **not decoded** — use `trashed` for deletion status), `rowid` (stable per-backup identifier, JSON output only), `audio_file` (output-relative path to extracted audio file, e.g. `voicemail_audio/<name>`, or `null` when no audio exists for that row). No
 voicemail → `count: 0`, `outputs: []`, plus a `note`.
 
 ## Result envelope (every command)
