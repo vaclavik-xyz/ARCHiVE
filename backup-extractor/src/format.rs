@@ -120,7 +120,6 @@ pub fn contacts_html(contacts: &[Contact]) -> String {
     ContactsTemplate { contacts }.render().unwrap()
 }
 
-#[allow(dead_code)]
 pub fn calls_csv(calls: &[crate::calls::Call]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([
@@ -146,7 +145,6 @@ pub fn calls_csv(calls: &[crate::calls::Call]) -> String {
     String::from_utf8(wtr.into_inner().unwrap()).unwrap()
 }
 
-#[allow(dead_code)]
 pub fn calls_json(calls: &[crate::calls::Call]) -> String {
     serde_json::to_string_pretty(calls).unwrap()
 }
@@ -157,7 +155,6 @@ struct CallsTemplate<'a> {
     calls: &'a [crate::calls::Call],
 }
 
-#[allow(dead_code)]
 pub fn calls_html(calls: &[crate::calls::Call]) -> String {
     CallsTemplate { calls }.render().unwrap()
 }

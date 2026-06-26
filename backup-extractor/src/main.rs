@@ -1,10 +1,7 @@
-#[allow(dead_code)]
 mod calls;
 mod contacts;
-#[allow(dead_code)]
 mod datetime;
 mod format;
-#[allow(dead_code)]
 mod sqlite_util;
 #[cfg(test)]
 mod test_fixtures;
@@ -39,12 +36,19 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Export call history.
+    Calls {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Report (as JSON) which data stores the backup contains. Read-only;
     /// does not need `--out`.
     Inspect,
 }
 
 /// A failure with a machine-stable `kind` and a documented exit code.
+#[derive(Debug)]
 struct AppError {
     kind: &'static str,
     message: String,
@@ -91,6 +95,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         .or_else(|| std::env::var("BACKUP_EXTRACTOR_PASSWORD").ok());
     match &cli.command {
         Command::Contacts { format } => run_contacts(&cli, password.as_deref(), format),
+        Command::Calls { format } => run_calls(&cli, password.as_deref(), format),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
     }
 }
@@ -153,6 +158,66 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     }))
 }
 
+/// Validate a `calls` format string: csv/json/html only (vcf is meaningless for
+/// calls). Returns a usage `AppError` (exit 1) on a bad or unsupported format.
+fn calls_format(format: &str) -> Result<Format, AppError> {
+    let f = Format::from_cli(format)
+        .ok_or_else(|| AppError::usage(format!("unknown calls format `{format}` (use csv, json, html)")))?;
+    if f == Format::Vcf {
+        return Err(AppError::usage("vcf is not a valid format for calls (use csv, json, html)"));
+    }
+    Ok(f)
+}
+
+/// Fetch and parse the call history into memory via a secure auto-cleaned temp
+/// dir. `Ok(None)` when the backup has no call-history store.
+fn load_calls(backup: &backup_core::Backup) -> Result<Option<Vec<calls::Call>>, AppError> {
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let tmp = scratch.path().join("CallHistory.storedata");
+    let Some(db) = backup
+        .fetch("HomeDomain", "Library/CallHistoryDB/CallHistory.storedata", &tmp)
+        .map_err(|e| AppError::other(e.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let calls = calls::parse(&db).map_err(|e| AppError::other(e.to_string()))?;
+    Ok(Some(calls))
+}
+
+fn run_calls(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = calls_format(format)?;
+    let out = cli
+        .out
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--out is required to export calls"))?;
+
+    let backup = backup_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let device = device_json(backup.device_info());
+
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(calls) = load_calls(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "calls", "count": 0, "outputs": [],
+            "note": "this backup has no call history", "device": device
+        }));
+    };
+
+    let rendered = match format {
+        Format::Csv => format::calls_csv(&calls),
+        Format::Json => format::calls_json(&calls),
+        Format::Html => format::calls_html(&calls),
+        Format::Vcf => unreachable!("calls_format rejects vcf"),
+    };
+    let out_file = out.join(format!("calls.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} call(s) to {}", calls.len(), out_file.display());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "calls", "count": calls.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
 /// One row of `inspect` output: a known store and its availability.
 struct StoreStatus {
     name: &'static str,
@@ -174,7 +239,7 @@ fn inspect_json(device: serde_json::Value, stores: &[StoreStatus]) -> serde_json
 // Known stores: (type, supported-in-this-build, domain, relative_path).
 const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("contacts", true, "HomeDomain", "Library/AddressBook/AddressBook.sqlitedb"),
-    ("calls", false, "HomeDomain", "Library/CallHistoryDB/CallHistory.storedata"),
+    ("calls", true, "HomeDomain", "Library/CallHistoryDB/CallHistory.storedata"),
     ("photos", false, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
     ("notes", false, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
 ];
@@ -188,11 +253,12 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
         let present = backup
             .has(domain, path)
             .map_err(|e| AppError::other(e.to_string()))?;
-        // `load_contacts` reads the address book specifically, so only the
-        // contacts store gets a count here; other (future) supported stores
-        // will need their own counters.
-        let count = if name == "contacts" && present {
-            load_contacts(&backup)?.map(|p| p.len())
+        let count = if present && supported {
+            match name {
+                "contacts" => load_contacts(&backup)?.map(|p| p.len()),
+                "calls" => load_calls(&backup)?.map(|c| c.len()),
+                _ => None,
+            }
         } else {
             None
         };
@@ -237,6 +303,27 @@ mod cli_tests {
         .unwrap();
         assert_eq!(cli.backup, PathBuf::from("/b"));
         assert_eq!(cli.out, Some(PathBuf::from("/out")));
+    }
+
+    #[test]
+    fn parses_calls_invocation() {
+        let cli = Cli::try_parse_from([
+            "backup-extractor", "--backup", "/b", "-o", "/out", "calls", "-f", "json",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Calls { format } => assert_eq!(format, "json"),
+            _ => panic!("expected Calls"),
+        }
+    }
+
+    #[test]
+    fn calls_format_rejects_vcf_accepts_others() {
+        assert_eq!(calls_format("csv").unwrap(), Format::Csv);
+        assert_eq!(calls_format("json").unwrap(), Format::Json);
+        assert_eq!(calls_format("html").unwrap(), Format::Html);
+        assert_eq!(calls_format("vcf").unwrap_err().code, 1);
+        assert_eq!(calls_format("nope").unwrap_err().code, 1);
     }
 
     #[test]
