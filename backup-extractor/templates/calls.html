@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Hovory</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}</style></head><body>
+<h1>Hovory ({{ calls.len() }})</h1>
+<table>
+<tr><th>Číslo</th><th>Datum</th><th>Trvání (s)</th><th>Směr</th><th>Přijatý</th><th>Služba</th><th>Video</th><th>Lokace</th><th>Země</th></tr>
+{% for c in calls %}
+<tr>
+<td>{{ c.number }}</td><td>{{ c.date }}</td><td>{{ c.duration_seconds }}</td>
+<td>{{ c.direction }}</td><td>{{ c.answered }}</td><td>{{ c.service }}</td>
+<td>{% if let Some(v) = c.video %}{{ v }}{% endif %}</td>
+<td>{% if let Some(l) = c.location.as_ref() %}{{ l }}{% endif %}</td>
+<td>{% if let Some(cc) = c.country.as_ref() %}{{ cc }}{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>

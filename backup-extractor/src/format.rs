@@ -34,6 +34,17 @@ impl Format {
     }
 }
 
+fn join_addresses(addresses: &[crate::contacts::Address]) -> String {
+    addresses
+        .iter()
+        .map(|a| {
+            let line = a.display_line();
+            if a.label.is_empty() { line } else { format!("{}: {}", a.label, line) }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 fn join_labeled(items: &[crate::contacts::Labeled]) -> String {
     items
         .iter()
@@ -64,7 +75,7 @@ fn vcard_param(value: &str) -> String {
 
 pub fn contacts_csv(contacts: &[Contact]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
-    wtr.write_record(["first", "last", "organization", "phones", "emails", "note"])
+    wtr.write_record(["first", "last", "organization", "phones", "emails", "addresses", "note"])
         .unwrap();
     for c in contacts {
         wtr.write_record([
@@ -73,6 +84,7 @@ pub fn contacts_csv(contacts: &[Contact]) -> String {
             &c.organization,
             &join_labeled(&c.phones),
             &join_labeled(&c.emails),
+            &join_addresses(&c.addresses),
             &c.note,
         ])
         .unwrap();
@@ -102,6 +114,17 @@ pub fn contacts_vcard(contacts: &[Contact]) -> String {
         for e in &c.emails {
             out.push_str(&format!("EMAIL;TYPE={}:{}\r\n", vcard_param(&e.label), vcard_escape(&e.value)));
         }
+        for a in &c.addresses {
+            out.push_str(&format!(
+                "ADR;TYPE={}:;;{};{};{};{};{}\r\n",
+                vcard_param(&a.label),
+                vcard_escape(&a.street),
+                vcard_escape(&a.city),
+                vcard_escape(&a.state),
+                vcard_escape(&a.zip),
+                vcard_escape(&a.country),
+            ));
+        }
         if !c.note.is_empty() {
             out.push_str(&format!("NOTE:{}\r\n", vcard_escape(&c.note)));
         }
@@ -120,6 +143,80 @@ pub fn contacts_html(contacts: &[Contact]) -> String {
     ContactsTemplate { contacts }.render().unwrap()
 }
 
+pub fn calls_csv(calls: &[crate::calls::Call]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record([
+        "number", "date", "duration_seconds", "direction", "answered", "service",
+        "video", "call_type", "location", "country",
+    ])
+    .unwrap();
+    for c in calls {
+        wtr.write_record([
+            c.number.clone(),
+            c.date.clone(),
+            c.duration_seconds.to_string(),
+            c.direction.clone(),
+            c.answered.to_string(),
+            c.service.clone(),
+            c.video.map(|v| v.to_string()).unwrap_or_default(),
+            c.call_type.map(|v| v.to_string()).unwrap_or_default(),
+            c.location.clone().unwrap_or_default(),
+            c.country.clone().unwrap_or_default(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn calls_json(calls: &[crate::calls::Call]) -> String {
+    serde_json::to_string_pretty(calls).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "calls.html")]
+struct CallsTemplate<'a> {
+    calls: &'a [crate::calls::Call],
+}
+
+pub fn calls_html(calls: &[crate::calls::Call]) -> String {
+    CallsTemplate { calls }.render().unwrap()
+}
+
+pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record([
+        "sender", "date", "duration_seconds", "trashed", "trashed_at", "expiration", "flags",
+    ])
+    .unwrap();
+    for v in items {
+        wtr.write_record([
+            v.sender.clone(),
+            v.date.clone(),
+            v.duration_seconds.to_string(),
+            v.trashed.to_string(),
+            v.trashed_at.clone().unwrap_or_default(),
+            v.expiration.clone().unwrap_or_default(),
+            v.flags.to_string(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn voicemail_json(items: &[crate::voicemail::Voicemail]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "voicemail.html")]
+struct VoicemailTemplate<'a> {
+    voicemails: &'a [crate::voicemail::Voicemail],
+}
+
+pub fn voicemail_html(items: &[crate::voicemail::Voicemail]) -> String {
+    VoicemailTemplate { voicemails: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,6 +230,7 @@ mod tests {
             phones: vec![Labeled { label: "Mobile".into(), value: "+420776452878".into() }],
             emails: vec![Labeled { label: "Home".into(), value: "jan@example.cz".into() }],
             note: "kamarád".into(),
+            addresses: vec![],
         }]
     }
 
@@ -149,8 +247,8 @@ mod tests {
     #[test]
     fn csv_has_header_and_row() {
         let out = contacts_csv(&sample());
-        assert!(out.starts_with("first,last,organization,phones,emails,note"));
-        assert!(out.contains("Jan,Novák,Acme,Mobile: +420776452878,Home: jan@example.cz,kamarád"));
+        assert!(out.starts_with("first,last,organization,phones,emails,addresses,note"));
+        assert!(out.contains("Jan,Novák,Acme,Mobile: +420776452878,Home: jan@example.cz,,kamarád"));
     }
 
     #[test]
@@ -192,6 +290,7 @@ mod tests {
             phones: vec![Labeled { label: "Mobile".into(), value: "123".into() }],
             emails: vec![],
             note: "line1\nTEL:evil@inject".into(),
+            addresses: vec![],
         }];
         let out = contacts_vcard(&contacts);
         assert!(out.contains("N:D\\\\E;A\\;B\\,C;;;"));
@@ -199,6 +298,158 @@ mod tests {
         assert!(out.contains("NOTE:line1\\nTEL:evil@inject"));
         // The injected newline did NOT create a real standalone property line.
         assert!(!out.contains("\nTEL:evil@inject"));
+    }
+
+    fn sample_voicemails() -> Vec<crate::voicemail::Voicemail> {
+        vec![crate::voicemail::Voicemail {
+            sender: "+420776452878".into(),
+            date: "2020-09-13T12:26:40+00:00".into(),
+            duration_seconds: 30,
+            trashed: false,
+            trashed_at: None,
+            expiration: None,
+            flags: 0,
+        }]
+    }
+
+    #[test]
+    fn voicemail_csv_has_header_and_row() {
+        let out = voicemail_csv(&sample_voicemails());
+        assert!(out.starts_with(
+            "sender,date,duration_seconds,trashed,trashed_at,expiration,flags"
+        ));
+        assert!(out.contains("+420776452878,2020-09-13T12:26:40+00:00,30,false,,,0"));
+    }
+
+    #[test]
+    fn voicemail_json_roundtrips() {
+        let out = voicemail_json(&sample_voicemails());
+        let back: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(back[0]["sender"], "+420776452878");
+        assert_eq!(back[0]["trashed"], false);
+    }
+
+    #[test]
+    fn voicemail_html_lists_items() {
+        let out = voicemail_html(&sample_voicemails());
+        assert!(out.contains("<html"));
+        assert!(out.contains("+420776452878"));
+    }
+
+    fn sample_calls() -> Vec<crate::calls::Call> {
+        vec![crate::calls::Call {
+            number: "+420776452878".into(),
+            date: "2026-06-20T14:33:05+00:00".into(),
+            duration_seconds: 42,
+            direction: "outgoing".into(),
+            answered: true,
+            service: "phone".into(),
+            video: None,
+            call_type: Some(1),
+            location: None,
+            country: Some("CZ".into()),
+        }]
+    }
+
+    #[test]
+    fn calls_csv_has_header_and_row() {
+        let out = calls_csv(&sample_calls());
+        assert!(out.starts_with(
+            "number,date,duration_seconds,direction,answered,service,video,call_type,location,country"
+        ));
+        assert!(out.contains("+420776452878"));
+        assert!(out.contains(",outgoing,true,phone,,1,,CZ"));
+    }
+
+    #[test]
+    fn calls_json_roundtrips() {
+        let out = calls_json(&sample_calls());
+        let back: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(back[0]["number"], "+420776452878");
+        assert_eq!(back[0]["direction"], "outgoing");
+        assert_eq!(back[0]["country"], "CZ");
+    }
+
+    #[test]
+    fn calls_html_lists_calls() {
+        let out = calls_html(&sample_calls());
+        assert!(out.contains("<html"));
+        assert!(out.contains("+420776452878"));
+        assert!(out.contains("outgoing"));
+    }
+
+    #[test]
+    fn calls_html_escapes_html_in_data() {
+        let mut calls = sample_calls();
+        calls[0].number = "<script>alert(1)</script>".into();
+        let out = calls_html(&calls);
+        // askama's HTML escaper emits numeric character references.
+        assert!(out.contains("&#60;script&#62;"));
+        assert!(!out.contains("<script>alert"));
+    }
+
+    fn sample_with_address() -> Vec<Contact> {
+        vec![Contact {
+            first: "Jan".into(),
+            last: "Novák".into(),
+            organization: String::new(),
+            phones: vec![],
+            emails: vec![],
+            note: String::new(),
+            addresses: vec![crate::contacts::Address {
+                label: "Work".into(),
+                street: "Hlavní 1".into(),
+                city: "Praha".into(),
+                state: String::new(),
+                zip: "11000".into(),
+                country: "Czechia".into(),
+                country_code: String::new(),
+            }],
+        }]
+    }
+
+    #[test]
+    fn contacts_csv_includes_addresses_column() {
+        let out = contacts_csv(&sample_with_address());
+        assert!(out.starts_with("first,last,organization,phones,emails,addresses,note"));
+        assert!(out.contains("Work: Hlavní 1, Praha, 11000, Czechia"));
+    }
+
+    #[test]
+    fn vcard_emits_escaped_adr() {
+        let out = contacts_vcard(&sample_with_address());
+        assert!(out.contains("ADR;TYPE=Work:;;Hlavní 1;Praha;;11000;Czechia"));
+    }
+
+    #[test]
+    fn vcard_adr_resists_injection() {
+        let contacts = vec![Contact {
+            first: "X".into(),
+            last: String::new(),
+            organization: String::new(),
+            phones: vec![],
+            emails: vec![],
+            note: String::new(),
+            addresses: vec![crate::contacts::Address {
+                label: "Home".into(),
+                street: "A;B\nADR:evil".into(),
+                city: String::new(),
+                state: String::new(),
+                zip: String::new(),
+                country: String::new(),
+                country_code: String::new(),
+            }],
+        }];
+        let out = contacts_vcard(&contacts);
+        assert!(out.contains("A\\;B\\nADR:evil"));
+        assert!(!out.contains("\nADR:evil")); // the injected newline did not start a property
+    }
+
+    #[test]
+    fn contacts_html_shows_address() {
+        let out = contacts_html(&sample_with_address());
+        assert!(out.contains("Hlavní 1"));
+        assert!(out.contains("Work"));
     }
 
     #[test]
@@ -210,6 +461,7 @@ mod tests {
             phones: vec![],
             emails: vec![],
             note: String::new(),
+            addresses: vec![],
         }];
         let out = contacts_vcard(&contacts);
         assert!(out.contains("FN:Firma s.r.o."));

@@ -9,6 +9,7 @@
   <div class="n">{{ c.first }} {{ c.last }}{% if !c.organization.is_empty() %} <span class="o">— {{ c.organization }}</span>{% endif %}</div>
   {% for p in &c.phones %}<div class="v">📞 {{ p.label }}: {{ p.value }}</div>{% endfor %}
   {% for e in &c.emails %}<div class="v">✉️ {{ e.label }}: {{ e.value }}</div>{% endfor %}
+  {% for a in &c.addresses %}<div class="v">🏠 {{ a.label }}: {{ a.display_line() }}</div>{% endfor %}
   {% if !c.note.is_empty() %}<div class="v">📝 {{ c.note }}</div>{% endif %}
 </div>
 {% endfor %}
