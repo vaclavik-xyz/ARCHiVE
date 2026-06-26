@@ -11,7 +11,6 @@
 */
 
 use std::{
-    collections::HashSet,
     ffi::OsString,
     fs::{
         File, create_dir_all, read_dir, read_to_string, remove_dir_all, remove_file, rename, write,
@@ -105,11 +104,16 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
         }
     };
 
-    // Remember the HTML files that already existed so we only ever convert
-    // and delete intermediates this run produces, never the user's unrelated
-    // HTML exports living in the same directory.
+    // The HTML exporter opens each conversation file in append mode, so a
+    // pre-existing `.html` whose name collides with a conversation would be
+    // silently corrupted (appended to) and then skipped for conversion. Refuse
+    // to run when the output directory already holds top-level `.html` files; a
+    // normal PDF run leaves only `.pdf` behind, so re-exporting still works.
     let export_path = &config.options.export_path;
-    let preexisting: HashSet<PathBuf> = collect_html_files(export_path)?.into_iter().collect();
+    if let Err(why) = ensure_no_preexisting_html(export_path) {
+        let _ = remove_dir_all(&work_root);
+        return Err(why);
+    }
 
     // Render conversations to HTML and copy/convert their attachments.
     run_export(&mut HTML::new(config)?)?;
@@ -124,11 +128,9 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
         );
     }
 
-    // Convert only the per-conversation HTML files this run created.
-    let html_files: Vec<PathBuf> = collect_html_files(export_path)?
-        .into_iter()
-        .filter(|file| !preexisting.contains(file))
-        .collect();
+    // Every top-level `.html` here is one this run produced: the pre-flight
+    // check above guaranteed the directory started free of `.html`.
+    let html_files: Vec<PathBuf> = collect_html_files(export_path)?;
     if html_files.is_empty() {
         let _ = remove_dir_all(&work_root);
         eprintln!("No HTML files were produced, so there is nothing to convert to PDF.");
@@ -177,6 +179,25 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
         )));
     }
     Ok(())
+}
+
+/// Refuse to export when `dir` already holds top-level `.html` files. The HTML
+/// exporter appends to existing files, so a conversation whose name collides
+/// with one would corrupt it and then be skipped for PDF conversion; a clean
+/// `.html`-free directory removes that hazard entirely.
+fn ensure_no_preexisting_html(dir: &Path) -> Result<(), RuntimeError> {
+    let preexisting = collect_html_files(dir)?;
+    if preexisting.is_empty() {
+        return Ok(());
+    }
+    Err(RuntimeError::InvalidOptions(format!(
+        "{} already contains {} .html file(s). PDF export writes intermediate HTML \
+         there and would append to (corrupting) or skip any file whose name matches \
+         a conversation. Export to an empty directory, or move the existing .html \
+         files elsewhere first.",
+        dir.display(),
+        preexisting.len()
+    )))
 }
 
 /// Collect the top-level `.html` files in `dir` (the per-conversation exports),
@@ -570,10 +591,26 @@ fn run_quiet(program: &str, args: Vec<OsString>) -> bool {
 /// Build a `file://` URL for `path`, percent-encoding everything outside the
 /// RFC 3986 unreserved set (and the path separators), so spaces, `+`, and
 /// diacritics in conversation filenames survive the trip to the browser.
+///
+/// The path is resolved to an absolute one first so the URL is rooted at
+/// `file:///…`. Otherwise a relative path (`out/chat.html`) would put its first
+/// segment in the authority slot (`file://out/chat.html`, host `out`) and a
+/// Windows drive path (`C:\…`) would land as `file://C:/…` — either of which the
+/// browser fails to load. Canonicalization needs the file to exist (it always
+/// does at call time) and falls back to leading-slash rooting if it cannot.
 fn file_url(path: &Path) -> String {
-    let normalized = path.to_string_lossy().replace('\\', "/");
+    let absolute = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let normalized = absolute.to_string_lossy().replace('\\', "/");
+    // Drop Windows' `\\?\` verbatim prefix (now `//?/`) and guarantee a single
+    // leading slash, so the result is always `file:///…`, never `file://host/…`.
+    let stripped = normalized.strip_prefix("//?/").unwrap_or(&normalized);
+    let rooted = if stripped.starts_with('/') {
+        stripped.to_string()
+    } else {
+        format!("/{stripped}")
+    };
     let mut url = String::from("file://");
-    for ch in normalized.chars() {
+    for ch in rooted.chars() {
         match ch {
             'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' | '/' | ':' => url.push(ch),
             _ => {
@@ -669,6 +706,50 @@ mod tests {
         let url = file_url(Path::new("/tmp/Ondráčková.html"));
         assert!(url.contains("Ondr%C3%A1%C4%8Dkov%C3%A1.html"));
         assert!(url.starts_with("file:///tmp/"));
+    }
+
+    #[test]
+    fn file_url_roots_relative_paths() {
+        // A non-existent relative path keeps its segments out of the authority
+        // slot: `out/Jana.html` must become file:///out/Jana.html, not
+        // file://out/Jana.html (host `out`).
+        let url = file_url(Path::new("out/Jana.html"));
+        assert_eq!(url, "file:///out/Jana.html");
+    }
+
+    #[test]
+    fn file_url_roots_windows_drive_paths() {
+        // `C:\Users\me\Jana.html` must become file:///C:/Users/me/Jana.html,
+        // not file://C:/Users/me/Jana.html (host `C:`).
+        let url = file_url(Path::new("C:\\Users\\me\\Jana.html"));
+        assert_eq!(url, "file:///C:/Users/me/Jana.html");
+    }
+
+    #[test]
+    fn file_url_canonicalizes_existing_path_to_rooted_url() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("ime-fileurl-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("chat.html");
+        std::fs::File::create(&file).unwrap().write_all(b"x").unwrap();
+        let url = file_url(&file);
+        assert!(url.starts_with("file:///"), "got {url}");
+        assert!(url.ends_with("/chat.html"), "got {url}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rejects_directory_with_preexisting_html() {
+        use super::ensure_no_preexisting_html;
+        let dir = std::env::temp_dir().join(format!("ime-pdf-pre-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // An empty directory is safe to export into.
+        assert!(ensure_no_preexisting_html(&dir).is_ok());
+        // A pre-existing top-level `.html` is rejected (would be appended to).
+        std::fs::write(dir.join("Jana.html"), b"<html></html>").unwrap();
+        assert!(ensure_no_preexisting_html(&dir).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
