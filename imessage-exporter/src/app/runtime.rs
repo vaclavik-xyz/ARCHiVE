@@ -192,9 +192,16 @@ impl Config {
             }
         };
 
-        // Add the extension to the filename
+        // Add the extension to the filename. PDF exports are produced by first
+        // rendering each conversation to an intermediate HTML file (which the
+        // PDF pipeline then prints and removes), so they are written with the
+        // `.html` extension here, not `.pdf`.
         if let Some(export_type) = &self.options.export_type {
-            filename.push_str(export_type.extension());
+            let extension = match export_type {
+                ExportType::Pdf => ExportType::Html.extension(),
+                other => other.extension(),
+            };
+            filename.push_str(extension);
         }
 
         sanitize_filename(&filename)
@@ -586,6 +593,9 @@ impl Config {
                 }
                 ExportType::Txt => {
                     run_export(&mut TXT::new(self)?)?;
+                }
+                ExportType::Pdf => {
+                    crate::exporters::pdf::run_pdf_export(self)?;
                 }
             }
         }

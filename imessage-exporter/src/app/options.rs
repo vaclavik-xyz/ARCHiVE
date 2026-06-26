@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Arg, ArgAction, ArgMatches, Command, crate_version};
+use clap::{Arg, ArgAction, ArgMatches, Command, crate_version, parser::ValueSource};
 
 use imessage_database::{
     tables::{attachment::DEFAULT_MESSAGES_ROOT, table::DEFAULT_PATH_IOS},
@@ -43,16 +43,98 @@ pub const OPTION_CONVERSATION_FILTER: &str = "conversation-filter";
 pub const OPTION_CLEARTEXT_PASSWORD: &str = "cleartext-password";
 pub const OPTION_CUSTOM_CONTACTS_DB_PATH: &str = "contacts-path";
 pub const OPTION_NO_PROGRESS: &str = "no-progress";
+pub const OPTION_MAX_IMAGE_SIZE: &str = "max-image-size";
+pub const OPTION_IMAGE_QUALITY: &str = "image-quality";
+pub const OPTION_CHROME_PATH: &str = "chrome-path";
+pub const OPTION_KEEP_HTML: &str = "keep-html";
+pub const OPTION_PDF_ENGINE: &str = "pdf-engine";
 
 // Other CLI Text
-pub const SUPPORTED_FILE_TYPES: &str = "txt, html";
+pub const SUPPORTED_FILE_TYPES: &str = "txt, html, pdf";
+pub const SUPPORTED_PDF_ENGINES: &str = "quartz, chrome";
 pub const SUPPORTED_PLATFORMS: &str = "macOS, iOS";
 pub const SUPPORTED_ATTACHMENT_MANAGER_MODES: &str = "clone, basic, full, disabled";
+/// Default longest-edge pixel cap for image attachments in PDF exports.
+pub const DEFAULT_MAX_IMAGE_SIZE: &str = "1600";
+/// Default JPEG quality for downscaled image attachments in PDF exports.
+pub const DEFAULT_IMAGE_QUALITY: &str = "80";
 pub const ABOUT: &str = concat!(
     "The `imessage-exporter` binary exports iMessage data to\n",
-    "`txt` or `html` formats. It can also run diagnostics\n",
+    "`txt`, `html`, or `pdf` formats. It can also run diagnostics\n",
     "to find problems with the iMessage database."
 );
+
+// MARK: PDF Engine
+/// Rendering engine that turns the HTML export into PDF.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum PdfEngine {
+    /// Headless Chrome/Chromium/Edge (Skia). Cross-platform.
+    Chrome,
+    /// Bundled WebKit + Quartz helper (macOS only). Produces far smaller,
+    /// searchable PDFs because Quartz writes compact text and preserves
+    /// embedded JPEGs instead of re-storing them losslessly.
+    Quartz,
+}
+
+impl PdfEngine {
+    /// Parse the `--pdf-engine` value.
+    pub fn from_cli(value: &str) -> Option<Self> {
+        match value.to_lowercase().as_str() {
+            "chrome" | "chromium" | "edge" => Some(Self::Chrome),
+            "quartz" | "webkit" => Some(Self::Quartz),
+            _ => None,
+        }
+    }
+}
+
+impl Default for PdfEngine {
+    fn default() -> Self {
+        // Quartz is the smaller, searchable default wherever the helper can be
+        // built; elsewhere fall back to the cross-platform Chrome path.
+        if cfg!(target_os = "macos") {
+            Self::Quartz
+        } else {
+            Self::Chrome
+        }
+    }
+}
+
+impl std::fmt::Display for PdfEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Chrome => write!(f, "chrome"),
+            Self::Quartz => write!(f, "quartz"),
+        }
+    }
+}
+
+// MARK: PDF Options
+/// Tuning knobs for the PDF exporter.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PdfOptions {
+    /// Rendering engine.
+    pub engine: PdfEngine,
+    /// Longest-edge pixel cap applied to image attachments before embedding.
+    pub max_image_size: u32,
+    /// JPEG quality (0-100) applied when re-encoding downscaled images.
+    pub image_quality: u8,
+    /// Explicit path to a Chrome/Chromium/Edge binary, overriding detection.
+    pub chrome_path: Option<String>,
+    /// Keep the intermediate per-conversation HTML next to the PDFs.
+    pub keep_html: bool,
+}
+
+impl Default for PdfOptions {
+    fn default() -> Self {
+        Self {
+            engine: PdfEngine::default(),
+            max_image_size: 1600,
+            image_quality: 80,
+            chrome_path: None,
+            keep_html: false,
+        }
+    }
+}
 
 // MARK: Options
 #[derive(PartialEq, Eq)]
@@ -89,6 +171,8 @@ pub struct Options {
     pub contacts_path: Option<PathBuf>,
     /// Whether to show the export progress bar when the terminal supports it.
     pub show_progress: bool,
+    /// PDF-export tuning knobs (only meaningful when `export_type` is `Pdf`).
+    pub pdf: PdfOptions,
 }
 
 // Redact the cleartext backup password from debug output.
@@ -115,6 +199,7 @@ impl std::fmt::Debug for Options {
             )
             .field("contacts_path", &self.contacts_path)
             .field("show_progress", &self.show_progress)
+            .field("pdf", &self.pdf)
             .finish()
     }
 }
@@ -139,6 +224,49 @@ impl Options {
         let cleartext_password: Option<&String> = args.get_one(OPTION_CLEARTEXT_PASSWORD);
         let contacts_path: Option<&String> = args.get_one(OPTION_CUSTOM_CONTACTS_DB_PATH);
         let show_progress = !args.get_flag(OPTION_NO_PROGRESS);
+        let chrome_path: Option<&String> = args.get_one(OPTION_CHROME_PATH);
+        let keep_html = args.get_flag(OPTION_KEEP_HTML);
+        let pdf_engine: PdfEngine = match args.get_one::<String>(OPTION_PDF_ENGINE) {
+            Some(value) => PdfEngine::from_cli(value).ok_or_else(|| {
+                RuntimeError::InvalidOptions(format!(
+                    "{value} is not a valid PDF engine! Must be one of <{SUPPORTED_PDF_ENGINES}>"
+                ))
+            })?,
+            // An explicit --chrome-path is meaningless for Quartz, so treat it
+            // as selecting the Chrome engine when no engine was named.
+            None if chrome_path.is_some() => PdfEngine::Chrome,
+            None => PdfEngine::default(),
+        };
+        let max_image_size: u32 = args
+            .get_one::<String>(OPTION_MAX_IMAGE_SIZE)
+            .map(|s| s.parse())
+            .transpose()
+            .map_err(|_| {
+                RuntimeError::InvalidOptions(format!(
+                    "--{OPTION_MAX_IMAGE_SIZE} must be a positive integer"
+                ))
+            })?
+            .filter(|&px| px > 0)
+            .ok_or_else(|| {
+                RuntimeError::InvalidOptions(format!(
+                    "--{OPTION_MAX_IMAGE_SIZE} must be a positive integer"
+                ))
+            })?;
+        let image_quality: u8 = args
+            .get_one::<String>(OPTION_IMAGE_QUALITY)
+            .map(|s| s.parse())
+            .transpose()
+            .map_err(|_| {
+                RuntimeError::InvalidOptions(format!(
+                    "--{OPTION_IMAGE_QUALITY} must be an integer between 1 and 100"
+                ))
+            })?
+            .filter(|&q| (1..=100).contains(&q))
+            .ok_or_else(|| {
+                RuntimeError::InvalidOptions(format!(
+                    "--{OPTION_IMAGE_QUALITY} must be an integer between 1 and 100"
+                ))
+            })?;
 
         // Build the export type
         let export_type: Option<ExportType> = match export_file_type {
@@ -149,6 +277,27 @@ impl Options {
             }
             None => None,
         };
+
+        // These options only affect the PDF exporter; reject them for other
+        // formats (and when no format is selected) so they are never silently
+        // ignored. Defaulted values count as set only when supplied on the CLI.
+        if !matches!(export_type, Some(ExportType::Pdf)) {
+            let explicit = |name: &str| args.value_source(name) == Some(ValueSource::CommandLine);
+            let pdf_only = [
+                (explicit(OPTION_MAX_IMAGE_SIZE), OPTION_MAX_IMAGE_SIZE),
+                (explicit(OPTION_IMAGE_QUALITY), OPTION_IMAGE_QUALITY),
+                (chrome_path.is_some(), OPTION_CHROME_PATH),
+                (keep_html, OPTION_KEEP_HTML),
+                (explicit(OPTION_PDF_ENGINE), OPTION_PDF_ENGINE),
+            ];
+            for (set, opt) in pdf_only {
+                if set {
+                    return Err(RuntimeError::InvalidOptions(format!(
+                        "Option --{opt} requires --{OPTION_EXPORT_TYPE} pdf"
+                    )));
+                }
+            }
+        }
 
         // Anything in here requires `--format`
         if export_file_type.is_none() {
@@ -272,15 +421,22 @@ impl Options {
             );
         }
 
-        // Determine the attachment manager mode
+        // Determine the attachment manager mode. PDF exports need image
+        // attachments copied and HEIC converted to JPEG (Chrome cannot render
+        // HEIC), so default to `Basic` when the user did not pick a mode.
         let attachment_manager_mode = match attachment_manager_type {
             Some(manager) => {
                 AttachmentManagerMode::from_cli(manager).ok_or(RuntimeError::InvalidOptions(format!(
                     "{manager} is not a valid attachment manager mode! Must be one of <{SUPPORTED_ATTACHMENT_MANAGER_MODES}>"
                 )))?
             }
+            None if matches!(export_type, Some(ExportType::Pdf)) => AttachmentManagerMode::Basic,
             None => AttachmentManagerMode::default(),
         };
+
+        // PDF generation requires every image to be present at print time, so
+        // force lazy loading off regardless of the user's `--no-lazy` flag.
+        let no_lazy = no_lazy || matches!(export_type, Some(ExportType::Pdf));
 
         // Validate the provided export path
         let export_path = validate_path(user_export_path, export_type.as_ref())?;
@@ -302,6 +458,13 @@ impl Options {
             cleartext_password: cleartext_password.cloned(),
             contacts_path: contacts_path.cloned().map(PathBuf::from),
             show_progress,
+            pdf: PdfOptions {
+                engine: pdf_engine,
+                max_image_size,
+                image_quality,
+                chrome_path: chrome_path.cloned(),
+                keep_html,
+            },
         })
     }
 
@@ -506,6 +669,43 @@ fn get_command() -> Command {
                 .action(ArgAction::SetTrue)
                 .display_order(16),
         )
+        .arg(
+            Arg::new(OPTION_MAX_IMAGE_SIZE)
+                .long(OPTION_MAX_IMAGE_SIZE)
+                .help("PDF export only: cap the longest edge of image attachments to this many pixels before embedding\nLarger images are downscaled with `sips` (macOS) or ImageMagick; smaller images are left untouched\nThis is the dominant lever on PDF size\n")
+                .default_value(DEFAULT_MAX_IMAGE_SIZE)
+                .value_name("pixels")
+                .display_order(17),
+        )
+        .arg(
+            Arg::new(OPTION_IMAGE_QUALITY)
+                .long(OPTION_IMAGE_QUALITY)
+                .help("PDF export only: JPEG quality (1-100) for images embedded in the PDF\nThe browser embeds images losslessly; they are re-encoded to JPEG at this quality to keep the PDF small\n")
+                .default_value(DEFAULT_IMAGE_QUALITY)
+                .value_name("quality")
+                .display_order(18),
+        )
+        .arg(
+            Arg::new(OPTION_CHROME_PATH)
+                .long(OPTION_CHROME_PATH)
+                .help("PDF export only: explicit path to a Chrome, Chromium, or Edge binary\nIf omitted, common install locations are probed automatically\n")
+                .value_name("path/to/chrome")
+                .display_order(19),
+        )
+        .arg(
+            Arg::new(OPTION_KEEP_HTML)
+                .long(OPTION_KEEP_HTML)
+                .help("PDF export only: keep the intermediate per-conversation HTML files next to the generated PDFs\nBy default they are removed after a successful conversion\n")
+                .action(ArgAction::SetTrue)
+                .display_order(20),
+        )
+        .arg(
+            Arg::new(OPTION_PDF_ENGINE)
+                .long(OPTION_PDF_ENGINE)
+                .help("PDF export only: rendering engine to use\n`quartz` (macOS only, default there) renders with WebKit + Apple's Quartz PDF engine: much smaller, searchable PDFs with embedded JPEGs preserved\n`chrome` renders with a headless Chrome/Chromium/Edge browser and works on every platform\n")
+                .value_name(SUPPORTED_PDF_ENGINES)
+                .display_order(21),
+        )
 }
 
 #[cfg(test)]
@@ -534,6 +734,7 @@ impl Options {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         }
     }
 }
@@ -552,7 +753,7 @@ mod arg_tests {
     use crate::app::{
         compatibility::attachment_manager::{AttachmentManager, AttachmentManagerMode},
         export_type::ExportType,
-        options::{Options, get_command, validate_path},
+        options::{Options, PdfEngine, PdfOptions, get_command, validate_path},
         test_dir::unique_test_dir,
     };
 
@@ -582,6 +783,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -658,6 +860,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -689,6 +892,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -763,6 +967,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -802,6 +1007,7 @@ mod arg_tests {
             cleartext_password: Some("password".to_string()),
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -825,8 +1031,126 @@ mod arg_tests {
     #[test]
     fn cant_build_option_invalid_export_type() {
         let command = get_command();
-        let args = command.get_matches_from(["imessage-exporter", "-f", "pdf"]);
+        let args = command.get_matches_from(["imessage-exporter", "-f", "json"]);
         assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn pdf_export_forces_basic_attachments_and_no_lazy() {
+        let command = get_command();
+        let args = command.get_matches_from(["imessage-exporter", "-f", "pdf"]);
+        let actual = Options::from_args(&args).unwrap();
+        assert_eq!(
+            actual.attachment_manager,
+            AttachmentManager::from(AttachmentManagerMode::Basic)
+        );
+        assert!(actual.no_lazy);
+        assert_eq!(actual.pdf, PdfOptions::default());
+    }
+
+    #[test]
+    fn rejects_pdf_only_flags_for_other_formats() {
+        for flag in [
+            vec!["--keep-html"],
+            vec!["--chrome-path", "/tmp/chrome"],
+            vec!["--max-image-size", "800"],
+            vec!["--image-quality", "60"],
+        ] {
+            let command = get_command();
+            let mut argv = vec!["imessage-exporter", "-f", "txt"];
+            argv.extend(flag.iter().copied());
+            let args = command.get_matches_from(argv);
+            assert!(
+                Options::from_args(&args).is_err(),
+                "expected {flag:?} to be rejected for txt"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_defaulted_image_options_for_non_pdf() {
+        // Defaults are present in ArgMatches but not "set on the CLI", so a
+        // plain txt export must still succeed.
+        let command = get_command();
+        let args = command.get_matches_from(["imessage-exporter", "-f", "txt"]);
+        assert!(Options::from_args(&args).is_ok());
+    }
+
+    #[test]
+    fn pdf_export_rejects_invalid_image_quality() {
+        let command = get_command();
+        let args =
+            command.get_matches_from(["imessage-exporter", "-f", "pdf", "--image-quality", "0"]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn pdf_engine_parses_known_values() {
+        assert_eq!(PdfEngine::from_cli("quartz"), Some(PdfEngine::Quartz));
+        assert_eq!(PdfEngine::from_cli("WebKit"), Some(PdfEngine::Quartz));
+        assert_eq!(PdfEngine::from_cli("chrome"), Some(PdfEngine::Chrome));
+        assert_eq!(PdfEngine::from_cli("chromium"), Some(PdfEngine::Chrome));
+        assert_eq!(PdfEngine::from_cli("nonsense"), None);
+    }
+
+    #[test]
+    fn pdf_export_accepts_engine_override() {
+        let command = get_command();
+        let args =
+            command.get_matches_from(["imessage-exporter", "-f", "pdf", "--pdf-engine", "chrome"]);
+        let actual = Options::from_args(&args).unwrap();
+        assert_eq!(actual.pdf.engine, PdfEngine::Chrome);
+    }
+
+    #[test]
+    fn pdf_export_rejects_invalid_engine() {
+        let command = get_command();
+        let args =
+            command.get_matches_from(["imessage-exporter", "-f", "pdf", "--pdf-engine", "skia"]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn pdf_chrome_path_implies_chrome_engine() {
+        // An explicit --chrome-path with no --pdf-engine selects Chrome, so the
+        // path is honored instead of being ignored under the Quartz default.
+        let command = get_command();
+        let args = command.get_matches_from([
+            "imessage-exporter",
+            "-f",
+            "pdf",
+            "--chrome-path",
+            "/tmp/chrome",
+        ]);
+        let actual = Options::from_args(&args).unwrap();
+        assert_eq!(actual.pdf.engine, PdfEngine::Chrome);
+    }
+
+    #[test]
+    fn rejects_pdf_engine_for_other_formats() {
+        let command = get_command();
+        let args =
+            command.get_matches_from(["imessage-exporter", "-f", "txt", "--pdf-engine", "quartz"]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn pdf_export_accepts_custom_image_options() {
+        let command = get_command();
+        let args = command.get_matches_from([
+            "imessage-exporter",
+            "-f",
+            "pdf",
+            "--max-image-size",
+            "1000",
+            "--image-quality",
+            "70",
+            "--keep-html",
+        ]);
+        let actual = Options::from_args(&args).unwrap();
+        assert_eq!(actual.pdf.max_image_size, 1000);
+        assert_eq!(actual.pdf.image_quality, 70);
+        assert!(actual.pdf.keep_html);
     }
 
     #[test]
@@ -855,6 +1179,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -886,6 +1211,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -918,6 +1244,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -949,6 +1276,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -980,6 +1308,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);
@@ -1050,6 +1379,7 @@ mod arg_tests {
             cleartext_password: None,
             contacts_path: None,
             show_progress: true,
+            pdf: PdfOptions::default(),
         };
 
         assert_eq!(actual, expected);

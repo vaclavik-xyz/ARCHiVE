@@ -4,6 +4,7 @@
 
 use std::{
     fmt::{Display, Formatter, Result},
+    path::Path,
     process::Command,
 };
 
@@ -203,6 +204,90 @@ impl HardwareEncoder {
     }
 }
 
+// MARK: PDF
+/// A located headless-browser binary used to render HTML exports to PDF.
+///
+/// Unlike the other converters, the launcher is frequently a full path (the
+/// macOS `.app` bundle executable is not on `PATH`), so this resolves to the
+/// concrete launcher string rather than a fixed program name.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PdfConverter {
+    /// Absolute path or `PATH`-resolvable name of the browser launcher.
+    pub launcher: String,
+}
+
+impl PdfConverter {
+    /// Candidate Chrome/Chromium/Edge launchers to probe, in priority order.
+    fn candidates() -> &'static [&'static str] {
+        #[cfg(target_os = "macos")]
+        {
+            &[
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                "/Applications/Chromium.app/Contents/MacOS/Chromium",
+                "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+                "google-chrome",
+                "chromium",
+                "microsoft-edge",
+            ]
+        }
+        #[cfg(target_os = "windows")]
+        {
+            &[
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                "chrome",
+                "msedge",
+            ]
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            &[
+                "google-chrome-stable",
+                "google-chrome",
+                "chromium",
+                "chromium-browser",
+                "microsoft-edge-stable",
+                "microsoft-edge",
+                "brave-browser",
+            ]
+        }
+    }
+
+    /// Resolve a usable launcher. An explicit `chrome_path` wins when it points
+    /// at an existing file; otherwise known install locations are probed.
+    /// Returns [`None`] when no browser is found.
+    pub fn resolve(chrome_path: Option<&str>) -> Option<Self> {
+        if let Some(path) = chrome_path {
+            if Path::new(path).exists() {
+                return Some(Self {
+                    launcher: path.to_string(),
+                });
+            }
+            eprintln!(
+                "--chrome-path `{path}` does not exist; falling back to auto-detection"
+            );
+        }
+        for candidate in Self::candidates() {
+            if let Some(found) = locate(candidate) {
+                return Some(Self { launcher: found });
+            }
+        }
+        None
+    }
+}
+
+/// Resolve a single candidate to a usable launcher string: values containing a
+/// path separator are checked on disk; bare names are looked up on `PATH`.
+fn locate(candidate: &str) -> Option<String> {
+    if candidate.contains(std::path::MAIN_SEPARATOR) {
+        return Path::new(candidate)
+            .exists()
+            .then(|| candidate.to_string());
+    }
+    exists(candidate).then(|| candidate.to_string())
+}
+
 /// `true` when a shell program exists on the system.
 #[cfg(not(target_family = "windows"))]
 fn exists(name: &str) -> bool {
@@ -225,7 +310,7 @@ fn exists(name: &str) -> bool {
 
 #[cfg(test)]
 mod test {
-    use super::exists;
+    use super::{PdfConverter, exists};
 
     #[test]
     fn can_find_program() {
@@ -235,5 +320,23 @@ mod test {
     #[test]
     fn can_miss_program() {
         assert!(!exists("fake_name"));
+    }
+
+    #[test]
+    fn pdf_resolve_honors_existing_chrome_path() {
+        // An explicit path to an existing file is returned verbatim.
+        let resolved = PdfConverter::resolve(Some("/bin/sh")).expect("path exists");
+        assert_eq!(resolved.launcher, "/bin/sh");
+    }
+
+    #[test]
+    fn pdf_resolve_ignores_missing_chrome_path() {
+        // A bogus override must never be returned; resolution either finds a
+        // real browser by probing or yields nothing.
+        let resolved = PdfConverter::resolve(Some("/no/such/chrome-binary-xyz"));
+        assert_ne!(
+            resolved.map(|c| c.launcher),
+            Some("/no/such/chrome-binary-xyz".to_string())
+        );
     }
 }
