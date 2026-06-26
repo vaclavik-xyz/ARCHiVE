@@ -1,19 +1,19 @@
-# Agent guide: backup-extractor
+# Agent guide: archive
 
-`backup-extractor` extracts personal data from an on-disk iOS backup. It is
+`archive` extracts personal data from an on-disk iOS backup. It is
 built to be driven by agents: every command prints exactly one JSON object to
 **stdout**, human progress goes to **stderr**, and exit codes are stable.
 
 ## Invocation
 
 ```
-backup-extractor --backup <DIR> [--password <PW>] [-o <OUT>] <COMMAND> [ARGS]
+archive --backup <DIR> [--password <PW>] [-o <OUT>] <COMMAND> [ARGS]
 ```
 
 - `--backup <DIR>` (required): the iOS backup directory. Must appear **before**
   the subcommand.
 - `--password <PW>` (optional): encrypted-backup password. May also be supplied
-  via the `BACKUP_EXTRACTOR_PASSWORD` environment variable. Not needed for
+  via the `ARCHIVE_PASSWORD` environment variable. Not needed for
   unencrypted backups. Headless runs never prompt.
 - `-o, --out <OUT>`: output directory. Required for export commands; ignored by
   `inspect`.
@@ -26,7 +26,7 @@ the subcommand name, which is agent-friendly for programmatic invocation.
 ### `inspect` — discover what is extractable (read-only)
 
 ```
-backup-extractor --backup <DIR> [--password <PW>] inspect
+archive --backup <DIR> [--password <PW>] inspect
 ```
 
 stdout:
@@ -53,7 +53,7 @@ this backup; `count` is best-effort: filled for supported + present stores, and
 ### `contacts` — export contacts
 
 ```
-backup-extractor --backup <DIR> [--password <PW>] -o <OUT> contacts -f <FORMAT>
+archive --backup <DIR> [--password <PW>] -o <OUT> contacts -f <FORMAT>
 ```
 
 `FORMAT` is one of `csv | json | vcf | html`. Writes `<OUT>/contacts.<ext>`.
@@ -81,7 +81,7 @@ they are joined into one `addresses` column.
 ### `calls` — export call history
 
 ```
-backup-extractor --backup <DIR> [--password <PW>] -o <OUT> calls -f <FORMAT>
+archive --backup <DIR> [--password <PW>] -o <OUT> calls -f <FORMAT>
 ```
 
 `FORMAT` is one of `csv | json | html` (`vcf` is rejected with exit 1). Writes
@@ -108,7 +108,7 @@ may be `null`), `call_type` (raw `ZCALLTYPE` integer, the honest backing for
 ### `voicemail` — export voicemail metadata
 
 ```
-backup-extractor --backup <DIR> [--password <PW>] -o <OUT> voicemail -f <FORMAT>
+archive --backup <DIR> [--password <PW>] -o <OUT> voicemail -f <FORMAT>
 ```
 
 `FORMAT` is one of `csv | json | html` (`vcf` is rejected with exit 1). Writes
@@ -166,12 +166,12 @@ stdout (with usage text on stderr) is a malformed invocation. When unsure, run
 
 ```bash
 # Discover
-backup-extractor --backup ~/Backup/UDID inspect
+archive --backup ~/Backup/UDID inspect
 
 # Export contacts as importable vCard
-backup-extractor --backup ~/Backup/UDID -o /tmp/out contacts -f vcf
+archive --backup ~/Backup/UDID -o /tmp/out contacts -f vcf
 
 # Encrypted backup via env var (no prompt)
-BACKUP_EXTRACTOR_PASSWORD=secret \
-  backup-extractor --backup ~/Backup/UDID -o /tmp/out contacts -f json
+ARCHIVE_PASSWORD=secret \
+  archive --backup ~/Backup/UDID -o /tmp/out contacts -f json
 ```

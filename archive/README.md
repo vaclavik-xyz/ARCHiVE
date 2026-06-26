@@ -1,4 +1,4 @@
-# backup-extractor
+# archive
 
 Extract personal data from an on-disk iOS backup (encrypted or not) into
 machine-readable and human-readable formats.
@@ -9,8 +9,8 @@ object on stdout with stable exit codes.
 ## Quick start
 
 ```
-backup-extractor --backup <backup-dir> inspect
-backup-extractor --backup <backup-dir> -o <out> contacts -f vcf
+archive --backup <backup-dir> inspect
+archive --backup <backup-dir> -o <out> contacts -f vcf
 ```
 
 ## Status

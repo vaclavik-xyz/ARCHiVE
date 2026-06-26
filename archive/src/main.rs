@@ -14,7 +14,7 @@ use clap::{Parser, Subcommand};
 use crate::format::Format;
 
 #[derive(Parser)]
-#[command(name = "backup-extractor", about = "Extract personal data from an iOS backup")]
+#[command(name = "archive", about = "Extract personal data from an iOS backup")]
 struct Cli {
     /// Path to the iOS backup directory.
     #[arg(long, required = true)]
@@ -67,16 +67,16 @@ impl AppError {
     fn other(m: impl Into<String>) -> Self { Self { kind: "other", message: m.into(), code: 1 } }
 }
 
-fn device_json(d: &backup_core::DeviceInfo) -> serde_json::Value {
+fn device_json(d: &archive_core::DeviceInfo) -> serde_json::Value {
     serde_json::json!({ "name": d.device_name, "ios": d.product_version, "udid": d.udid })
 }
 
-/// Map a `backup-core` open error to the right `AppError`: a locked/encrypted
+/// Map a `archive-core` open error to the right `AppError`: a locked/encrypted
 /// backup needs auth (exit 2); anything else is a usage/other error (exit 1).
-fn open_error(e: backup_core::BackupError) -> AppError {
+fn open_error(e: archive_core::BackupError) -> AppError {
     let msg = e.to_string();
     match e {
-        backup_core::BackupError::Locked(_) => AppError::auth(msg),
+        archive_core::BackupError::Locked(_) => AppError::auth(msg),
         _ => AppError::other(msg),
     }
 }
@@ -99,7 +99,7 @@ fn run() -> Result<serde_json::Value, AppError> {
     let password = cli
         .password
         .clone()
-        .or_else(|| std::env::var("BACKUP_EXTRACTOR_PASSWORD").ok());
+        .or_else(|| std::env::var("ARCHIVE_PASSWORD").ok());
     match &cli.command {
         Command::Contacts { format } => run_contacts(&cli, password.as_deref(), format),
         Command::Calls { format } => run_calls(&cli, password.as_deref(), format),
@@ -112,7 +112,7 @@ fn run() -> Result<serde_json::Value, AppError> {
 /// auto-cleaned temp dir (random name, removed on every return path so the
 /// decrypted DB never lingers). `Ok(None)` when the backup has no contacts store.
 fn load_contacts(
-    backup: &backup_core::Backup,
+    backup: &archive_core::Backup,
 ) -> Result<Option<Vec<contacts::Contact>>, AppError> {
     let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
     let tmp = scratch.path().join("AddressBook.sqlitedb");
@@ -136,7 +136,7 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
         .as_deref()
         .ok_or_else(|| AppError::usage("--out is required to export contacts"))?;
 
-    let backup = backup_core::Backup::open(&cli.backup, password)
+    let backup = archive_core::Backup::open(&cli.backup, password)
         .map_err(open_error)?;
     let device = device_json(backup.device_info());
 
@@ -179,7 +179,7 @@ fn calls_format(format: &str) -> Result<Format, AppError> {
 
 /// Fetch and parse the call history into memory via a secure auto-cleaned temp
 /// dir. `Ok(None)` when the backup has no call-history store.
-fn load_calls(backup: &backup_core::Backup) -> Result<Option<Vec<calls::Call>>, AppError> {
+fn load_calls(backup: &archive_core::Backup) -> Result<Option<Vec<calls::Call>>, AppError> {
     let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
     let tmp = scratch.path().join("CallHistory.storedata");
     let Some(db) = backup
@@ -199,7 +199,7 @@ fn run_calls(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
         .as_deref()
         .ok_or_else(|| AppError::usage("--out is required to export calls"))?;
 
-    let backup = backup_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
     let device = device_json(backup.device_info());
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
@@ -238,7 +238,7 @@ fn voicemail_format(format: &str) -> Result<Format, AppError> {
 
 /// Fetch and parse voicemail metadata into memory via a secure auto-cleaned temp
 /// dir. `Ok(None)` when the backup has no voicemail store.
-fn load_voicemail(backup: &backup_core::Backup) -> Result<Option<Vec<voicemail::Voicemail>>, AppError> {
+fn load_voicemail(backup: &archive_core::Backup) -> Result<Option<Vec<voicemail::Voicemail>>, AppError> {
     let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
     let tmp = scratch.path().join("voicemail.db");
     let Some(db) = backup
@@ -258,7 +258,7 @@ fn run_voicemail(cli: &Cli, password: Option<&str>, format: &str) -> Result<serd
         .as_deref()
         .ok_or_else(|| AppError::usage("--out is required to export voicemail"))?;
 
-    let backup = backup_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
     let device = device_json(backup.device_info());
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
@@ -313,7 +313,7 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
 ];
 
 fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, AppError> {
-    let backup = backup_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
     let device = device_json(backup.device_info());
 
     let mut stores = Vec::new();
@@ -347,7 +347,7 @@ mod cli_tests {
     #[test]
     fn parses_contacts_invocation() {
         let cli = Cli::try_parse_from([
-            "backup-extractor", "--backup", "/b", "-o", "/out", "contacts", "-f", "vcf",
+            "archive", "--backup", "/b", "-o", "/out", "contacts", "-f", "vcf",
         ])
         .unwrap();
         assert_eq!(cli.backup, PathBuf::from("/b"));
@@ -359,19 +359,19 @@ mod cli_tests {
 
     #[test]
     fn rejects_missing_backup() {
-        assert!(Cli::try_parse_from(["backup-extractor", "-o", "/out", "contacts", "-f", "csv"]).is_err());
+        assert!(Cli::try_parse_from(["archive", "-o", "/out", "contacts", "-f", "csv"]).is_err());
     }
 
     #[test]
     fn open_error_maps_locked_to_auth_else_other() {
-        assert_eq!(open_error(backup_core::BackupError::Locked("x".into())).code, 2);
-        assert_eq!(open_error(backup_core::BackupError::Open("x".into())).code, 1);
+        assert_eq!(open_error(archive_core::BackupError::Locked("x".into())).code, 2);
+        assert_eq!(open_error(archive_core::BackupError::Open("x".into())).code, 1);
     }
 
     #[test]
     fn parses_out_after_subcommand() {
         let cli = Cli::try_parse_from([
-            "backup-extractor", "--backup", "/b", "contacts", "-f", "csv", "-o", "/out",
+            "archive", "--backup", "/b", "contacts", "-f", "csv", "-o", "/out",
         ])
         .unwrap();
         assert_eq!(cli.backup, PathBuf::from("/b"));
@@ -381,7 +381,7 @@ mod cli_tests {
     #[test]
     fn parses_calls_invocation() {
         let cli = Cli::try_parse_from([
-            "backup-extractor", "--backup", "/b", "-o", "/out", "calls", "-f", "json",
+            "archive", "--backup", "/b", "-o", "/out", "calls", "-f", "json",
         ])
         .unwrap();
         match cli.command {
@@ -393,7 +393,7 @@ mod cli_tests {
     #[test]
     fn parses_voicemail_invocation() {
         let cli = Cli::try_parse_from([
-            "backup-extractor", "--backup", "/b", "-o", "/out", "voicemail", "-f", "csv",
+            "archive", "--backup", "/b", "-o", "/out", "voicemail", "-f", "csv",
         ])
         .unwrap();
         match cli.command {

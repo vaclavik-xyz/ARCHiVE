@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["imessage-database", "imessage-exporter", "backup-core", "backup-extractor"]
+members = ["imessage-database", "imessage-exporter", "archive-core", "archive"]
 
 [profile.release]
 # Perform Link Time Optimization
