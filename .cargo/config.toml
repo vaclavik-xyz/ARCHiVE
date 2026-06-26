@@ -1,0 +1,11 @@
+# The imessage-exporter / imessage-database golden tests assert message
+# timestamps rendered in the upstream author's timezone (US/Pacific). Pin TZ so
+# `cargo test` is deterministic on any contributor's machine instead of only
+# passing in America/Los_Angeles.
+#
+# Scope: cargo applies this to processes it spawns, so it also affects
+# `cargo run` from this repo (timestamps render in Pacific there). The installed
+# / release binary run directly (e.g. ./target/release/imessage-exporter) is
+# NOT affected and renders timestamps in the local timezone, as intended.
+[env]
+TZ = "America/Los_Angeles"
