@@ -102,8 +102,8 @@ Each call object: `number` (phone number, or an Apple ID/email for FaceTime),
 `answered` (bool), `service` (`phone`/`facetime`/raw bundle id/`unknown`),
 `video` (best-effort FaceTime video flag — **version-dependent and undocumented**,
 may be `null`), `call_type` (raw `ZCALLTYPE` integer, the honest backing for
-`video`), `location`, `country`. No call history → `count: 0`, `outputs: []`,
-plus a `note`.
+`video`; `null` when absent), `location` (or `null` when absent), `country` (or
+`null` when absent). No call history → `count: 0`, `outputs: []`, plus a `note`.
 
 ### `voicemail` — export voicemail metadata
 
