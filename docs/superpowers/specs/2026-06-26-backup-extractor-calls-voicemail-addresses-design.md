@@ -63,11 +63,22 @@ Rust 2024, `rusqlite` (`=0.40.0`, bundled), `serde`/`serde_json`, `csv`,
 
 ## Global Constraints
 
-- **Agent-first contract unchanged.** Every command prints exactly one JSON
-  object on stdout; human progress to stderr. Exit codes unchanged: `0` success
-  (including store-absent), `2` auth only (locked/wrong-password backup), `1`
-  usage/other. Password from `--password` or `BACKUP_EXTRACTOR_PASSWORD`; never
-  a blocking prompt.
+- **Agent-first contract unchanged.** A command that parses far enough to run
+  prints exactly one JSON object on stdout; human progress goes to stderr. The
+  two output channels and exit codes are exactly as Increment 1's `AGENTS.md`
+  documents them — this increment must not weaken that wording:
+  - `0` success (including store-absent),
+  - `2` auth only (locked/wrong-password backup) — emitted as the JSON error
+    envelope (`{ ok:false, error, kind:"auth" }`),
+  - `1` usage/other (bad `--backup` path, parse/IO failure) — JSON envelope.
+  - **The one documented non-JSON exception:** a malformed clap invocation
+    (unknown flag, missing required arg, bad subcommand) exits `2` with **empty
+    stdout** and a usage message on **stderr** — clap's own error channel, never
+    a JSON envelope. `AGENTS.md` already explains how an agent disambiguates this
+    clap exit-2 from the auth exit-2 (presence of a JSON object on stdout).
+
+  Password from `--password` or `BACKUP_EXTRACTOR_PASSWORD`; never a blocking
+  prompt.
 - **`#![warn(missing_docs)]`** stays on `backup-core`; new `backup-extractor`
   public-ish items get doc comments to match the existing style.
 - **All version-pinned deps stay `=`-pinned**, matching the workspace.
@@ -374,4 +385,3 @@ AGENTS.md                         # + calls/voicemail sections, contacts address
   `Z_NREMOTEPARTICIPANTHANDLES` join) — single `ZADDRESS` only this increment.
 - Voicemail `map`/`receiver` account resolution.
 - `photos`, `notes`, the `pdf` output format, vCard line folding.
-```
