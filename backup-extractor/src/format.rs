@@ -286,6 +286,16 @@ mod tests {
     }
 
     #[test]
+    fn calls_html_escapes_html_in_data() {
+        let mut calls = sample_calls();
+        calls[0].number = "<script>alert(1)</script>".into();
+        let out = calls_html(&calls);
+        // askama's HTML escaper emits numeric character references.
+        assert!(out.contains("&#60;script&#62;"));
+        assert!(!out.contains("<script>alert"));
+    }
+
+    #[test]
     fn vcard_fn_falls_back_to_organization() {
         let contacts = vec![Contact {
             first: String::new(),
