@@ -4,6 +4,8 @@ mod datetime;
 mod format;
 mod sqlite_util;
 mod voicemail;
+#[allow(dead_code)]
+mod voicemail_audio;
 #[cfg(test)]
 mod test_fixtures;
 
