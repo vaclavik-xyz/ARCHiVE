@@ -24,6 +24,19 @@ pub struct Address {
     pub country_code: String,
 }
 
+impl Address {
+    /// One-line human rendering of the address parts (no label), omitting empty
+    /// components. Used by the CSV column and the HTML view.
+    pub fn display_line(&self) -> String {
+        [&self.street, &self.city, &self.state, &self.zip, &self.country]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 /// One address-book entry.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Contact {

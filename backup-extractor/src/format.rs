@@ -34,6 +34,17 @@ impl Format {
     }
 }
 
+fn join_addresses(addresses: &[crate::contacts::Address]) -> String {
+    addresses
+        .iter()
+        .map(|a| {
+            let line = a.display_line();
+            if a.label.is_empty() { line } else { format!("{}: {}", a.label, line) }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 fn join_labeled(items: &[crate::contacts::Labeled]) -> String {
     items
         .iter()
@@ -64,7 +75,7 @@ fn vcard_param(value: &str) -> String {
 
 pub fn contacts_csv(contacts: &[Contact]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
-    wtr.write_record(["first", "last", "organization", "phones", "emails", "note"])
+    wtr.write_record(["first", "last", "organization", "phones", "emails", "addresses", "note"])
         .unwrap();
     for c in contacts {
         wtr.write_record([
@@ -73,6 +84,7 @@ pub fn contacts_csv(contacts: &[Contact]) -> String {
             &c.organization,
             &join_labeled(&c.phones),
             &join_labeled(&c.emails),
+            &join_addresses(&c.addresses),
             &c.note,
         ])
         .unwrap();
@@ -101,6 +113,17 @@ pub fn contacts_vcard(contacts: &[Contact]) -> String {
         }
         for e in &c.emails {
             out.push_str(&format!("EMAIL;TYPE={}:{}\r\n", vcard_param(&e.label), vcard_escape(&e.value)));
+        }
+        for a in &c.addresses {
+            out.push_str(&format!(
+                "ADR;TYPE={}:;;{};{};{};{};{}\r\n",
+                vcard_param(&a.label),
+                vcard_escape(&a.street),
+                vcard_escape(&a.city),
+                vcard_escape(&a.state),
+                vcard_escape(&a.zip),
+                vcard_escape(&a.country),
+            ));
         }
         if !c.note.is_empty() {
             out.push_str(&format!("NOTE:{}\r\n", vcard_escape(&c.note)));
@@ -224,8 +247,8 @@ mod tests {
     #[test]
     fn csv_has_header_and_row() {
         let out = contacts_csv(&sample());
-        assert!(out.starts_with("first,last,organization,phones,emails,note"));
-        assert!(out.contains("Jan,Novák,Acme,Mobile: +420776452878,Home: jan@example.cz,kamarád"));
+        assert!(out.starts_with("first,last,organization,phones,emails,addresses,note"));
+        assert!(out.contains("Jan,Novák,Acme,Mobile: +420776452878,Home: jan@example.cz,,kamarád"));
     }
 
     #[test]
@@ -363,6 +386,70 @@ mod tests {
         // askama's HTML escaper emits numeric character references.
         assert!(out.contains("&#60;script&#62;"));
         assert!(!out.contains("<script>alert"));
+    }
+
+    fn sample_with_address() -> Vec<Contact> {
+        vec![Contact {
+            first: "Jan".into(),
+            last: "Novák".into(),
+            organization: String::new(),
+            phones: vec![],
+            emails: vec![],
+            note: String::new(),
+            addresses: vec![crate::contacts::Address {
+                label: "Work".into(),
+                street: "Hlavní 1".into(),
+                city: "Praha".into(),
+                state: String::new(),
+                zip: "11000".into(),
+                country: "Czechia".into(),
+                country_code: String::new(),
+            }],
+        }]
+    }
+
+    #[test]
+    fn contacts_csv_includes_addresses_column() {
+        let out = contacts_csv(&sample_with_address());
+        assert!(out.starts_with("first,last,organization,phones,emails,addresses,note"));
+        assert!(out.contains("Work: Hlavní 1, Praha, 11000, Czechia"));
+    }
+
+    #[test]
+    fn vcard_emits_escaped_adr() {
+        let out = contacts_vcard(&sample_with_address());
+        assert!(out.contains("ADR;TYPE=Work:;;Hlavní 1;Praha;;11000;Czechia"));
+    }
+
+    #[test]
+    fn vcard_adr_resists_injection() {
+        let contacts = vec![Contact {
+            first: "X".into(),
+            last: String::new(),
+            organization: String::new(),
+            phones: vec![],
+            emails: vec![],
+            note: String::new(),
+            addresses: vec![crate::contacts::Address {
+                label: "Home".into(),
+                street: "A;B\nADR:evil".into(),
+                city: String::new(),
+                state: String::new(),
+                zip: String::new(),
+                country: String::new(),
+                country_code: String::new(),
+            }],
+        }];
+        let out = contacts_vcard(&contacts);
+        assert!(out.contains("A\\;B\\nADR:evil"));
+        assert!(!out.contains("\nADR:evil")); // the injected newline did not start a property
+    }
+
+    #[test]
+    fn contacts_html_shows_address() {
+        let out = contacts_html(&sample_with_address());
+        assert!(out.contains("Hlavní 1"));
+        assert!(out.contains("Work"));
     }
 
     #[test]
