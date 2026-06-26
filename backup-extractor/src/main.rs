@@ -253,10 +253,14 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
         let present = backup
             .has(domain, path)
             .map_err(|e| AppError::other(e.to_string()))?;
+        // `count` is best-effort: a present-but-unparseable store yields `None`
+        // (count: null) without aborting inspect. `.ok()` drops a read error,
+        // `.flatten()` collapses store-absent `Ok(None)`, `.map(len)` counts a
+        // successful read.
         let count = if present && supported {
             match name {
-                "contacts" => load_contacts(&backup)?.map(|p| p.len()),
-                "calls" => load_calls(&backup)?.map(|c| c.len()),
+                "contacts" => load_contacts(&backup).ok().flatten().map(|p| p.len()),
+                "calls" => load_calls(&backup).ok().flatten().map(|c| c.len()),
                 _ => None,
             }
         } else {
