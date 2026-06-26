@@ -38,7 +38,8 @@ stdout:
   "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." },
   "stores": [
     { "type": "contacts", "present": true, "supported": true, "count": 1234 },
-    { "type": "calls", "present": true, "supported": false, "count": null },
+    { "type": "calls", "present": true, "supported": true, "count": 5678 },
+    { "type": "voicemail", "present": true, "supported": true, "count": 42 },
     { "type": "photos", "present": true, "supported": false, "count": null },
     { "type": "notes", "present": false, "supported": false, "count": null }
   ]
@@ -71,6 +72,63 @@ stdout:
 
 If the backup has no contacts: `"ok": true, "count": 0, "outputs": []` plus a
 `"note"` field.
+
+Each contact also carries an `addresses` array (postal addresses): objects with
+`label`, `street`, `city`, `state`, `zip`, `country`, `country_code` (empty
+strings for absent parts). In vCard output these become `ADR` properties; in CSV
+they are joined into one `addresses` column.
+
+### `calls` — export call history
+
+```
+backup-extractor --backup <DIR> [--password <PW>] -o <OUT> calls -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html` (`vcf` is rejected with exit 1). Writes
+`<OUT>/calls.<ext>`. stdout envelope:
+
+```json
+{
+  "ok": true,
+  "command": "calls",
+  "count": 5678,
+  "outputs": ["<OUT>/calls.json"],
+  "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." }
+}
+```
+
+Each call object: `number` (phone number, or an Apple ID/email for FaceTime),
+`date` (ISO 8601 UTC), `duration_seconds`, `direction` (`incoming`/`outgoing`),
+`answered` (bool), `service` (`phone`/`facetime`/raw bundle id/`unknown`),
+`video` (best-effort FaceTime video flag — **version-dependent and undocumented**,
+may be `null`), `call_type` (raw `ZCALLTYPE` integer, the honest backing for
+`video`), `location`, `country`. No call history → `count: 0`, `outputs: []`,
+plus a `note`.
+
+### `voicemail` — export voicemail metadata
+
+```
+backup-extractor --backup <DIR> [--password <PW>] -o <OUT> voicemail -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html` (`vcf` is rejected with exit 1). Writes
+`<OUT>/voicemail.<ext>`. Audio files (`.amr`) are not extracted. stdout envelope:
+
+```json
+{
+  "ok": true,
+  "command": "voicemail",
+  "count": 42,
+  "outputs": ["<OUT>/voicemail.json"],
+  "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." }
+}
+```
+
+Each voicemail object: `sender` (caller number; empty when withheld), `date`
+(ISO 8601 UTC), `duration_seconds`, `trashed` (bool — moved to Deleted),
+`trashed_at` (ISO 8601 UTC or `null`), `expiration` (ISO 8601 UTC or `null`),
+`flags` (raw bitmask, **not decoded** — use `trashed` for deletion status). No
+voicemail → `count: 0`, `outputs: []`, plus a `note`.
 
 ## Result envelope (every command)
 
