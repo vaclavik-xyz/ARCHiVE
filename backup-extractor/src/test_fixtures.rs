@@ -34,7 +34,7 @@ pub fn make_voicemail(path: &Path) {
             sender TEXT, callback_num TEXT, duration INTEGER, expiration INTEGER,
             trashed_date INTEGER, flags INTEGER);
          INSERT INTO voicemail (ROWID, date, sender, duration, expiration, trashed_date, flags) VALUES
-            (1, 1600000000, '+420776452878', 30, 0, 0, 0),
+            (1, 1600000000, '+420776452878', 30, 1600086400, 0, 0),
             (2, 1600000100, NULL, 12, 0, 600000000, 75);",
     )
     .unwrap();

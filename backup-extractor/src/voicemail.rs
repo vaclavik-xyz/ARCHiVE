@@ -89,7 +89,7 @@ mod tests {
         assert_eq!(active.duration_seconds, 30);
         assert!(!active.trashed);
         assert_eq!(active.trashed_at, None);
-        assert_eq!(active.expiration, None);
+        assert_eq!(active.expiration.as_deref(), Some("2020-09-14T12:26:40+00:00")); // Unix 1_600_086_400
 
         let trashed = &vms[1];
         assert_eq!(trashed.sender, ""); // NULL → empty
@@ -97,6 +97,7 @@ mod tests {
         assert_eq!(trashed.date, "2020-09-13T12:28:20+00:00"); // Unix 1_600_000_100
         assert_eq!(trashed.duration_seconds, 12);
         assert_eq!(trashed.trashed_at.as_deref(), Some("2020-01-06T10:40:00+00:00")); // Cocoa 600_000_000 + 978_307_200 = Unix 1_578_307_200
+        assert_eq!(trashed.expiration, None); // ROWID 2 expiration = 0 → None
         assert_eq!(trashed.flags, 75);
 
         std::fs::remove_dir_all(&dir).ok();
