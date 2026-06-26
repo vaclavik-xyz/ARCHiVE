@@ -105,14 +105,22 @@ may be `null`), `call_type` (raw `ZCALLTYPE` integer, the honest backing for
 `video`; `null` when absent), `location` (or `null` when absent), `country` (or
 `null` when absent). No call history → `count: 0`, `outputs: []`, plus a `note`.
 
-### `voicemail` — export voicemail metadata
+### `voicemail` — export voicemail metadata and audio
 
 ```
-archive --backup <DIR> [--password <PW>] -o <OUT> voicemail -f <FORMAT>
+archive --backup <DIR> [--password <PW>] -o <OUT> voicemail -f <FORMAT> [--audio] [--audio-format <amr|m4a|wav>]
 ```
 
 `FORMAT` is one of `csv | json | html` (`vcf` is rejected with exit 1). Writes
-`<OUT>/voicemail.<ext>`. Audio files (`.amr`) are not extracted. stdout envelope:
+`<OUT>/voicemail.<ext>`.
+
+**Audio extraction (optional):**
+
+With `--audio`, each voicemail's audio is fetched from `HomeDomain/Library/Voicemail/<rowid>.amr` into `<out>/voicemail_audio/` and linked from each record's `audio_file` field. `--audio-format` defaults to `amr` (raw copy, no dependencies); `m4a`/`wav` transcode via `ffmpeg` (required only then). `--audio-format` without `--audio` is a usage error.
+
+Each record gains `rowid` (stable per-backup id) and `audio_file` (output-relative path, or `null` when no audio exists for that row).
+
+stdout envelope:
 
 ```json
 {
@@ -120,14 +128,17 @@ archive --backup <DIR> [--password <PW>] -o <OUT> voicemail -f <FORMAT>
   "command": "voicemail",
   "count": 42,
   "outputs": ["<OUT>/voicemail.json"],
-  "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." }
+  "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." },
+  "audio": { "format": "m4a", "dir": "voicemail_audio", "extracted": 10, "missing": 2 }
 }
 ```
+
+The `audio` envelope is present only when `--audio` ran. `extracted` counts files written (including raw `.amr` kept when a transcode fails); `missing` counts rows with no audio in the backup.
 
 Each voicemail object: `sender` (caller number; empty when withheld), `date`
 (ISO 8601 UTC), `duration_seconds`, `trashed` (bool — moved to Deleted),
 `trashed_at` (ISO 8601 UTC or `null`), `expiration` (ISO 8601 UTC or `null`),
-`flags` (raw bitmask, **not decoded** — use `trashed` for deletion status). No
+`flags` (raw bitmask, **not decoded** — use `trashed` for deletion status), `rowid` (stable per-backup identifier), `audio_file` (path to extracted audio file, or `null`). No
 voicemail → `count: 0`, `outputs: []`, plus a `note`.
 
 ## Result envelope (every command)
