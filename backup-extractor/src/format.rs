@@ -120,6 +120,48 @@ pub fn contacts_html(contacts: &[Contact]) -> String {
     ContactsTemplate { contacts }.render().unwrap()
 }
 
+#[allow(dead_code)]
+pub fn calls_csv(calls: &[crate::calls::Call]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record([
+        "number", "date", "duration_seconds", "direction", "answered", "service",
+        "video", "call_type", "location", "country",
+    ])
+    .unwrap();
+    for c in calls {
+        wtr.write_record([
+            c.number.clone(),
+            c.date.clone(),
+            c.duration_seconds.to_string(),
+            c.direction.clone(),
+            c.answered.to_string(),
+            c.service.clone(),
+            c.video.map(|v| v.to_string()).unwrap_or_default(),
+            c.call_type.map(|v| v.to_string()).unwrap_or_default(),
+            c.location.clone().unwrap_or_default(),
+            c.country.clone().unwrap_or_default(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+#[allow(dead_code)]
+pub fn calls_json(calls: &[crate::calls::Call]) -> String {
+    serde_json::to_string_pretty(calls).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "calls.html")]
+struct CallsTemplate<'a> {
+    calls: &'a [crate::calls::Call],
+}
+
+#[allow(dead_code)]
+pub fn calls_html(calls: &[crate::calls::Call]) -> String {
+    CallsTemplate { calls }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,6 +241,48 @@ mod tests {
         assert!(out.contains("NOTE:line1\\nTEL:evil@inject"));
         // The injected newline did NOT create a real standalone property line.
         assert!(!out.contains("\nTEL:evil@inject"));
+    }
+
+    fn sample_calls() -> Vec<crate::calls::Call> {
+        vec![crate::calls::Call {
+            number: "+420776452878".into(),
+            date: "2026-06-20T14:33:05+00:00".into(),
+            duration_seconds: 42,
+            direction: "outgoing".into(),
+            answered: true,
+            service: "phone".into(),
+            video: None,
+            call_type: Some(1),
+            location: None,
+            country: Some("CZ".into()),
+        }]
+    }
+
+    #[test]
+    fn calls_csv_has_header_and_row() {
+        let out = calls_csv(&sample_calls());
+        assert!(out.starts_with(
+            "number,date,duration_seconds,direction,answered,service,video,call_type,location,country"
+        ));
+        assert!(out.contains("+420776452878"));
+        assert!(out.contains(",outgoing,true,phone,,1,,CZ"));
+    }
+
+    #[test]
+    fn calls_json_roundtrips() {
+        let out = calls_json(&sample_calls());
+        let back: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(back[0]["number"], "+420776452878");
+        assert_eq!(back[0]["direction"], "outgoing");
+        assert_eq!(back[0]["country"], "CZ");
+    }
+
+    #[test]
+    fn calls_html_lists_calls() {
+        let out = calls_html(&sample_calls());
+        assert!(out.contains("<html"));
+        assert!(out.contains("+420776452878"));
+        assert!(out.contains("outgoing"));
     }
 
     #[test]
