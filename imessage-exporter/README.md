@@ -1,6 +1,6 @@
 # Binary Documentation
 
-The `imessage-exporter` binary exports iMessage data to `txt` or `html` formats. It can also run diagnostics to find problems with the iMessage database.
+The `imessage-exporter` binary exports iMessage data to `txt`, `html`, or `pdf` formats. It can also run diagnostics to find problems with the iMessage database.
 
 ## Installation
 
@@ -47,7 +47,7 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
 -d, --diagnostics
         Print diagnostic information and exit
         
--f, --format <txt, html>
+-f, --format <txt, html, pdf>
         Specify a single file format to export messages into
         
 -c, --copy-method <clone, basic, full, disabled>
@@ -131,6 +131,30 @@ The [releases page](https://github.com/ReagentX/imessage-exporter/releases) prov
         so headless invocations (CI, output redirected to a logfile) stay clean automatically.
         Use this flag to suppress the bar even in an interactive terminal.
         
+    --max-image-size <pixels>
+        PDF export only: cap the longest edge of image attachments to this many pixels before embedding
+        Larger images are downscaled with `sips` (macOS) or ImageMagick; smaller images are left untouched
+        This is the dominant lever on PDF size
+        [default: 1600]
+        
+    --image-quality <quality>
+        PDF export only: JPEG quality (1-100) for images embedded in the PDF
+        The browser embeds images losslessly; they are re-encoded to JPEG at this quality to keep the PDF small
+        [default: 80]
+        
+    --chrome-path <path/to/chrome>
+        PDF export only: explicit path to a Chrome, Chromium, or Edge binary
+        If omitted, common install locations are probed automatically
+        
+    --keep-html
+        PDF export only: keep the intermediate per-conversation HTML files next to the generated PDFs
+        By default they are removed after a successful conversion
+        
+    --pdf-engine <quartz, chrome>
+        PDF export only: rendering engine to use
+        `quartz` (macOS only, default there) renders with WebKit + Apple's Quartz PDF engine: much smaller, searchable PDFs with embedded JPEGs preserved
+        `chrome` renders with a headless Chrome/Chromium/Edge browser and works on every platform
+        
 -h, --help
         Print help
 -V, --version
@@ -143,6 +167,12 @@ Export as `html` and copy attachments in web-compatible formats from the default
 
 ```zsh
 imessage-exporter -f html -c full
+```
+
+Export as `pdf` (one PDF per conversation) and copy attachments from the default iMessage Database location to a new folder called `pdf_export`. On macOS this uses the built-in Quartz engine; on other platforms pass `--pdf-engine chrome` (a headless Chrome/Chromium/Edge install is required):
+
+```zsh
+imessage-exporter -f pdf -c full -o pdf_export
 ```
 
 Export as `txt` and copy attachments in their original formats from the default iMessage Database location to a new folder in the current working directory called `output`:
@@ -255,25 +285,17 @@ The default styles can be viewed [here](src/exporters/html/resources/style.css).
 
 ### PDF Exports
 
-I could not get PDF export to work in a reasonable way. The best way for a user to do this is to follow the steps above for Safari and print to PDF.
+Run `-f pdf` to export each conversation as its own PDF. The exporter renders the same HTML it would otherwise write, downscales image attachments so the embedded images stay small, and prints each conversation to PDF — splitting very large conversations into chunks that it merges back into a single document.
 
-#### `wkhtmltopdf`
+Two rendering engines are available via `--pdf-engine`:
 
-`wkhtmltopdf` refuses to render local images, even with the flag enabled like so:
+- **`quartz`** (macOS only, and the default there) renders with WebKit and Apple's Quartz PDF engine. It produces much smaller, searchable PDFs and preserves the embedded JPEGs as-is.
+- **`chrome`** renders with a headless Chrome, Chromium, or Edge browser and works on every platform. Install one of those browsers, or point at a binary with `--chrome-path`.
 
-```rust
-let mut process = Command::new("wkhtmltopdf")
-.args(&vec![
-    "--enable-local-file-access".to_string(),
-    html_path,
-    pdf_path.to_string_lossy().to_string(),
-])
-.spawn()
-.unwrap();
-```
+Tune output size with `--max-image-size` (longest image edge, default `1600`px) and `--image-quality` (JPEG quality, default `80`). Pass `--keep-html` to keep the intermediate per-conversation HTML next to the PDFs instead of deleting it.
 
-This persisted after granting `cargo`, `imessage-exporter`, and `wkhtmltopdf` Full Disk Access permissions as well as after copying files to the same directory as the `HTML` file.
+The intermediate HTML is written into your export directory, so PDF export refuses to run when that directory already contains `.html` files (to avoid appending to or skipping them). Export to an empty directory, or move existing `.html` files first.
 
-#### Browser Automation
+#### History
 
-There are several `chomedriver` wrappers for Rust. The ones that use async make this binary too large (over `10mb`) and have too many dependencies. The sync implementation in the `headless-chrome` crate works, but [times out](https://github.com/atroche/rust-headless-chrome/issues/319) when generating large `PDF`s, even with an extreme timeout.
+Earlier attempts shelled out to `wkhtmltopdf` (which refused to render local images even with `--enable-local-file-access`) and to the `headless-chrome` crate (whose sync implementation [timed out](https://github.com/atroche/rust-headless-chrome/issues/319) on large PDFs, while its async wrappers bloated the binary). The current approach shells out to a browser or the Quartz helper directly, so it pulls in no heavy Rust PDF dependency.
