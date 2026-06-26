@@ -7,5 +7,7 @@
 # `cargo run` from this repo (timestamps render in Pacific there). The installed
 # / release binary run directly (e.g. ./target/release/imessage-exporter) is
 # NOT affected and renders timestamps in the local timezone, as intended.
+# `force = true` so the pin overrides any TZ already exported in the shell or
+# CI environment — the golden tests require Pacific to be deterministic.
 [env]
-TZ = "America/Los_Angeles"
+TZ = { value = "America/Los_Angeles", force = true }
