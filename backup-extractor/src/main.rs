@@ -1,5 +1,11 @@
+#[allow(dead_code)]
+mod calls;
 mod contacts;
+#[allow(dead_code)]
+mod datetime;
 mod format;
+#[allow(dead_code)]
+mod sqlite_util;
 #[cfg(test)]
 mod test_fixtures;
 

@@ -22,3 +22,20 @@ pub fn make_addressbook(path: &Path) {
     )
     .unwrap();
 }
+
+/// Build a minimal real `CallHistory.storedata` (`ZCALLRECORD`): an outgoing,
+/// answered phone call (cocoa date 100, 42s, CZ) and an incoming, missed
+/// FaceTime-video call (cocoa date 50). `ZADDRESS` is stored as a real BLOB.
+pub fn make_callhistory(path: &Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE ZCALLRECORD (
+            Z_PK INTEGER PRIMARY KEY, ZDATE REAL, ZDURATION REAL, ZADDRESS BLOB,
+            ZORIGINATED INTEGER, ZANSWERED INTEGER, ZCALLTYPE INTEGER,
+            ZSERVICE_PROVIDER TEXT, ZLOCATION TEXT, ZISO_COUNTRY_CODE TEXT);
+         INSERT INTO ZCALLRECORD VALUES
+            (1, 100.0, 42.0, CAST('+420776452878' AS BLOB), 1, 1, 1, 'com.apple.Telephony', NULL, 'cz'),
+            (2, 50.0, 0.0, CAST('jana@example.cz' AS BLOB), 0, 0, 8, 'com.apple.FaceTime', NULL, NULL);",
+    )
+    .unwrap();
+}
