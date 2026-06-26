@@ -328,7 +328,7 @@ mod tests {
         assert_eq!(summary.extracted + summary.missing, items.len());
         // Every linked file exists on disk and is non-empty.
         for v in items.iter().filter_map(|v| v.audio_file.as_ref()) {
-            let p = out.join(v.strip_prefix("voicemail_audio/").unwrap());
+            let p = out.join(v);
             assert!(p.is_file(), "linked audio should exist: {}", p.display());
             assert!(std::fs::metadata(&p).unwrap().len() > 0, "audio should be non-empty");
         }
