@@ -3,6 +3,8 @@ mod contacts;
 mod datetime;
 mod format;
 mod sqlite_util;
+#[allow(dead_code)]
+mod voicemail;
 #[cfg(test)]
 mod test_fixtures;
 

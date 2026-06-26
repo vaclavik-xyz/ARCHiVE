@@ -23,6 +23,23 @@ pub fn make_addressbook(path: &Path) {
     .unwrap();
 }
 
+/// Build a minimal real `voicemail.db`: an active voicemail (Unix date, not
+/// trashed) and a trashed one (Cocoa `trashed_date`, withheld/NULL sender). The
+/// mixed epochs are intentional — `date` is Unix, `trashed_date` is Cocoa 2001.
+pub fn make_voicemail(path: &Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE voicemail (
+            ROWID INTEGER PRIMARY KEY, remote_uid INTEGER, date INTEGER, token TEXT,
+            sender TEXT, callback_num TEXT, duration INTEGER, expiration INTEGER,
+            trashed_date INTEGER, flags INTEGER);
+         INSERT INTO voicemail (ROWID, date, sender, duration, expiration, trashed_date, flags) VALUES
+            (1, 1600000000, '+420776452878', 30, 0, 0, 0),
+            (2, 1600000100, NULL, 12, 0, 600000000, 75);",
+    )
+    .unwrap();
+}
+
 /// Build a minimal real `CallHistory.storedata` (`ZCALLRECORD`): an outgoing,
 /// answered phone call (cocoa date 100, 42s, CZ) and an incoming, missed
 /// FaceTime-video call (cocoa date 50). `ZADDRESS` is stored as a real BLOB.
