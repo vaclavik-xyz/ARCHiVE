@@ -186,6 +186,7 @@ pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([
         "sender", "date", "duration_seconds", "trashed", "trashed_at", "expiration", "flags",
+        "audio_file",
     ])
     .unwrap();
     for v in items {
@@ -197,6 +198,7 @@ pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
             v.trashed_at.clone().unwrap_or_default(),
             v.expiration.clone().unwrap_or_default(),
             v.flags.to_string(),
+            v.audio_file.clone().unwrap_or_default(),
         ])
         .unwrap();
     }
@@ -302,6 +304,7 @@ mod tests {
 
     fn sample_voicemails() -> Vec<crate::voicemail::Voicemail> {
         vec![crate::voicemail::Voicemail {
+            rowid: 3,
             sender: "+420776452878".into(),
             date: "2020-09-13T12:26:40+00:00".into(),
             duration_seconds: 30,
@@ -309,6 +312,7 @@ mod tests {
             trashed_at: None,
             expiration: None,
             flags: 0,
+            audio_file: None,
         }]
     }
 
@@ -316,9 +320,10 @@ mod tests {
     fn voicemail_csv_has_header_and_row() {
         let out = voicemail_csv(&sample_voicemails());
         assert!(out.starts_with(
-            "sender,date,duration_seconds,trashed,trashed_at,expiration,flags"
+            "sender,date,duration_seconds,trashed,trashed_at,expiration,flags,audio_file"
         ));
-        assert!(out.contains("+420776452878,2020-09-13T12:26:40+00:00,30,false,,,0"));
+        // The sample has no audio, so the row ends with an empty audio_file cell.
+        assert!(out.contains("+420776452878,2020-09-13T12:26:40+00:00,30,false,,,0,"));
     }
 
     #[test]
@@ -334,6 +339,37 @@ mod tests {
         let out = voicemail_html(&sample_voicemails());
         assert!(out.contains("<html"));
         assert!(out.contains("+420776452878"));
+    }
+
+    #[test]
+    fn voicemail_html_renders_audio_player_when_present() {
+        let mut items = sample_voicemails();
+        items[0].audio_file = Some("voicemail_audio/2020-09-13_122640_+420_3.m4a".into());
+        let out = voicemail_html(&items);
+        assert!(out.contains(
+            "<audio controls src=\"voicemail_audio/2020-09-13_122640_+420_3.m4a\"></audio>"
+        ));
+    }
+
+    #[test]
+    fn voicemail_html_escapes_audio_file_attribute() {
+        // A crafted audio_file must not break out of the src attribute.
+        let mut items = sample_voicemails();
+        items[0].audio_file = Some("\"><script>alert(1)</script>".into());
+        let out = voicemail_html(&items);
+        assert!(!out.contains("\"><script>"));
+        // askama 0.16 escapes <, >, " as numeric entities.
+        assert!(out.contains("&#60;script&#62;"));
+    }
+
+    #[test]
+    fn voicemail_json_includes_rowid_and_audio_file() {
+        let mut items = sample_voicemails();
+        items[0].audio_file = Some("voicemail_audio/x_3.amr".into());
+        let out = voicemail_json(&items);
+        let back: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(back[0]["rowid"], 3);
+        assert_eq!(back[0]["audio_file"], "voicemail_audio/x_3.amr");
     }
 
     fn sample_calls() -> Vec<crate::calls::Call> {

@@ -4,6 +4,7 @@ mod datetime;
 mod format;
 mod sqlite_util;
 mod voicemail;
+mod voicemail_audio;
 #[cfg(test)]
 mod test_fixtures;
 
@@ -43,11 +44,17 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
-    /// Export voicemail metadata.
+    /// Export voicemail metadata (optionally extract audio with --audio).
     Voicemail {
         /// Output format: csv, json, html.
         #[arg(long, short = 'f')]
         format: String,
+        /// Also extract each voicemail's audio into <out>/voicemail_audio/.
+        #[arg(long)]
+        audio: bool,
+        /// Audio output format: amr (raw, default), m4a, or wav (m4a/wav need ffmpeg).
+        #[arg(long)]
+        audio_format: Option<String>,
     },
     /// Report (as JSON) which data stores the backup contains. Read-only;
     /// does not need `--out`.
@@ -103,7 +110,9 @@ fn run() -> Result<serde_json::Value, AppError> {
     match &cli.command {
         Command::Contacts { format } => run_contacts(&cli, password.as_deref(), format),
         Command::Calls { format } => run_calls(&cli, password.as_deref(), format),
-        Command::Voicemail { format } => run_voicemail(&cli, password.as_deref(), format),
+        Command::Voicemail { format, audio, audio_format } => {
+            run_voicemail(&cli, password.as_deref(), format, *audio, audio_format.as_deref())
+        }
         Command::Inspect => run_inspect(&cli, password.as_deref()),
     }
 }
@@ -251,8 +260,48 @@ fn load_voicemail(backup: &archive_core::Backup) -> Result<Option<Vec<voicemail:
     Ok(Some(items))
 }
 
-fn run_voicemail(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+/// Resolve the requested audio format from `--audio` / `--audio-format`.
+/// `Ok(None)` = audio off. Usage error when `--audio-format` is given without
+/// `--audio` or names an unknown format; a fatal error (exit 1) when a
+/// transcoding format is requested but ffmpeg is not on PATH (fail fast, before
+/// any extraction).
+fn resolve_audio_format(
+    audio: bool,
+    audio_format: Option<&str>,
+) -> Result<Option<voicemail_audio::AudioFormat>, AppError> {
+    use voicemail_audio::AudioFormat;
+    if !audio {
+        if audio_format.is_some() {
+            return Err(AppError::usage("--audio-format requires --audio"));
+        }
+        return Ok(None);
+    }
+    let fmt = match audio_format {
+        None => AudioFormat::Amr,
+        Some(s) => AudioFormat::from_cli(s).ok_or_else(|| {
+            AppError::usage(format!("unknown audio format `{s}` (use amr, m4a, wav)"))
+        })?,
+    };
+    if fmt.needs_ffmpeg() && !voicemail_audio::ffmpeg_available() {
+        return Err(AppError::other(format!(
+            "audio format `{}` requires ffmpeg, which was not found on PATH; \
+             install ffmpeg or use --audio-format amr",
+            fmt.extension()
+        )));
+    }
+    Ok(Some(fmt))
+}
+
+fn run_voicemail(
+    cli: &Cli,
+    password: Option<&str>,
+    format: &str,
+    audio: bool,
+    audio_format: Option<&str>,
+) -> Result<serde_json::Value, AppError> {
     let format = voicemail_format(format)?;
+    // Resolve audio up front so a bad flag combo / missing ffmpeg fails fast.
+    let audio_fmt = resolve_audio_format(audio, audio_format)?;
     let out = cli
         .out
         .as_deref()
@@ -262,11 +311,20 @@ fn run_voicemail(cli: &Cli, password: Option<&str>, format: &str) -> Result<serd
     let device = device_json(backup.device_info());
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
-    let Some(items) = load_voicemail(&backup)? else {
+    let Some(mut items) = load_voicemail(&backup)? else {
         return Ok(serde_json::json!({
             "ok": true, "command": "voicemail", "count": 0, "outputs": [],
             "note": "this backup has no voicemail", "device": device
         }));
+    };
+
+    // Extract audio before rendering so `audio_file` is populated in the output.
+    let audio_summary = match audio_fmt {
+        Some(fmt) => Some(
+            voicemail_audio::extract_audio(&backup, &mut items, out, fmt)
+                .map_err(|e| AppError::other(e.to_string()))?,
+        ),
+        None => None,
     };
 
     let rendered = match format {
@@ -279,10 +337,25 @@ fn run_voicemail(cli: &Cli, password: Option<&str>, format: &str) -> Result<serd
     std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
     eprintln!("Wrote {} voicemail(s) to {}", items.len(), out_file.display());
 
-    Ok(serde_json::json!({
+    let mut envelope = serde_json::json!({
         "ok": true, "command": "voicemail", "count": items.len(),
         "outputs": [out_file.to_string_lossy()], "device": device
-    }))
+    });
+    if let Some(s) = audio_summary {
+        eprintln!(
+            "Extracted {} audio file(s) ({} missing) to {}/voicemail_audio",
+            s.extracted,
+            s.missing,
+            out.display()
+        );
+        envelope["audio"] = serde_json::json!({
+            "format": s.format.extension(),
+            "dir": s.dir,
+            "extracted": s.extracted,
+            "missing": s.missing
+        });
+    }
+    Ok(envelope)
 }
 
 /// One row of `inspect` output: a known store and its availability.
@@ -397,7 +470,11 @@ mod cli_tests {
         ])
         .unwrap();
         match cli.command {
-            Command::Voicemail { format } => assert_eq!(format, "csv"),
+            Command::Voicemail { format, audio, audio_format } => {
+                assert_eq!(format, "csv");
+                assert!(!audio);
+                assert_eq!(audio_format, None);
+            }
             _ => panic!("expected Voicemail"),
         }
     }
@@ -406,6 +483,31 @@ mod cli_tests {
     fn voicemail_format_rejects_vcf() {
         assert_eq!(voicemail_format("json").unwrap(), Format::Json);
         assert_eq!(voicemail_format("vcf").unwrap_err().code, 1);
+    }
+
+    #[test]
+    fn resolve_audio_off_by_default() {
+        assert!(super::resolve_audio_format(false, None).unwrap().is_none());
+    }
+
+    #[test]
+    fn resolve_audio_format_without_flag_is_usage_error() {
+        let err = super::resolve_audio_format(false, Some("m4a")).unwrap_err();
+        assert_eq!(err.code, 1);
+        assert_eq!(err.kind, "usage");
+    }
+
+    #[test]
+    fn resolve_audio_defaults_to_amr() {
+        let fmt = super::resolve_audio_format(true, None).unwrap();
+        assert_eq!(fmt, Some(crate::voicemail_audio::AudioFormat::Amr));
+    }
+
+    #[test]
+    fn resolve_unknown_audio_format_is_usage_error() {
+        let err = super::resolve_audio_format(true, Some("ogg")).unwrap_err();
+        assert_eq!(err.code, 1);
+        assert_eq!(err.kind, "usage");
     }
 
     #[test]
