@@ -98,6 +98,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "archive"
+version = "0.0.0"
+dependencies = [
+ "archive-core",
+ "askama",
+ "chrono",
+ "clap",
+ "csv",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "archive-core"
+version = "0.0.0"
+dependencies = [
+ "crabapple",
+]
+
+[[package]]
 name = "askama"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -155,28 +177,6 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
-
-[[package]]
-name = "backup-core"
-version = "0.0.0"
-dependencies = [
- "crabapple",
-]
-
-[[package]]
-name = "backup-extractor"
-version = "0.0.0"
-dependencies = [
- "askama",
- "backup-core",
- "chrono",
- "clap",
- "csv",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
-]
 
 [[package]]
 name = "base64"

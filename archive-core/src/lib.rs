@@ -169,16 +169,16 @@ fn write_file(dest: &Path, bytes: &[u8]) -> Result<PathBuf, BackupError> {
 mod tests {
     use super::*;
 
-    // Integration test against a real backup. Set BACKUP_EXTRACTOR_TEST_BACKUP
-    // to a backup directory (and BACKUP_EXTRACTOR_TEST_PASSWORD if encrypted).
+    // Integration test against a real backup. Set ARCHIVE_TEST_BACKUP
+    // to a backup directory (and ARCHIVE_TEST_PASSWORD if encrypted).
     // Skipped when the env var is unset so CI stays green without fixtures.
     #[test]
     fn opens_real_backup_and_reads_device_info() {
-        let Ok(dir) = std::env::var("BACKUP_EXTRACTOR_TEST_BACKUP") else {
-            eprintln!("skipping: set BACKUP_EXTRACTOR_TEST_BACKUP to run");
+        let Ok(dir) = std::env::var("ARCHIVE_TEST_BACKUP") else {
+            eprintln!("skipping: set ARCHIVE_TEST_BACKUP to run");
             return;
         };
-        let pw = std::env::var("BACKUP_EXTRACTOR_TEST_PASSWORD").ok();
+        let pw = std::env::var("ARCHIVE_TEST_PASSWORD").ok();
         let backup = Backup::open(std::path::Path::new(&dir), pw.as_deref())
             .expect("open backup");
         let info = backup.device_info();
@@ -229,11 +229,11 @@ mod tests {
 
     #[test]
     fn fetch_returns_none_for_absent_file() {
-        let Ok(dir) = std::env::var("BACKUP_EXTRACTOR_TEST_BACKUP") else {
-            eprintln!("skipping: set BACKUP_EXTRACTOR_TEST_BACKUP to run");
+        let Ok(dir) = std::env::var("ARCHIVE_TEST_BACKUP") else {
+            eprintln!("skipping: set ARCHIVE_TEST_BACKUP to run");
             return;
         };
-        let pw = std::env::var("BACKUP_EXTRACTOR_TEST_PASSWORD").ok();
+        let pw = std::env::var("ARCHIVE_TEST_PASSWORD").ok();
         let backup = Backup::open(std::path::Path::new(&dir), pw.as_deref()).unwrap();
         let out = std::env::temp_dir().join("be-fetch-none.bin");
         let got = backup
@@ -244,11 +244,11 @@ mod tests {
 
     #[test]
     fn fetch_writes_address_book_when_present() {
-        let Ok(dir) = std::env::var("BACKUP_EXTRACTOR_TEST_BACKUP") else {
-            eprintln!("skipping: set BACKUP_EXTRACTOR_TEST_BACKUP to run");
+        let Ok(dir) = std::env::var("ARCHIVE_TEST_BACKUP") else {
+            eprintln!("skipping: set ARCHIVE_TEST_BACKUP to run");
             return;
         };
-        let pw = std::env::var("BACKUP_EXTRACTOR_TEST_PASSWORD").ok();
+        let pw = std::env::var("ARCHIVE_TEST_PASSWORD").ok();
         let backup = Backup::open(std::path::Path::new(&dir), pw.as_deref()).unwrap();
         let out = std::env::temp_dir().join("be-fetch-ab.sqlitedb");
         let _ = std::fs::remove_file(&out);
