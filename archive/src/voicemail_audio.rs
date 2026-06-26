@@ -4,6 +4,8 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use crate::voicemail::Voicemail;
+
 /// Output format for extracted voicemail audio.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioFormat {
@@ -110,6 +112,115 @@ pub fn ffmpeg_available() -> bool {
         .unwrap_or(false)
 }
 
+/// Per-run audio extraction outcome, surfaced in the JSON envelope.
+pub struct AudioSummary {
+    /// The output format that was produced.
+    pub format: AudioFormat,
+    /// Output-relative directory the files were written to.
+    pub dir: String,
+    /// Files written (including raw `.amr` kept as a transcode fallback).
+    pub extracted: usize,
+    /// Rows with no audio present in the backup.
+    pub missing: usize,
+}
+
+/// Subdirectory (under the export dir) that receives the audio files.
+const AUDIO_DIR: &str = "voicemail_audio";
+
+/// Fetch (and optionally transcode) each voicemail's audio into
+/// `<out>/voicemail_audio/`, filling each record's `audio_file` in place.
+///
+/// Best-effort: a row whose audio is absent in the backup is counted `missing`
+/// and left `None`; a per-file transcode failure keeps the raw `.amr` and links
+/// it. Only directory creation / temp-dir failures are fatal (returned as I/O
+/// errors). The caller must have verified ffmpeg availability for non-`amr`
+/// formats before calling (see `resolve_audio_format`).
+pub fn extract_audio(
+    backup: &archive_core::Backup,
+    items: &mut [Voicemail],
+    out: &Path,
+    format: AudioFormat,
+) -> std::io::Result<AudioSummary> {
+    let audio_dir = out.join(AUDIO_DIR);
+    std::fs::create_dir_all(&audio_dir)?;
+    let scratch = tempfile::TempDir::new()?;
+
+    let mut extracted = 0usize;
+    let mut missing = 0usize;
+
+    for item in items.iter_mut() {
+        let src = format!("Library/Voicemail/{}.amr", item.rowid);
+
+        if format == AudioFormat::Amr {
+            let name = audio_filename(&item.date, &item.sender, item.rowid, "amr");
+            let dest = audio_dir.join(&name);
+            match backup.fetch("HomeDomain", &src, &dest) {
+                Ok(Some(_)) => {
+                    item.audio_file = Some(format!("{AUDIO_DIR}/{name}"));
+                    extracted += 1;
+                }
+                Ok(None) => missing += 1,
+                Err(why) => {
+                    eprintln!("voicemail {}: audio fetch failed: {why}", item.rowid);
+                    missing += 1;
+                }
+            }
+            continue;
+        }
+
+        // Transcoding path: fetch the raw `.amr` to scratch, then transcode.
+        let raw = scratch.path().join(format!("{}.amr", item.rowid));
+        match backup.fetch("HomeDomain", &src, &raw) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                missing += 1;
+                continue;
+            }
+            Err(why) => {
+                eprintln!("voicemail {}: audio fetch failed: {why}", item.rowid);
+                missing += 1;
+                continue;
+            }
+        }
+
+        let name = audio_filename(&item.date, &item.sender, item.rowid, format.extension());
+        let dest = audio_dir.join(&name);
+        if run_transcode(&raw, &dest, format) {
+            item.audio_file = Some(format!("{AUDIO_DIR}/{name}"));
+            extracted += 1;
+        } else {
+            // Transcode failed: keep the raw `.amr` as a fallback.
+            let amr_name = audio_filename(&item.date, &item.sender, item.rowid, "amr");
+            let amr_dest = audio_dir.join(&amr_name);
+            if std::fs::copy(&raw, &amr_dest).is_ok() {
+                eprintln!("voicemail {}: ffmpeg transcode failed; kept raw .amr", item.rowid);
+                item.audio_file = Some(format!("{AUDIO_DIR}/{amr_name}"));
+                extracted += 1;
+            } else {
+                eprintln!("voicemail {}: transcode and raw fallback both failed", item.rowid);
+                missing += 1;
+            }
+        }
+    }
+
+    Ok(AudioSummary { format, dir: AUDIO_DIR.to_string(), extracted, missing })
+}
+
+/// Run ffmpeg to transcode `raw` into `dest`. Returns `true` on success.
+fn run_transcode(raw: &Path, dest: &Path, format: AudioFormat) -> bool {
+    let Some(args) = transcode_args(raw, dest, format) else {
+        return false;
+    };
+    Command::new("ffmpeg")
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,5 +292,45 @@ mod tests {
             audio_filename("!!!!!!!!!!T12:26:40Z", "+420", 1, "amr"),
             "unknown_+420_1.amr"
         );
+    }
+
+    // Integration test against a real backup. Set ARCHIVE_TEST_BACKUP (and
+    // ARCHIVE_TEST_PASSWORD if encrypted). Skipped when unset so CI stays green.
+    #[test]
+    fn extracts_real_voicemail_audio_as_amr() {
+        let Ok(dir) = std::env::var("ARCHIVE_TEST_BACKUP") else {
+            eprintln!("skipping: set ARCHIVE_TEST_BACKUP to run");
+            return;
+        };
+        let pw = std::env::var("ARCHIVE_TEST_PASSWORD").ok();
+        let backup =
+            archive_core::Backup::open(Path::new(&dir), pw.as_deref()).expect("open backup");
+
+        // Load the real voicemail metadata.
+        let scratch = tempfile::TempDir::new().unwrap();
+        let db = scratch.path().join("voicemail.db");
+        let Some(db) = backup
+            .fetch("HomeDomain", "Library/Voicemail/voicemail.db", &db)
+            .expect("fetch voicemail.db")
+        else {
+            eprintln!("backup has no voicemail store; skipping");
+            return;
+        };
+        let mut items = crate::voicemail::parse(&db).expect("parse voicemail");
+
+        let out = scratch.path().join("out");
+        let summary = extract_audio(&backup, &mut items, &out, AudioFormat::Amr).expect("extract");
+
+        // The summary must be internally consistent with the records.
+        assert_eq!(summary.dir, "voicemail_audio");
+        let linked = items.iter().filter(|v| v.audio_file.is_some()).count();
+        assert_eq!(summary.extracted, linked);
+        assert_eq!(summary.extracted + summary.missing, items.len());
+        // Every linked file exists on disk and is non-empty.
+        for v in items.iter().filter_map(|v| v.audio_file.as_ref()) {
+            let p = out.join(v.strip_prefix("voicemail_audio/").unwrap());
+            assert!(p.is_file(), "linked audio should exist: {}", p.display());
+            assert!(std::fs::metadata(&p).unwrap().len() > 0, "audio should be non-empty");
+        }
     }
 }
