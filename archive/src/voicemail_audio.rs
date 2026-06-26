@@ -55,8 +55,17 @@ fn compact_date(iso: &str) -> String {
         return "unknown".to_string();
     }
     let date = &iso[..10]; // YYYY-MM-DD
+    // Validate the date portion: digits everywhere except '-' at positions 4 and 7.
+    let well_formed = date
+        .as_bytes()
+        .iter()
+        .enumerate()
+        .all(|(i, &b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() });
+    if !well_formed {
+        return "unknown".to_string();
+    }
     let time: String = iso[11..19].chars().filter(|c| c.is_ascii_digit()).collect(); // HHMMSS
-    if date.len() == 10 && time.len() == 6 {
+    if time.len() == 6 {
         format!("{date}_{time}")
     } else {
         "unknown".to_string()
@@ -163,5 +172,14 @@ mod tests {
         let wav = transcode_args(Path::new("in.amr"), Path::new("out.wav"), AudioFormat::Wav).unwrap();
         let wav: Vec<String> = wav.iter().map(|a| a.to_string_lossy().into_owned()).collect();
         assert_eq!(wav, vec!["-y", "-i", "in.amr", "out.wav"]);
+    }
+
+    #[test]
+    fn filename_rejects_malformed_date_portion() {
+        // 19+ chars but the date portion isn't YYYY-MM-DD digits → unknown.
+        assert_eq!(
+            audio_filename("!!!!!!!!!!T12:26:40Z", "+420", 1, "amr"),
+            "unknown_+420_1.amr"
+        );
     }
 }
