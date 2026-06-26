@@ -159,6 +159,44 @@ pub fn calls_html(calls: &[crate::calls::Call]) -> String {
     CallsTemplate { calls }.render().unwrap()
 }
 
+#[allow(dead_code)]
+pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record([
+        "sender", "date", "duration_seconds", "trashed", "trashed_at", "expiration", "flags",
+    ])
+    .unwrap();
+    for v in items {
+        wtr.write_record([
+            v.sender.clone(),
+            v.date.clone(),
+            v.duration_seconds.to_string(),
+            v.trashed.to_string(),
+            v.trashed_at.clone().unwrap_or_default(),
+            v.expiration.clone().unwrap_or_default(),
+            v.flags.to_string(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+#[allow(dead_code)]
+pub fn voicemail_json(items: &[crate::voicemail::Voicemail]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "voicemail.html")]
+struct VoicemailTemplate<'a> {
+    voicemails: &'a [crate::voicemail::Voicemail],
+}
+
+#[allow(dead_code)]
+pub fn voicemail_html(items: &[crate::voicemail::Voicemail]) -> String {
+    VoicemailTemplate { voicemails: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +276,42 @@ mod tests {
         assert!(out.contains("NOTE:line1\\nTEL:evil@inject"));
         // The injected newline did NOT create a real standalone property line.
         assert!(!out.contains("\nTEL:evil@inject"));
+    }
+
+    fn sample_voicemails() -> Vec<crate::voicemail::Voicemail> {
+        vec![crate::voicemail::Voicemail {
+            sender: "+420776452878".into(),
+            date: "2020-09-13T12:26:40+00:00".into(),
+            duration_seconds: 30,
+            trashed: false,
+            trashed_at: None,
+            expiration: None,
+            flags: 0,
+        }]
+    }
+
+    #[test]
+    fn voicemail_csv_has_header_and_row() {
+        let out = voicemail_csv(&sample_voicemails());
+        assert!(out.starts_with(
+            "sender,date,duration_seconds,trashed,trashed_at,expiration,flags"
+        ));
+        assert!(out.contains("+420776452878,2020-09-13T12:26:40+00:00,30,false,,,0"));
+    }
+
+    #[test]
+    fn voicemail_json_roundtrips() {
+        let out = voicemail_json(&sample_voicemails());
+        let back: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(back[0]["sender"], "+420776452878");
+        assert_eq!(back[0]["trashed"], false);
+    }
+
+    #[test]
+    fn voicemail_html_lists_items() {
+        let out = voicemail_html(&sample_voicemails());
+        assert!(out.contains("<html"));
+        assert!(out.contains("+420776452878"));
     }
 
     fn sample_calls() -> Vec<crate::calls::Call> {
