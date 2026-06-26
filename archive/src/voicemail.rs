@@ -8,9 +8,12 @@ use serde::Serialize;
 use crate::datetime::{cocoa_to_iso, unix_to_iso};
 use crate::sqlite_util::table_columns;
 
-/// One voicemail record (metadata only).
+/// One voicemail record (metadata; audio path filled in separately).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Voicemail {
+    /// Primary key in `voicemail.db`; a stable per-backup identifier and the
+    /// base name of the audio file (`Library/Voicemail/<rowid>.amr`).
+    pub rowid: i64,
     /// Caller phone number; empty when withheld/unknown.
     pub sender: String,
     /// Receipt time as ISO 8601 (RFC 3339) UTC (Unix epoch); empty if unconvertible.
@@ -25,32 +28,35 @@ pub struct Voicemail {
     pub expiration: Option<String>,
     /// Raw `flags` bitmask, preserved (bit meanings are undocumented).
     pub flags: i64,
+    /// Output-relative path to the extracted audio (e.g.
+    /// `voicemail_audio/2020-09-13_122640_+420…_3.m4a`); `None` until audio
+    /// extraction runs, or when the backup has no audio for this row.
+    pub audio_file: Option<String>,
 }
 
-/// Parse every voicemail record from `db_path` (opened read-only), tolerating a
-/// missing optional `expiration` column. `date` is Unix epoch; `trashed_date`
-/// is Cocoa 2001 epoch (the two columns intentionally use different epochs).
 pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Voicemail>> {
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let cols = table_columns(&conn, "voicemail")?;
     let expiration_sel = if cols.contains("expiration") { "expiration" } else { "NULL" };
 
     let sql = format!(
-        "SELECT sender, date, duration, trashed_date, flags, {expiration_sel} \
+        "SELECT ROWID, sender, date, duration, trashed_date, flags, {expiration_sel} \
          FROM voicemail ORDER BY date"
     );
 
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], |row| {
-        let sender: Option<String> = row.get(0)?;
-        let date: Option<i64> = row.get(1)?;
-        let duration: Option<i64> = row.get(2)?;
-        let trashed_date: Option<i64> = row.get(3)?;
-        let flags: Option<i64> = row.get(4)?;
-        let expiration: Option<i64> = row.get(5)?;
+        let rowid: i64 = row.get(0)?;
+        let sender: Option<String> = row.get(1)?;
+        let date: Option<i64> = row.get(2)?;
+        let duration: Option<i64> = row.get(3)?;
+        let trashed_date: Option<i64> = row.get(4)?;
+        let flags: Option<i64> = row.get(5)?;
+        let expiration: Option<i64> = row.get(6)?;
 
         let trashed = trashed_date.unwrap_or(0) != 0;
         Ok(Voicemail {
+            rowid,
             sender: sender.unwrap_or_default(),
             date: date.and_then(unix_to_iso).unwrap_or_default(),
             duration_seconds: duration.unwrap_or(0),
@@ -62,6 +68,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Voicemail>> {
             },
             expiration: expiration.filter(|&e| e != 0).and_then(unix_to_iso),
             flags: flags.unwrap_or(0),
+            audio_file: None,
         })
     })?;
     rows.collect()
@@ -90,6 +97,8 @@ mod tests {
         assert!(!active.trashed);
         assert_eq!(active.trashed_at, None);
         assert_eq!(active.expiration.as_deref(), Some("2020-09-14T12:26:40+00:00")); // Unix 1_600_086_400
+        assert_eq!(active.rowid, 1);
+        assert_eq!(active.audio_file, None);
 
         let trashed = &vms[1];
         assert_eq!(trashed.sender, ""); // NULL → empty
@@ -99,6 +108,8 @@ mod tests {
         assert_eq!(trashed.trashed_at.as_deref(), Some("2020-01-06T10:40:00+00:00")); // Cocoa 600_000_000 + 978_307_200 = Unix 1_578_307_200
         assert_eq!(trashed.expiration, None); // ROWID 2 expiration = 0 → None
         assert_eq!(trashed.flags, 75);
+        assert_eq!(trashed.rowid, 2);
+        assert_eq!(trashed.audio_file, None);
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -119,6 +130,8 @@ mod tests {
 
         let vms = parse(&db).unwrap();
         assert_eq!(vms.len(), 1);
+        assert_eq!(vms[0].rowid, 1);
+        assert_eq!(vms[0].audio_file, None);
         assert_eq!(vms[0].expiration, None);
         std::fs::remove_dir_all(&dir).ok();
     }

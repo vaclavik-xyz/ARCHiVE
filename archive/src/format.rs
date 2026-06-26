@@ -302,6 +302,7 @@ mod tests {
 
     fn sample_voicemails() -> Vec<crate::voicemail::Voicemail> {
         vec![crate::voicemail::Voicemail {
+            rowid: 3,
             sender: "+420776452878".into(),
             date: "2020-09-13T12:26:40+00:00".into(),
             duration_seconds: 30,
@@ -309,6 +310,7 @@ mod tests {
             trashed_at: None,
             expiration: None,
             flags: 0,
+            audio_file: None,
         }]
     }
 
