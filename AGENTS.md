@@ -45,7 +45,8 @@ stdout:
     { "type": "safari-bookmarks", "present": true, "supported": true, "count": 31 },
     { "type": "calendar", "present": true, "supported": true, "count": 212 },
     { "type": "notes", "present": true, "supported": true, "count": 87 },
-    { "type": "photos", "present": true, "supported": true, "count": 1240 }
+    { "type": "photos", "present": true, "supported": true, "count": 1240 },
+    { "type": "attachments", "present": true, "supported": true, "count": 312 }
   ]
 }
 ```
@@ -269,6 +270,25 @@ stdout envelope (the `files` object is present only when extraction ran):
 ```
 
 No photos store → `count: 0`, `outputs: []`, plus a `note`.
+
+### `attachments` — export Messages attachment files
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> attachments -f <FORMAT> [--no-files]
+```
+
+`FORMAT` is one of `csv | json | html`. Writes `<OUT>/attachments.<ext>`. **Files
+are extracted by default** into `<OUT>/attachments/`; pass `--no-files` for a
+metadata-only catalog. The HTML output is a gallery (images inline, other types
+as links). This recovers the media sent/received in Messages (iMessage/SMS); it
+does not export the message *text* or link attachments to conversations.
+
+Each attachment: `name` (original transfer name, else the on-device basename),
+`mime_type`, `created` (ISO 8601 UTC), `total_bytes`, `source_path`
+(MediaDomain-relative source), `file` (output-relative extracted path, or `null`
+when absent from the backup). Envelope carries a `files` object (`dir`,
+`extracted`, `missing`) when extraction ran. No Messages store → `count: 0`,
+`outputs: []`, plus a `note`.
 
 ## Result envelope (every command)
 

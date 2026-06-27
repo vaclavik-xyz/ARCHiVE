@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Přílohy zpráv</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+.gallery{display:flex;flex-wrap:wrap;gap:12px}
+.item{width:200px;font-size:12px;word-break:break-all}
+.item img{width:200px;height:200px;object-fit:cover;border:1px solid #ddd;display:block}
+.cap{color:#555;margin-top:2px}</style></head><body>
+<h1>Přílohy zpráv ({{ attachments.len() }})</h1>
+<div class="gallery">
+{% for a in attachments %}
+<div class="item">
+{% if let Some(f) = a.file.as_ref() %}
+{% if a.is_image() %}<a href="{{ f }}"><img src="{{ f }}" loading="lazy" alt="{{ a.name }}"></a>
+{% else %}<a href="{{ f }}">{{ a.name }}</a>
+{% endif %}
+{% else %}{{ a.name }}
+{% endif %}
+<div class="cap">{{ a.created }} · {{ a.mime_type }}</div>
+</div>
+{% endfor %}
+</div>
+</body></html>

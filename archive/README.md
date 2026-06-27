@@ -33,6 +33,9 @@ archive --backup <backup-dir> -o <out> notes -f html
 
 # Camera Roll: metadata + extract photo/video files into <out>/photos/ (--no-files for catalog only)
 archive --backup <backup-dir> -o <out> photos -f html
+
+# Messages attachments: extract media into <out>/attachments/ (--no-files for catalog only)
+archive --backup <backup-dir> -o <out> attachments -f html
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -47,4 +50,5 @@ Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 - [x] safari-history · safari-bookmarks · calendar — csv, json, html
 - [x] notes — csv, json, html (body decoded from gzip+protobuf, snippet fallback)
 - [x] photos — csv, json, html gallery + photo/video file extraction
-- [ ] message attachments · pdf output
+- [x] attachments — csv, json, html gallery + Messages attachment file extraction
+- [ ] pdf output · message text export

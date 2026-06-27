@@ -24,9 +24,33 @@ pub fn cocoa_to_iso(seconds: f64) -> Option<String> {
     unix_to_iso(unix)
 }
 
+/// Cocoa/Core-Data epoch value that may be stored in **seconds** or
+/// **nanoseconds** (iOS-version dependent, e.g. `sms.db` dates) → ISO 8601 UTC.
+/// Values with magnitude ≥ 1e12 are treated as nanoseconds; smaller as seconds.
+pub fn cocoa_any_to_iso(value: i64) -> Option<String> {
+    const NS_THRESHOLD: i64 = 1_000_000_000_000; // 1e12
+    let seconds = if value.abs() >= NS_THRESHOLD {
+        value / 1_000_000_000
+    } else {
+        value
+    };
+    cocoa_to_iso(seconds as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cocoa_any_detects_seconds_and_nanoseconds() {
+        // 600_000_000 s == 600_000_000_000_000_000 ns → same instant.
+        let s = cocoa_any_to_iso(600_000_000).unwrap();
+        let ns = cocoa_any_to_iso(600_000_000_000_000_000).unwrap();
+        assert_eq!(s, "2020-01-06T10:40:00+00:00");
+        assert_eq!(s, ns);
+        // Just under the threshold stays seconds.
+        assert_eq!(cocoa_any_to_iso(0), cocoa_to_iso(0.0));
+    }
 
     #[test]
     fn unix_epoch_zero_is_1970() {
