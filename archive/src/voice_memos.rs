@@ -159,7 +159,6 @@ fn extract_from(
     std::fs::create_dir_all(&vm_dir)?;
     let scratch = tempfile::TempDir::new()?;
 
-    let mut extracted = 0usize;
     for (i, path) in audio_paths.iter().enumerate() {
         let n = i + 1;
         let base = basename(path);
@@ -226,11 +225,12 @@ fn extract_from(
                     audio_file: Some(rel),
                 }),
             }
-            extracted += 1;
         }
     }
 
-    // Any record still unlinked had no audio recovered.
+    // Count from the final state so `extracted + missing == items.len()` holds by
+    // construction — robust even if two source paths happened to share a basename.
+    let extracted = items.iter().filter(|m| m.audio_file.is_some()).count();
     let missing = items.iter().filter(|m| m.audio_file.is_none()).count();
     Ok(VmSummary { format: fmt_label.to_string(), dir: VM_DIR.to_string(), extracted, missing })
 }
