@@ -5,9 +5,6 @@ mod contacts;
 mod datetime;
 mod format;
 mod notes;
-// Built bottom-up: wired into the CLI in a later step; the allow is removed once
-// the `photos` command consumes it.
-#[allow(dead_code)]
 mod photos;
 mod safari;
 mod sqlite_util;
@@ -101,6 +98,15 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Export Camera Roll metadata and files (files on by default; --no-files to skip).
+    Photos {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+        /// Skip file extraction (metadata catalog only).
+        #[arg(long)]
+        no_files: bool,
+    },
     /// Report (as JSON) which data stores the backup contains. Read-only;
     /// does not need `--out`.
     Inspect,
@@ -165,6 +171,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::SafariBookmarks { format } => run_safari_bookmarks(&cli, password.as_deref(), format),
         Command::Calendar { format } => run_calendar(&cli, password.as_deref(), format),
         Command::Notes { format } => run_notes(&cli, password.as_deref(), format),
+        Command::Photos { format, no_files } => run_photos(&cli, password.as_deref(), format, *no_files),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
     }
 }
@@ -578,6 +585,10 @@ fn load_notes(backup: &archive_core::Backup) -> Result<Option<Vec<notes::Note>>,
     load_store(backup, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite", "NoteStore.sqlite", notes::parse)
 }
 
+fn load_photos(backup: &archive_core::Backup) -> Result<Option<Vec<photos::Photo>>, AppError> {
+    load_store(backup, "CameraRollDomain", "Media/PhotoData/Photos.sqlite", "Photos.sqlite", photos::parse)
+}
+
 fn run_safari_history(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "safari-history")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export Safari history"))?;
@@ -686,6 +697,48 @@ fn run_notes(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
     }))
 }
 
+fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "photos")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export photos"))?;
+    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(mut items) = load_photos(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "photos", "count": 0, "outputs": [],
+            "note": "this backup has no photos", "device": device
+        }));
+    };
+
+    let summary = if no_files {
+        None
+    } else {
+        Some(photos::extract_photos(&backup, &mut items, out).map_err(|e| AppError::other(e.to_string()))?)
+    };
+
+    let rendered = match format {
+        Format::Csv => format::photos_csv(&items),
+        Format::Json => format::photos_json(&items),
+        Format::Html => format::photos_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("photos.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} asset(s) to {}", items.len(), out_file.display());
+
+    let mut envelope = serde_json::json!({
+        "ok": true, "command": "photos", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    });
+    if let Some(s) = summary {
+        eprintln!("Extracted {} file(s) ({} missing) to {}/{}", s.extracted, s.missing, out.display(), s.dir);
+        envelope["files"] = serde_json::json!({
+            "dir": s.dir, "extracted": s.extracted, "missing": s.missing
+        });
+    }
+    Ok(envelope)
+}
+
 /// One row of `inspect` output: a known store and its availability.
 struct StoreStatus {
     name: &'static str,
@@ -714,7 +767,7 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("safari-bookmarks", true, "AppDomain-com.apple.mobilesafari", "Library/Safari/Bookmarks.db"),
     ("calendar", true, "HomeDomain", "Library/Calendar/Calendar.sqlitedb"),
     ("notes", true, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
-    ("photos", false, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
+    ("photos", true, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
 ];
 
 fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, AppError> {
@@ -753,6 +806,7 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "safari-bookmarks" => load_safari_bookmarks(&backup).ok().flatten().map(|v| v.len()),
                 "calendar" => load_calendar(&backup).ok().flatten().map(|v| v.len()),
                 "notes" => load_notes(&backup).ok().flatten().map(|v| v.len()),
+                "photos" => load_photos(&backup).ok().flatten().map(|v| v.len()),
                 _ => None,
             }
         } else {
@@ -934,6 +988,20 @@ mod cli_tests {
             let s = KNOWN_STORES.iter().find(|(n, ..)| *n == name).unwrap();
             assert!(s.1, "{name} must be supported");
         }
+    }
+
+    #[test]
+    fn parses_photos_invocation_with_no_files_flag() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "photos", "-f", "json", "--no-files"]).unwrap();
+        match cli.command {
+            Command::Photos { format, no_files } => {
+                assert_eq!(format, "json");
+                assert!(no_files);
+            }
+            _ => panic!("expected Photos"),
+        }
+        let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "photos").unwrap();
+        assert!(s.1, "photos must now be supported");
     }
 
     #[test]

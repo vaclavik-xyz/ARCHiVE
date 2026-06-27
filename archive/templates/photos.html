@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Fotky a videa</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+.gallery{display:flex;flex-wrap:wrap;gap:12px}
+.item{width:200px;font-size:12px;word-break:break-all}
+.item img{width:200px;height:200px;object-fit:cover;border:1px solid #ddd;display:block}
+.cap{color:#555;margin-top:2px}</style></head><body>
+<h1>Fotky a videa ({{ photos.len() }})</h1>
+<div class="gallery">
+{% for p in photos %}
+<div class="item">
+{% if let Some(f) = p.file.as_ref() %}
+{% if p.kind == "video" %}<a href="{{ f }}">▶ {{ p.filename }}</a>
+{% else %}<a href="{{ f }}"><img src="{{ f }}" loading="lazy" alt="{{ p.filename }}"></a>
+{% endif %}
+{% else %}{{ p.filename }}
+{% endif %}
+<div class="cap">{{ p.created }}{% if p.favorite %} ★{% endif %}{% if p.trashed %} 🗑{% endif %}{% if let Some(lat) = p.latitude %}{% if let Some(lon) = p.longitude %} · {{ lat }}, {{ lon }}{% endif %}{% endif %}</div>
+</div>
+{% endfor %}
+</div>
+</body></html>
