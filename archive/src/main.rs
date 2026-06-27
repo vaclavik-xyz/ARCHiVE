@@ -393,15 +393,13 @@ fn load_voice_memos(
 ) -> Result<Option<Vec<voice_memos::VoiceMemo>>, AppError> {
     let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
     let tmp = scratch.path().join("CloudRecordings.db");
-    let db = match backup
-        .fetch("AppDomainGroup-group.com.apple.VoiceMemos", "Recordings/CloudRecordings.db", &tmp)
-        .map_err(|e| AppError::other(e.to_string()))?
-    {
-        Some(p) => Some(p),
-        None => backup
-            .fetch("MediaDomain", "Recordings/Recordings.db", &tmp)
-            .map_err(|e| AppError::other(e.to_string()))?,
-    };
+    let mut db = None;
+    for (domain, path) in voice_memos::DB_LOCATIONS {
+        if let Some(p) = backup.fetch(domain, path, &tmp).map_err(|e| AppError::other(e.to_string()))? {
+            db = Some(p);
+            break;
+        }
+    }
     let Some(db) = db else { return Ok(None) };
     let items = voice_memos::parse(&db).map_err(|e| AppError::other(e.to_string()))?;
     Ok(Some(items))
@@ -535,9 +533,22 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
 
     let mut stores = Vec::new();
     for &(name, supported, domain, path) in KNOWN_STORES {
-        let present = backup
-            .has(domain, path)
-            .map_err(|e| AppError::other(e.to_string()))?;
+        // Voice Memos lives at a modern or a legacy location; report present if
+        // either exists, matching what `load_voice_memos` will actually read.
+        let present = if name == "voice-memos" {
+            let mut any = false;
+            for (d, p) in voice_memos::DB_LOCATIONS {
+                if backup.has(d, p).map_err(|e| AppError::other(e.to_string()))? {
+                    any = true;
+                    break;
+                }
+            }
+            any
+        } else {
+            backup
+                .has(domain, path)
+                .map_err(|e| AppError::other(e.to_string()))?
+        };
         // `count` is best-effort: a present-but-unparseable store yields `None`
         // (count: null) without aborting inspect. `.ok()` drops a read error,
         // `.flatten()` collapses store-absent `Ok(None)`, `.map(len)` counts a

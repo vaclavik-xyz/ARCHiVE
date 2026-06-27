@@ -66,6 +66,14 @@ pub(crate) fn basename(p: &str) -> String {
     p.rsplit('/').next().unwrap_or(p).to_string()
 }
 
+/// Backup locations of the Voice Memos metadata DB, modern first then legacy
+/// (iOS ≤ 11). Single source of truth shared by export loading and `inspect`
+/// discovery so the two never disagree.
+pub const DB_LOCATIONS: [(&str, &str); 2] = [
+    ("AppDomainGroup-group.com.apple.VoiceMemos", "Recordings/CloudRecordings.db"),
+    ("MediaDomain", "Recordings/Recordings.db"),
+];
+
 /// Subdirectory (under the export dir) that receives the recordings.
 const VM_DIR: &str = "voice_memos";
 /// Backup domains to probe, in order (modern group container, then legacy).
