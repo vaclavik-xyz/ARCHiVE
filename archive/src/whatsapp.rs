@@ -92,6 +92,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<WaMessage>> {
             // Sender is only meaningful for incoming messages.
             sender: if from_me { String::new() } else { sender.unwrap_or_default() },
             from_me,
+            // ZMESSAGEDATE is a REAL (Cocoa seconds); round to whole seconds.
             date: date.map(|d| d.round() as i64).and_then(cocoa_any_to_iso).unwrap_or_default(),
             text: text.unwrap_or_default(),
             source_path: to_media_path(&media.unwrap_or_default()),
