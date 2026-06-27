@@ -15,6 +15,9 @@ archive -o <out> backup            # writes <out>/<udid>/
 # Discover what the backup contains (read-only)
 archive --backup <backup-dir> inspect
 
+# Verify the backup is complete / not truncated (read-only)
+archive --backup <backup-dir> integrity
+
 # One-shot: recover everything into <out>/ with a customer index.html (--no-files for metadata only)
 archive --backup <backup-dir> -o <out> recover
 
@@ -59,4 +62,5 @@ Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 - [x] attachments — csv, json, html gallery + Messages attachment file extraction
 - [x] recover — one-shot: all extractors + customer index.html (device sheet + links)
 - [x] backup — create a fresh backup from a connected iPhone (libimobiledevice)
+- [x] integrity — verify backup completeness (manifest file presence + size)
 - [ ] pdf output · message text export
