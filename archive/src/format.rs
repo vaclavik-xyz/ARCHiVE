@@ -560,6 +560,12 @@ mod tests {
         let back: serde_json::Value = serde_json::from_str(&safari_bookmarks_json(&b)).unwrap();
         assert_eq!(back[0]["folder"], "Favorites");
         assert!(safari_bookmarks_html(&b).contains("https://apple.com"));
+
+        let mut x = b.clone();
+        x[0].title = "<script>alert(1)</script>".into();
+        let html = safari_bookmarks_html(&x);
+        assert!(html.contains("&#60;script&#62;"));
+        assert!(!html.contains("<script>alert"));
     }
 
     #[test]
@@ -577,6 +583,12 @@ mod tests {
         let back: serde_json::Value = serde_json::from_str(&calendar_json(&e)).unwrap();
         assert_eq!(back[0]["all_day"], false);
         assert!(calendar_html(&e).contains("Standup"));
+
+        let mut x = e.clone();
+        x[0].summary = "<script>alert(1)</script>".into();
+        let html = calendar_html(&x);
+        assert!(html.contains("&#60;script&#62;"));
+        assert!(!html.contains("<script>alert"));
     }
 
     fn sample_calls() -> Vec<crate::calls::Call> {
