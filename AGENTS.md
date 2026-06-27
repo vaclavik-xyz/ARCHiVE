@@ -255,11 +255,19 @@ byte-for-byte (no transcoding/thumbnailing). The HTML output is a gallery linkin
 the extracted files (HEIC/HEVC may not render inline in every browser; the files
 are present regardless).
 
-Each asset: `filename`, `kind` (`image`/`video`/`unknown`), `created` (ISO 8601
-UTC), `favorite`, `trashed` (in Recently Deleted), `width`/`height`, `latitude`/
-`longitude` (`null` when no GPS fix), `duration_seconds` (videos; `null`
-otherwise), `source_path` (backup-relative source), `file` (output-relative
-extracted path, or `null` when the asset is iCloud-only / absent from the backup).
+Each asset: `filename`, `kind` (`image`/`video`/`unknown`), `created` /
+`modified` / `added` (ISO 8601 UTC; empty when unset), `favorite`, `hidden` (in
+the Hidden album — still recovered, just flagged), `trashed` (in Recently
+Deleted), `edited` (has adjustments), `live_photo` (best-effort) with raw
+`kind_subtype`, `width`/`height`, `latitude`/`longitude` (`null` when no GPS fix),
+`duration_seconds` (videos; `null` otherwise), `burst_id` (`ZAVALANCHEUUID`; same
+id ⇒ same burst; `null` when not a burst), `original_filename`, `title` (caption),
+`albums` (array of album names this asset is in), `source_path` (backup-relative
+source), `file` (output-relative extracted path, or `null` when the asset is
+iCloud-only / absent from the backup). Album membership is resolved by discovering
+the version-dependent `Z_<n>ASSETS` join table at runtime; version-dependent
+values (`live_photo`, album discovery) are best-effort and `kind_subtype` is kept
+raw for fidelity.
 
 stdout envelope (the `files` object is present only when extraction ran):
 

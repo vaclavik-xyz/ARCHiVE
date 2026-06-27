@@ -104,19 +104,32 @@ pub fn make_sms_attachments(path: &Path) {
     .unwrap();
 }
 
-/// Build a minimal real `Photos.sqlite` (`ZASSET`): a favorited photo with GPS,
-/// a video with a duration and the `-180` no-location sentinel, and a trashed
-/// photo with NULL coordinates. Cocoa `ZDATECREATED`.
+/// Build a minimal real `Photos.sqlite` exercising the enriched fields: a hidden,
+/// edited, Live-Photo image with a title/original name in two albums; a video
+/// sharing a burst UUID with a trashed image. Includes the
+/// `ZADDITIONALASSETATTRIBUTES` join, `ZGENERICALBUM`, and a dynamic `Z_28ASSETS`
+/// album↔asset join table (number is version-dependent in real DBs).
 pub fn make_photos(path: &Path) {
     let conn = Connection::open(path).unwrap();
     conn.execute_batch(
         "CREATE TABLE ZASSET (Z_PK INTEGER PRIMARY KEY, ZFILENAME TEXT, ZDIRECTORY TEXT,
-            ZDATECREATED REAL, ZKIND INTEGER, ZFAVORITE INTEGER, ZTRASHEDSTATE INTEGER,
-            ZWIDTH INTEGER, ZHEIGHT INTEGER, ZLATITUDE REAL, ZLONGITUDE REAL, ZDURATION REAL);
+            ZDATECREATED REAL, ZMODIFICATIONDATE REAL, ZADDEDDATE REAL, ZKIND INTEGER,
+            ZKINDSUBTYPE INTEGER, ZFAVORITE INTEGER, ZHIDDEN INTEGER, ZTRASHEDSTATE INTEGER,
+            ZHASADJUSTMENTS INTEGER, ZWIDTH INTEGER, ZHEIGHT INTEGER, ZLATITUDE REAL,
+            ZLONGITUDE REAL, ZDURATION REAL, ZAVALANCHEUUID TEXT, ZADDITIONALATTRIBUTES INTEGER);
          INSERT INTO ZASSET VALUES
-            (1, 'IMG_0001.HEIC', 'DCIM/100APPLE', 600000000.0, 0, 1, 0, 4032, 3024, 50.087, 14.42, NULL),
-            (2, 'IMG_0002.MOV', 'DCIM/100APPLE', 600000100.0, 1, 0, 0, 1920, 1080, -180.0, -180.0, 12.5),
-            (3, 'IMG_0003.JPG', 'DCIM/100APPLE', 600000200.0, 0, 0, 1, 3024, 4032, NULL, NULL, NULL);",
+            (1, 'IMG_0001.HEIC', 'DCIM/100APPLE', 600000000.0, 600000050.0, 600000010.0, 0, 2, 1, 1, 0, 1, 4032, 3024, 50.087, 14.42, NULL, NULL, 1),
+            (2, 'IMG_0002.MOV', 'DCIM/100APPLE', 600000100.0, NULL, NULL, 1, 0, 0, 0, 0, 0, 1920, 1080, -180.0, -180.0, 12.5, 'BURST1', NULL),
+            (3, 'IMG_0003.JPG', 'DCIM/100APPLE', 600000200.0, NULL, NULL, 0, 0, 0, 0, 1, 0, 3024, 4032, NULL, NULL, NULL, 'BURST1', NULL);
+
+         CREATE TABLE ZADDITIONALASSETATTRIBUTES (Z_PK INTEGER PRIMARY KEY, ZORIGINALFILENAME TEXT, ZTITLE TEXT);
+         INSERT INTO ZADDITIONALASSETATTRIBUTES VALUES (1, 'IMG_E0001.HEIC', 'Západ slunce');
+
+         CREATE TABLE ZGENERICALBUM (Z_PK INTEGER PRIMARY KEY, ZTITLE TEXT, ZKIND INTEGER);
+         INSERT INTO ZGENERICALBUM VALUES (1, 'Dovolená', 2), (2, 'Rodina', 2), (3, NULL, 2);
+
+         CREATE TABLE Z_28ASSETS (Z_28ALBUMS INTEGER, Z_3ASSETS INTEGER);
+         INSERT INTO Z_28ASSETS VALUES (1, 1), (2, 1), (3, 1);",
     )
     .unwrap();
 }
