@@ -68,16 +68,17 @@ pub fn make_callhistory(path: &Path) {
 }
 
 /// Build a minimal real Messages `sms.db` `attachment` table (nanosecond Cocoa
-/// dates, as modern iOS uses): an image (`~/` path), a video (`/var/mobile/`
-/// path), and a row whose filename has no recoverable Attachments path.
+/// dates, as modern iOS uses): an iMessage image (`~/Library/Messages/…`), an
+/// SMS video (`~/Library/SMS/…`), and a row whose filename has no recoverable
+/// Attachments path.
 pub fn make_sms_attachments(path: &Path) {
     let conn = Connection::open(path).unwrap();
     conn.execute_batch(
         "CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY, filename TEXT, mime_type TEXT,
             transfer_name TEXT, total_bytes INTEGER, created_date INTEGER);
          INSERT INTO attachment VALUES
-            (1, '~/Library/SMS/Attachments/ab/12/GUID1/photo.jpg', 'image/jpeg', 'photo.jpg', 102400, 600000000000000000),
-            (2, '/var/mobile/Library/SMS/Attachments/cd/34/GUID2/clip.mov', 'video/quicktime', 'clip.mov', 2048000, 600000100000000000),
+            (1, '~/Library/Messages/Attachments/ab/12/GUID1/photo.jpg', 'image/jpeg', 'photo.jpg', 102400, 600000000000000000),
+            (2, '~/Library/SMS/Attachments/cd/34/GUID2/clip.mov', 'video/quicktime', 'clip.mov', 2048000, 600000100000000000),
             (3, '/some/weird/path/nofile.bin', 'application/octet-stream', 'nofile.bin', 100, 600000200000000000);",
     )
     .unwrap();

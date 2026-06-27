@@ -18,10 +18,13 @@ customer wants back.
   `filename` (on-device path), `mime_type`, `transfer_name` (the original
   filename), `total_bytes`, `created_date` (Cocoa epoch — see below). Read
   schema-tolerantly via `table_columns`.
-- **Files:** `MediaDomain` / `Library/SMS/Attachments/...`. The `attachment.filename`
-  column stores a path like `~/Library/SMS/Attachments/ab/12/GUID/IMG.jpg` or
-  `/var/mobile/Library/SMS/Attachments/...`; the `MediaDomain` relative path is
-  the substring from `Library/SMS/Attachments/` onward.
+- **Files:** `MediaDomain`. The `attachment.filename` column stores an on-device
+  path like `~/Library/Messages/Attachments/ab/12/GUID/IMG.jpg` (iMessage) or
+  `~/Library/SMS/Attachments/...` (SMS/MMS); the `MediaDomain` relative path is
+  everything after the leading `~/`. This matches `imessage-database`'s
+  `gen_ios_attachment`, which hashes the backup file id as
+  `SHA1("MediaDomain-" + filename[2..])`. (The domain is `MediaDomain`, **not**
+  `HomeDomain`, despite `sms.db` itself living in `HomeDomain`.)
 
 **Epoch:** `created_date` may be Cocoa **seconds** or **nanoseconds** depending on
 iOS version. A new `datetime::cocoa_any_to_iso` detects nanoseconds (|value| ≥

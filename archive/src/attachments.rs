@@ -40,14 +40,21 @@ fn basename(p: &str) -> &str {
     p.rsplit('/').next().unwrap_or(p)
 }
 
-/// Map an on-device attachment `filename` to its `MediaDomain` relative path by
-/// taking the substring from `Library/SMS/Attachments/` onward. Empty when the
-/// path does not contain that segment.
+/// Map an on-device attachment `filename` to its `MediaDomain` relative path.
+///
+/// iOS-backup attachment paths are stored as `~/Library/Messages/Attachments/…`
+/// (iMessage) or `~/Library/SMS/Attachments/…` (SMS/MMS); the `MediaDomain`
+/// relative path is everything after the leading `~/` — matching
+/// `imessage-database`'s `gen_ios_attachment` (`file_path[2..]`, hashed as
+/// `MediaDomain-<path>`). An absolute on-device path falls back to the first
+/// `Library/` segment; anything else yields an empty (non-fetchable) path.
 fn to_media_path(filename: &str) -> String {
-    const KEY: &str = "Library/SMS/Attachments/";
-    match filename.find(KEY) {
-        Some(i) => filename[i..].to_string(),
-        None => String::new(),
+    if let Some(rest) = filename.strip_prefix("~/") {
+        rest.to_string()
+    } else if filename.starts_with('/') {
+        filename.find("Library/").map(|i| filename[i..].to_string()).unwrap_or_default()
+    } else {
+        String::new()
     }
 }
 
@@ -129,6 +136,9 @@ pub fn extract_attachments(
         }
         let name = output_name(i + 1, &item.name);
         let dest = att_dir.join(&name);
+        // Domain is `MediaDomain` (not HomeDomain): iOS backups hash the file id
+        // as `SHA1("MediaDomain-<relative_path>")` — see imessage-database's
+        // `gen_ios_attachment`. `source_path` is already MediaDomain-relative.
         match backup.fetch("MediaDomain", &item.source_path, &dest) {
             Ok(Some(_)) => item.file = Some(format!("{ATT_DIR}/{name}")),
             Ok(None) => {}
@@ -161,12 +171,12 @@ mod tests {
         assert_eq!(img.name, "photo.jpg");
         assert_eq!(img.mime_type, "image/jpeg");
         assert_eq!(img.created, "2020-01-06T10:40:00+00:00"); // ns date
-        assert_eq!(img.source_path, "Library/SMS/Attachments/ab/12/GUID1/photo.jpg");
+        assert_eq!(img.source_path, "Library/Messages/Attachments/ab/12/GUID1/photo.jpg");
         assert_eq!(img.file, None);
 
         let vid = &items[1];
         assert_eq!(vid.source_path, "Library/SMS/Attachments/cd/34/GUID2/clip.mov");
-        assert_eq!(vid.created, "2020-01-06T10:41:40+00:00"); // seconds date (+100s)
+        assert_eq!(vid.created, "2020-01-06T10:41:40+00:00"); // +100s
 
         let weird = &items[2];
         assert_eq!(weird.source_path, ""); // no Attachments path → not fetchable
@@ -181,14 +191,20 @@ mod tests {
     }
 
     #[test]
-    fn to_media_path_strips_device_prefixes() {
+    fn to_media_path_strips_tilde_and_handles_absolute() {
+        // iMessage and SMS both use the `~/` form in iOS backups.
         assert_eq!(
-            to_media_path("~/Library/SMS/Attachments/a/b/x.jpg"),
-            "Library/SMS/Attachments/a/b/x.jpg"
+            to_media_path("~/Library/Messages/Attachments/a/b/x.jpg"),
+            "Library/Messages/Attachments/a/b/x.jpg"
         );
         assert_eq!(
-            to_media_path("/var/mobile/Library/SMS/Attachments/c/d/y.mov"),
+            to_media_path("~/Library/SMS/Attachments/c/d/y.mov"),
             "Library/SMS/Attachments/c/d/y.mov"
+        );
+        // Absolute on-device path falls back to the first Library/ segment.
+        assert_eq!(
+            to_media_path("/var/mobile/Library/Messages/Attachments/e/f/z.heic"),
+            "Library/Messages/Attachments/e/f/z.heic"
         );
         assert_eq!(to_media_path("/nope/z.bin"), "");
     }
