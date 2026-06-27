@@ -731,6 +731,16 @@ mod tests {
         assert!(!html.contains("<script>alert"));
     }
 
+    #[test]
+    fn photos_html_escapes_file_path_in_src_attribute() {
+        // A crafted file path must not break out of the src/href attribute.
+        let mut p = sample_photo();
+        p.file = Some("photos/1_a\"><script>.jpg".into());
+        let html = photos_html(&[p]);
+        assert!(!html.contains("\"><script>"));
+        assert!(html.contains("&#34;") || html.contains("&#62;"));
+    }
+
     fn sample_calls() -> Vec<crate::calls::Call> {
         vec![crate::calls::Call {
             number: "+420776452878".into(),
