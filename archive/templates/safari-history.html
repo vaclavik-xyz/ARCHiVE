@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Historie Safari</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}</style></head><body>
+<h1>Historie Safari ({{ visits.len() }})</h1>
+<table>
+<tr><th>Datum</th><th>Název</th><th>URL</th><th>Počet návštěv</th></tr>
+{% for v in visits %}
+<tr><td>{{ v.date }}</td><td>{{ v.title }}</td><td>{{ v.url }}</td><td>{{ v.visit_count }}</td></tr>
+{% endfor %}
+</table>
+</body></html>

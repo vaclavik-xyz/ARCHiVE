@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Záložky Safari</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}</style></head><body>
+<h1>Záložky Safari ({{ bookmarks.len() }})</h1>
+<table>
+<tr><th>Název</th><th>URL</th><th>Složka</th></tr>
+{% for b in bookmarks %}
+<tr><td>{{ b.title }}</td><td>{{ b.url }}</td><td>{{ b.folder }}</td></tr>
+{% endfor %}
+</table>
+</body></html>

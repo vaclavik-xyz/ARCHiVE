@@ -1,13 +1,9 @@
 mod audio;
-// Built bottom-up: parsers are wired into the CLI in a later step; the allows
-// are removed once the `safari-*`/`calendar` commands consume them.
-#[allow(dead_code)]
 mod calendar;
 mod calls;
 mod contacts;
 mod datetime;
 mod format;
-#[allow(dead_code)]
 mod safari;
 mod sqlite_util;
 mod voice_memos;
@@ -76,6 +72,24 @@ enum Command {
         #[arg(long)]
         audio_format: Option<String>,
     },
+    /// Export Safari browsing history.
+    SafariHistory {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// Export Safari bookmarks.
+    SafariBookmarks {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// Export calendar events.
+    Calendar {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Report (as JSON) which data stores the backup contains. Read-only;
     /// does not need `--out`.
     Inspect,
@@ -136,6 +150,9 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::VoiceMemos { format, no_audio, audio_format } => {
             run_voice_memos(&cli, password.as_deref(), format, *no_audio, audio_format.as_deref())
         }
+        Command::SafariHistory { format } => run_safari_history(&cli, password.as_deref(), format),
+        Command::SafariBookmarks { format } => run_safari_bookmarks(&cli, password.as_deref(), format),
+        Command::Calendar { format } => run_calendar(&cli, password.as_deref(), format),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
     }
 }
@@ -505,6 +522,127 @@ fn run_voice_memos(
     Ok(envelope)
 }
 
+/// Validate a csv/json/html export format (rejecting vcf) for `command`.
+fn export_format(format: &str, command: &str) -> Result<Format, AppError> {
+    let f = Format::from_cli(format)
+        .ok_or_else(|| AppError::usage(format!("unknown {command} format `{format}` (use csv, json, html)")))?;
+    if f == Format::Vcf {
+        return Err(AppError::usage(format!("vcf is not a valid format for {command} (use csv, json, html)")));
+    }
+    Ok(f)
+}
+
+/// Fetch + parse a single SQLite store into memory via a secure auto-cleaned temp
+/// dir, returning `Ok(None)` when the file is absent. `parse` maps the on-disk DB
+/// to records.
+fn load_store<T>(
+    backup: &archive_core::Backup,
+    domain: &str,
+    rel_path: &str,
+    file_name: &str,
+    parse: impl FnOnce(&std::path::Path) -> rusqlite::Result<Vec<T>>,
+) -> Result<Option<Vec<T>>, AppError> {
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let tmp = scratch.path().join(file_name);
+    let Some(db) = backup.fetch(domain, rel_path, &tmp).map_err(|e| AppError::other(e.to_string()))? else {
+        return Ok(None);
+    };
+    Ok(Some(parse(&db).map_err(|e| AppError::other(e.to_string()))?))
+}
+
+fn load_safari_history(backup: &archive_core::Backup) -> Result<Option<Vec<safari::HistoryVisit>>, AppError> {
+    load_store(backup, "AppDomain-com.apple.mobilesafari", "Library/Safari/History.db", "History.db", safari::parse_history)
+}
+
+fn load_safari_bookmarks(backup: &archive_core::Backup) -> Result<Option<Vec<safari::Bookmark>>, AppError> {
+    load_store(backup, "AppDomain-com.apple.mobilesafari", "Library/Safari/Bookmarks.db", "Bookmarks.db", safari::parse_bookmarks)
+}
+
+fn load_calendar(backup: &archive_core::Backup) -> Result<Option<Vec<calendar::CalendarEvent>>, AppError> {
+    load_store(backup, "HomeDomain", "Library/Calendar/Calendar.sqlitedb", "Calendar.sqlitedb", calendar::parse)
+}
+
+fn run_safari_history(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "safari-history")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export Safari history"))?;
+    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(items) = load_safari_history(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "safari-history", "count": 0, "outputs": [],
+            "note": "this backup has no Safari history", "device": device
+        }));
+    };
+    let rendered = match format {
+        Format::Csv => format::safari_history_csv(&items),
+        Format::Json => format::safari_history_json(&items),
+        Format::Html => format::safari_history_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("safari-history.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} history visit(s) to {}", items.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "safari-history", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+fn run_safari_bookmarks(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "safari-bookmarks")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export Safari bookmarks"))?;
+    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(items) = load_safari_bookmarks(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "safari-bookmarks", "count": 0, "outputs": [],
+            "note": "this backup has no Safari bookmarks", "device": device
+        }));
+    };
+    let rendered = match format {
+        Format::Csv => format::safari_bookmarks_csv(&items),
+        Format::Json => format::safari_bookmarks_json(&items),
+        Format::Html => format::safari_bookmarks_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("safari-bookmarks.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} bookmark(s) to {}", items.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "safari-bookmarks", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+fn run_calendar(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "calendar")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export calendar"))?;
+    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(items) = load_calendar(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "calendar", "count": 0, "outputs": [],
+            "note": "this backup has no calendar", "device": device
+        }));
+    };
+    let rendered = match format {
+        Format::Csv => format::calendar_csv(&items),
+        Format::Json => format::calendar_json(&items),
+        Format::Html => format::calendar_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("calendar.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} event(s) to {}", items.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "calendar", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
 /// One row of `inspect` output: a known store and its availability.
 struct StoreStatus {
     name: &'static str,
@@ -529,6 +667,9 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("calls", true, "HomeDomain", "Library/CallHistoryDB/CallHistory.storedata"),
     ("voicemail", true, "HomeDomain", "Library/Voicemail/voicemail.db"),
     ("voice-memos", true, "AppDomainGroup-group.com.apple.VoiceMemos", "Recordings/CloudRecordings.db"),
+    ("safari-history", true, "AppDomain-com.apple.mobilesafari", "Library/Safari/History.db"),
+    ("safari-bookmarks", true, "AppDomain-com.apple.mobilesafari", "Library/Safari/Bookmarks.db"),
+    ("calendar", true, "HomeDomain", "Library/Calendar/Calendar.sqlitedb"),
     ("photos", false, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
     ("notes", false, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
 ];
@@ -565,6 +706,9 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "calls" => load_calls(&backup).ok().flatten().map(|c| c.len()),
                 "voicemail" => load_voicemail(&backup).ok().flatten().map(|v| v.len()),
                 "voice-memos" => load_voice_memos(&backup).ok().flatten().map(|v| v.len()),
+                "safari-history" => load_safari_history(&backup).ok().flatten().map(|v| v.len()),
+                "safari-bookmarks" => load_safari_bookmarks(&backup).ok().flatten().map(|v| v.len()),
+                "calendar" => load_calendar(&backup).ok().flatten().map(|v| v.len()),
                 _ => None,
             }
         } else {
@@ -722,6 +866,30 @@ mod cli_tests {
     fn known_stores_lists_voice_memos_supported() {
         let vm = KNOWN_STORES.iter().find(|(n, ..)| *n == "voice-memos").unwrap();
         assert!(vm.1, "voice-memos must be supported");
+    }
+
+    #[test]
+    fn parses_safari_and_calendar_invocations() {
+        for cmd in ["safari-history", "safari-bookmarks", "calendar"] {
+            let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", cmd, "-f", "json"]).unwrap();
+            assert_eq!(cli.out, Some(PathBuf::from("/out")));
+        }
+    }
+
+    #[test]
+    fn export_format_rejects_vcf_accepts_others() {
+        assert_eq!(export_format("csv", "calendar").unwrap(), Format::Csv);
+        assert_eq!(export_format("html", "safari-history").unwrap(), Format::Html);
+        assert_eq!(export_format("vcf", "calendar").unwrap_err().code, 1);
+        assert_eq!(export_format("nope", "calendar").unwrap_err().code, 1);
+    }
+
+    #[test]
+    fn known_stores_lists_safari_and_calendar_supported() {
+        for name in ["safari-history", "safari-bookmarks", "calendar"] {
+            let s = KNOWN_STORES.iter().find(|(n, ..)| *n == name).unwrap();
+            assert!(s.1, "{name} must be supported");
+        }
     }
 
     #[test]

@@ -250,6 +250,83 @@ pub fn voice_memos_html(items: &[crate::voice_memos::VoiceMemo]) -> String {
     VoiceMemosTemplate { memos: items }.render().unwrap()
 }
 
+pub fn safari_history_csv(items: &[crate::safari::HistoryVisit]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["url", "title", "date", "visit_count"]).unwrap();
+    for v in items {
+        wtr.write_record([v.url.clone(), v.title.clone(), v.date.clone(), v.visit_count.to_string()])
+            .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn safari_history_json(items: &[crate::safari::HistoryVisit]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "safari-history.html")]
+struct SafariHistoryTemplate<'a> {
+    visits: &'a [crate::safari::HistoryVisit],
+}
+
+pub fn safari_history_html(items: &[crate::safari::HistoryVisit]) -> String {
+    SafariHistoryTemplate { visits: items }.render().unwrap()
+}
+
+pub fn safari_bookmarks_csv(items: &[crate::safari::Bookmark]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["title", "url", "folder"]).unwrap();
+    for b in items {
+        wtr.write_record([b.title.clone(), b.url.clone(), b.folder.clone()]).unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn safari_bookmarks_json(items: &[crate::safari::Bookmark]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "safari-bookmarks.html")]
+struct SafariBookmarksTemplate<'a> {
+    bookmarks: &'a [crate::safari::Bookmark],
+}
+
+pub fn safari_bookmarks_html(items: &[crate::safari::Bookmark]) -> String {
+    SafariBookmarksTemplate { bookmarks: items }.render().unwrap()
+}
+
+pub fn calendar_csv(items: &[crate::calendar::CalendarEvent]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["summary", "start", "end", "all_day", "calendar"]).unwrap();
+    for e in items {
+        wtr.write_record([
+            e.summary.clone(),
+            e.start.clone(),
+            e.end.clone(),
+            e.all_day.to_string(),
+            e.calendar.clone(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn calendar_json(items: &[crate::calendar::CalendarEvent]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "calendar.html")]
+struct CalendarTemplate<'a> {
+    events: &'a [crate::calendar::CalendarEvent],
+}
+
+pub fn calendar_html(items: &[crate::calendar::CalendarEvent]) -> String {
+    CalendarTemplate { events: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,6 +526,57 @@ mod tests {
         let out = voice_memos_html(&items);
         assert!(!out.contains("\"><script>"));
         assert!(out.contains("&#60;script&#62;"));
+    }
+
+    #[test]
+    fn safari_history_csv_json_and_html_escape() {
+        let v = vec![crate::safari::HistoryVisit {
+            url: "https://apple.com".into(),
+            title: "Apple".into(),
+            date: "2020-01-06T10:40:00+00:00".into(),
+            visit_count: 5,
+        }];
+        let csv = safari_history_csv(&v);
+        assert!(csv.starts_with("url,title,date,visit_count"));
+        assert!(csv.contains("https://apple.com,Apple,2020-01-06T10:40:00+00:00,5"));
+        let back: serde_json::Value = serde_json::from_str(&safari_history_json(&v)).unwrap();
+        assert_eq!(back[0]["visit_count"], 5);
+
+        let mut x = v.clone();
+        x[0].title = "<script>alert(1)</script>".into();
+        let html = safari_history_html(&x);
+        assert!(html.contains("&#60;script&#62;"));
+        assert!(!html.contains("<script>alert"));
+    }
+
+    #[test]
+    fn safari_bookmarks_csv_and_json() {
+        let b = vec![crate::safari::Bookmark {
+            title: "Apple".into(),
+            url: "https://apple.com".into(),
+            folder: "Favorites".into(),
+        }];
+        assert!(safari_bookmarks_csv(&b).starts_with("title,url,folder"));
+        let back: serde_json::Value = serde_json::from_str(&safari_bookmarks_json(&b)).unwrap();
+        assert_eq!(back[0]["folder"], "Favorites");
+        assert!(safari_bookmarks_html(&b).contains("https://apple.com"));
+    }
+
+    #[test]
+    fn calendar_csv_json_and_html() {
+        let e = vec![crate::calendar::CalendarEvent {
+            summary: "Standup".into(),
+            start: "2020-01-06T10:40:00+00:00".into(),
+            end: "2020-01-06T11:10:00+00:00".into(),
+            all_day: false,
+            calendar: "Work".into(),
+        }];
+        let csv = calendar_csv(&e);
+        assert!(csv.starts_with("summary,start,end,all_day,calendar"));
+        assert!(csv.contains("Standup,2020-01-06T10:40:00+00:00,2020-01-06T11:10:00+00:00,false,Work"));
+        let back: serde_json::Value = serde_json::from_str(&calendar_json(&e)).unwrap();
+        assert_eq!(back[0]["all_day"], false);
+        assert!(calendar_html(&e).contains("Standup"));
     }
 
     fn sample_calls() -> Vec<crate::calls::Call> {
