@@ -40,6 +40,7 @@ stdout:
     { "type": "contacts", "present": true, "supported": true, "count": 1234 },
     { "type": "calls", "present": true, "supported": true, "count": 5678 },
     { "type": "voicemail", "present": true, "supported": true, "count": 42 },
+    { "type": "voice-memos", "present": true, "supported": true, "count": 8 },
     { "type": "photos", "present": true, "supported": false, "count": null },
     { "type": "notes", "present": false, "supported": false, "count": null }
   ]
@@ -140,6 +141,50 @@ Each voicemail object: `sender` (caller number; empty when withheld), `date`
 `trashed_at` (ISO 8601 UTC or `null`), `expiration` (ISO 8601 UTC or `null`),
 `flags` (raw bitmask, **not decoded** — use `trashed` for deletion status), `rowid` (stable per-backup identifier, JSON output only), `audio_file` (output-relative path to extracted audio file, e.g. `voicemail_audio/<name>`, or `null` when no audio exists for that row). No
 voicemail → `count: 0`, `outputs: []`, plus a `note`.
+
+### `voice-memos` — export Voice Memos metadata and audio
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> voice-memos -f <FORMAT> [--no-audio] [--audio-format <m4a|wav>]
+```
+
+`FORMAT` is one of `csv | json | html` (`vcf` is rejected with exit 1). Writes
+`<OUT>/voice-memos.<ext>`.
+
+**Audio extraction is on by default** — unlike `voicemail` (opt-in `--audio`),
+because a voice memo *is* its audio and the native `.m4a` copy needs no external
+dependency. Each recording is fetched from
+`AppDomainGroup-group.com.apple.VoiceMemos/Recordings/` (legacy fallback:
+`MediaDomain/Recordings/`) into `<OUT>/voice_memos/` and linked from each record's
+`audio_file`. Pass `--no-audio` for metadata only. `--audio-format` defaults to a
+**raw native copy** (no dependency); `m4a`/`wav` transcode via `ffmpeg` (required
+only then). `--audio-format` with `--no-audio`, or `--audio-format amr`, is a
+usage error.
+
+Each audio file is named `<date>_<title>_<n>.<ext>` (date is `YYYY-MM-DD_HHMMSS`
+UTC or `unknown`; title is the sanitized memo name or `unknown`; `n` is a 1-based
+index ensuring uniqueness). Recordings present on disk but absent from the
+metadata DB are still recovered and listed with an empty title.
+
+stdout envelope:
+
+```json
+{
+  "ok": true,
+  "command": "voice-memos",
+  "count": 8,
+  "outputs": ["<OUT>/voice-memos.json"],
+  "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." },
+  "audio": { "format": "raw", "dir": "voice_memos", "extracted": 8, "missing": 0 }
+}
+```
+
+The `audio` envelope is present only when extraction ran (i.e. not `--no-audio`);
+`format` is `raw` for native copies, else `m4a`/`wav`. Each voice-memo object:
+`title` (memo name; empty when unnamed), `date` (ISO 8601 UTC), `duration_seconds`,
+`source_file` (the recording's filename in the backup), `audio_file`
+(output-relative path, e.g. `voice_memos/<name>`, or `null`). No Voice Memos store
+→ `count: 0`, `outputs: []`, plus a `note`.
 
 ## Result envelope (every command)
 

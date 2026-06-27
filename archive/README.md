@@ -19,6 +19,9 @@ archive --backup <backup-dir> -o <out> voicemail -f json   # csv | json | html
 
 # Extract voicemail metadata + audio (raw .amr; pass --audio-format m4a|wav to transcode via ffmpeg)
 archive --backup <backup-dir> -o <out> voicemail -f json --audio
+
+# Extract Voice Memos metadata + audio (audio on by default; --no-audio for metadata only)
+archive --backup <backup-dir> -o <out> voice-memos -f html
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -29,4 +32,5 @@ Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 - [x] contacts — csv, json, vcf, html (incl. postal addresses)
 - [x] calls — csv, json, html
 - [x] voicemail — csv, json, html (metadata) + audio extraction (`--audio`, raw `.amr` or ffmpeg `m4a`/`wav`)
+- [x] voice-memos — csv, json, html (metadata) + audio extraction (native copy by default, or ffmpeg `m4a`/`wav`)
 - [ ] photos · notes · attachment audio · pdf output
