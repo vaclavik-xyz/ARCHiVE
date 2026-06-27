@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Hlasové poznámky</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}</style></head><body>
+<h1>Hlasové poznámky ({{ memos.len() }})</h1>
+<table>
+<tr><th>Název</th><th>Datum</th><th>Trvání (s)</th><th>Zdrojový soubor</th><th>Audio</th></tr>
+{% for v in memos %}
+<tr>
+<td>{{ v.title }}</td><td>{{ v.date }}</td><td>{{ v.duration_seconds }}</td>
+<td>{{ v.source_file }}</td>
+<td>{% if let Some(a) = v.audio_file.as_ref() %}<audio controls src="{{ a }}"></audio>{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>
