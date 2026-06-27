@@ -28,6 +28,13 @@ pub struct Attachment {
     pub file: Option<String>,
 }
 
+impl Attachment {
+    /// Whether this attachment is an image (used by the HTML gallery to inline it).
+    pub fn is_image(&self) -> bool {
+        self.mime_type.starts_with("image/")
+    }
+}
+
 /// Last path component of a (possibly `/`-containing) name.
 fn basename(p: &str) -> &str {
     p.rsplit('/').next().unwrap_or(p)

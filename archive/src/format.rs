@@ -402,6 +402,36 @@ pub fn photos_html(items: &[crate::photos::Photo]) -> String {
     PhotosTemplate { photos: items }.render().unwrap()
 }
 
+pub fn attachments_csv(items: &[crate::attachments::Attachment]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["name", "mime_type", "created", "total_bytes", "file"]).unwrap();
+    for a in items {
+        wtr.write_record([
+            a.name.clone(),
+            a.mime_type.clone(),
+            a.created.clone(),
+            a.total_bytes.to_string(),
+            a.file.clone().unwrap_or_default(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn attachments_json(items: &[crate::attachments::Attachment]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "attachments.html")]
+struct AttachmentsTemplate<'a> {
+    attachments: &'a [crate::attachments::Attachment],
+}
+
+pub fn attachments_html(items: &[crate::attachments::Attachment]) -> String {
+    AttachmentsTemplate { attachments: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -727,6 +757,40 @@ mod tests {
         p.file = None;
         p.filename = "<script>alert(1)</script>".into();
         let html = photos_html(&[p]);
+        assert!(html.contains("&#60;script&#62;"));
+        assert!(!html.contains("<script>alert"));
+    }
+
+    fn sample_attachment() -> crate::attachments::Attachment {
+        crate::attachments::Attachment {
+            name: "photo.jpg".into(),
+            mime_type: "image/jpeg".into(),
+            created: "2020-01-06T10:40:00+00:00".into(),
+            total_bytes: 102400,
+            source_path: "Library/SMS/Attachments/ab/12/G/photo.jpg".into(),
+            file: Some("attachments/1_photo.jpg".into()),
+        }
+    }
+
+    #[test]
+    fn attachments_csv_json_and_html() {
+        let a = vec![sample_attachment()];
+        let csv = attachments_csv(&a);
+        assert!(csv.starts_with("name,mime_type,created,total_bytes,file"));
+        assert!(csv.contains("photo.jpg,image/jpeg,2020-01-06T10:40:00+00:00,102400,attachments/1_photo.jpg"));
+        let back: serde_json::Value = serde_json::from_str(&attachments_json(&a)).unwrap();
+        assert_eq!(back[0]["mime_type"], "image/jpeg");
+        // image mime → inline <img> in the gallery.
+        assert!(attachments_html(&a).contains("<img src=\"attachments/1_photo.jpg\""));
+    }
+
+    #[test]
+    fn attachments_html_links_non_images_and_escapes() {
+        let mut a = sample_attachment();
+        a.mime_type = "video/quicktime".into();
+        a.name = "<script>alert(1)</script>".into();
+        let html = attachments_html(&[a]);
+        assert!(!html.contains("<img")); // non-image → link, not inline image
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
     }
