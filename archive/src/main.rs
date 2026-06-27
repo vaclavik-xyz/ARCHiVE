@@ -998,10 +998,20 @@ fn run_backup(cli: &Cli, password: Option<&str>, full: bool) -> Result<serde_jso
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
     eprintln!("Backing up device {udid} to {} …", out.display());
-    // Inherit stdio so the user sees idevicebackup2's live progress.
-    let status = std::process::Command::new(BACKUP_TOOL)
-        .args(backup_args(out, full))
-        .status()
+    // Forward idevicebackup2's stdout progress to OUR stderr so the agent contract
+    // (exactly one JSON object on stdout) holds; its stderr inherits to our stderr.
+    // Draining the single piped stream then waiting cannot deadlock.
+    let mut child = std::process::Command::new(BACKUP_TOOL)
+        .args(backup_args(&udid, out, full))
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| AppError::other(format!("running {BACKUP_TOOL}: {e}")))?;
+    if let Some(child_out) = child.stdout.take() {
+        let mut reader = std::io::BufReader::new(child_out);
+        let _ = std::io::copy(&mut reader, &mut std::io::stderr());
+    }
+    let status = child
+        .wait()
         .map_err(|e| AppError::other(format!("running {BACKUP_TOOL}: {e}")))?;
     if !status.success() {
         return Err(AppError::other(format!("{BACKUP_TOOL} failed ({status})")));

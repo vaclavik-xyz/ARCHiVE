@@ -381,12 +381,14 @@ A command that runs far enough to produce a result prints the JSON envelope
 | 1 | `{ "ok": false, "kind": "usage" }` or `"other"` — unknown `-f` format, missing `--out`, parse/IO error |
 
 **Argument-parsing errors are a separate channel.** If the invocation itself is
-malformed (a missing required flag such as `--backup`, or an unknown flag),
-`clap` prints plain-text usage to **stderr**, writes **nothing** to stdout, and
-also exits **2** — there is no JSON envelope. Disambiguate exit 2 by inspecting
-stdout: a JSON object with `"kind": "auth"` is an authentication failure; empty
-stdout (with usage text on stderr) is a malformed invocation. When unsure, run
-`--help` or `inspect` first to learn the contract.
+malformed (a missing subcommand, or an unknown flag), `clap` prints plain-text
+usage to **stderr**, writes **nothing** to stdout, and also exits **2** — there is
+no JSON envelope. (A missing `--backup` on a read command is **not** a clap error
+— `--backup` is optional at parse time so the `backup` command can omit it — it is
+a runtime usage error: a JSON `"kind": "usage"` envelope on stdout, exit 1.)
+Disambiguate exit 2 by inspecting stdout: a JSON object with `"kind": "auth"` is an
+authentication failure; empty stdout (with usage text on stderr) is a malformed
+invocation. When unsure, run `--help` or `inspect` first to learn the contract.
 
 > Note: argument/usage errors (an unknown `-f` format, a missing `--out`) are detected **before** the backup is opened, so they surface as exit 1 even when the backup is an encrypted one that would otherwise report an auth error.
 

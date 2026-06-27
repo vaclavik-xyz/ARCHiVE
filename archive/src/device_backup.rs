@@ -11,9 +11,10 @@ pub const BACKUP_TOOL: &str = "idevicebackup2";
 /// The libimobiledevice device-listing tool.
 pub const DEVICE_TOOL: &str = "idevice_id";
 
-/// Argv for `idevicebackup2 backup [--full] <out>`.
-pub fn backup_args(out: &Path, full: bool) -> Vec<OsString> {
-    let mut args: Vec<OsString> = vec!["backup".into()];
+/// Argv for `idevicebackup2 --udid <udid> backup [--full] <out>`. The UDID binds
+/// the operation to the selected device (important when several are connected).
+pub fn backup_args(udid: &str, out: &Path, full: bool) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec!["--udid".into(), udid.into(), "backup".into()];
     if full {
         args.push("--full".into());
     }
@@ -50,18 +51,18 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn backup_args_with_and_without_full() {
-        let plain: Vec<String> = backup_args(Path::new("/out"), false)
+    fn backup_args_bind_udid_and_full() {
+        let plain: Vec<String> = backup_args("UDID1", Path::new("/out"), false)
             .iter()
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(plain, vec!["backup", "/out"]);
+        assert_eq!(plain, vec!["--udid", "UDID1", "backup", "/out"]);
 
-        let full: Vec<String> = backup_args(Path::new("/out"), true)
+        let full: Vec<String> = backup_args("UDID1", Path::new("/out"), true)
             .iter()
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(full, vec!["backup", "--full", "/out"]);
+        assert_eq!(full, vec!["--udid", "UDID1", "backup", "--full", "/out"]);
     }
 
     #[test]
