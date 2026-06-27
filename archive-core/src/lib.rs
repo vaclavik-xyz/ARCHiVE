@@ -220,9 +220,10 @@ mod tests {
             .expect("open backup");
         let info = backup.device_info();
         assert!(!info.product_version.is_empty(), "iOS version should be set");
-        // model/serial are exposed from the lockdown record (non-fatal if empty
-        // on some backups); accessing them documents they are part of DeviceInfo.
-        eprintln!("model={:?} serial={:?}", info.model, info.serial);
+        // model/serial are exposed from the lockdown record (non-fatal if empty);
+        // access them to document they are part of DeviceInfo without logging the
+        // values, which are sensitive device identifiers.
+        let _ = (&info.model, &info.serial);
     }
 
     #[test]
