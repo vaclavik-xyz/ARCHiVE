@@ -66,3 +66,18 @@ pub fn make_callhistory(path: &Path) {
     )
     .unwrap();
 }
+
+/// Build a minimal real Voice Memos `CloudRecordings.db` (`ZCLOUDRECORDING`):
+/// a titled memo and an untitled one. `ZDATE` is the Cocoa/2001 epoch.
+pub fn make_voicememos(path: &Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE ZCLOUDRECORDING (
+            Z_PK INTEGER PRIMARY KEY, ZDATE REAL, ZDURATION REAL,
+            ZCUSTOMLABEL TEXT, ZENCRYPTEDTITLE TEXT, ZPATH TEXT);
+         INSERT INTO ZCLOUDRECORDING (Z_PK, ZDATE, ZDURATION, ZCUSTOMLABEL, ZPATH) VALUES
+            (1, 600000000.0, 12.5, 'Schůzka', '20200101 120000.m4a'),
+            (2, 600000100.0, 3.0, NULL, 'A1B2C3.m4a');",
+    )
+    .unwrap();
+}

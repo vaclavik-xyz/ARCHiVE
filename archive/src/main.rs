@@ -4,6 +4,10 @@ mod contacts;
 mod datetime;
 mod format;
 mod sqlite_util;
+// Built bottom-up: `voice_memos` items are wired into the CLI in a later step;
+// the allow is removed once `run_voice_memos` consumes them.
+#[allow(dead_code)]
+mod voice_memos;
 mod voicemail;
 mod voicemail_audio;
 #[cfg(test)]
