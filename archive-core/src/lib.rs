@@ -42,6 +42,10 @@ pub struct DeviceInfo {
     pub device_name: String,
     /// iOS version string (e.g. "17.5").
     pub product_version: String,
+    /// Hardware model identifier (e.g. "iPhone14,2").
+    pub model: String,
+    /// Device serial number.
+    pub serial: String,
     /// The backup's unique device identifier.
     pub udid: String,
 }
@@ -97,6 +101,8 @@ impl Backup {
         let info = DeviceInfo {
             device_name: lockdown.device_name.clone(),
             product_version: lockdown.product_version.clone(),
+            model: lockdown.product_type.clone(),
+            serial: lockdown.serial_number.clone(),
             udid: raw
                 .udid()
                 .map_err(|why| BackupError::Open(why.to_string()))?
