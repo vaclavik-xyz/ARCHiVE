@@ -14,9 +14,6 @@ mod sqlite_util;
 mod voice_memos;
 mod voicemail;
 mod voicemail_audio;
-// Built bottom-up: wired into the CLI in a later step; the allow is removed once
-// the `whatsapp` command consumes it.
-#[allow(dead_code)]
 mod whatsapp;
 #[cfg(test)]
 mod test_fixtures;
@@ -124,6 +121,15 @@ enum Command {
         #[arg(long)]
         no_files: bool,
     },
+    /// Export WhatsApp messages and media (files on by default; --no-files to skip).
+    Whatsapp {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+        /// Skip media extraction (transcript only).
+        #[arg(long)]
+        no_files: bool,
+    },
     /// Run every extractor into <out>/ and write a customer index.html package.
     Recover {
         /// Skip large media extraction (metadata + HTML only).
@@ -218,6 +224,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Notes { format } => run_notes(&cli, password.as_deref(), format),
         Command::Photos { format, no_files } => run_photos(&cli, password.as_deref(), format, *no_files),
         Command::Attachments { format, no_files } => run_attachments(&cli, password.as_deref(), format, *no_files),
+        Command::Whatsapp { format, no_files } => run_whatsapp(&cli, password.as_deref(), format, *no_files),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
@@ -641,6 +648,16 @@ fn load_attachments(backup: &archive_core::Backup) -> Result<Option<Vec<attachme
     load_store(backup, "HomeDomain", "Library/SMS/sms.db", "sms.db", attachments::parse)
 }
 
+fn load_whatsapp(backup: &archive_core::Backup) -> Result<Option<Vec<whatsapp::WaMessage>>, AppError> {
+    load_store(
+        backup,
+        "AppDomainGroup-group.net.whatsapp.WhatsApp.shared",
+        "ChatStorage.sqlite",
+        "ChatStorage.sqlite",
+        whatsapp::parse,
+    )
+}
+
 fn run_safari_history(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "safari-history")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export Safari history"))?;
@@ -892,6 +909,48 @@ fn media_or_log(
     }
 }
 
+fn run_whatsapp(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "whatsapp")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export whatsapp"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(mut items) = load_whatsapp(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "whatsapp", "count": 0, "outputs": [],
+            "note": "this backup has no WhatsApp store", "device": device
+        }));
+    };
+
+    let summary = if no_files {
+        None
+    } else {
+        Some(whatsapp::extract_media(&backup, &mut items, out).map_err(|e| AppError::other(e.to_string()))?)
+    };
+
+    let rendered = match format {
+        Format::Csv => format::whatsapp_csv(&items),
+        Format::Json => format::whatsapp_json(&items),
+        Format::Html => format::whatsapp_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("whatsapp.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} WhatsApp message(s) to {}", items.len(), out_file.display());
+
+    let mut envelope = serde_json::json!({
+        "ok": true, "command": "whatsapp", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    });
+    if let Some(s) = summary {
+        eprintln!("Extracted {} media file(s) ({} missing) to {}/{}", s.extracted, s.missing, out.display(), s.dir);
+        envelope["media"] = serde_json::json!({
+            "dir": s.dir, "extracted": s.extracted, "missing": s.missing
+        });
+    }
+    Ok(envelope)
+}
+
 fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serde_json::Value, AppError> {
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required for recover"))?;
     let backup = open_backup(cli, password)?;
@@ -963,6 +1022,17 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
             )
         };
         rec.add("attachments", "Přílohy zpráv", "attachments.html", format::attachments_html(&items), items.len(), media)?;
+    }
+    if let Some(mut items) = opt_or_log(load_whatsapp(&backup), "whatsapp") {
+        let media = if no_files {
+            None
+        } else {
+            media_or_log(
+                whatsapp::extract_media(&backup, &mut items, out).map(|s| (s.dir, s.extracted, s.missing)),
+                "whatsapp",
+            )
+        };
+        rec.add("whatsapp", "WhatsApp", "whatsapp.html", format::whatsapp_html(&items), items.len(), media)?;
     }
 
     let generated = chrono::Utc::now().to_rfc3339();
@@ -1106,6 +1176,7 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("notes", true, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
     ("photos", true, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
     ("attachments", true, "HomeDomain", "Library/SMS/sms.db"),
+    ("whatsapp", true, "AppDomainGroup-group.net.whatsapp.WhatsApp.shared", "ChatStorage.sqlite"),
 ];
 
 fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, AppError> {
@@ -1146,6 +1217,7 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "notes" => load_notes(&backup).ok().flatten().map(|v| v.len()),
                 "photos" => load_photos(&backup).ok().flatten().map(|v| v.len()),
                 "attachments" => load_attachments(&backup).ok().flatten().map(|v| v.len()),
+                "whatsapp" => load_whatsapp(&backup).ok().flatten().map(|v| v.len()),
                 _ => None,
             }
         } else {
@@ -1384,6 +1456,20 @@ mod cli_tests {
             Command::Recover { no_files } => assert!(!no_files),
             _ => panic!("expected Recover"),
         }
+    }
+
+    #[test]
+    fn parses_whatsapp_invocation_and_supported() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "whatsapp", "-f", "html", "--no-files"]).unwrap();
+        match cli.command {
+            Command::Whatsapp { format, no_files } => {
+                assert_eq!(format, "html");
+                assert!(no_files);
+            }
+            _ => panic!("expected Whatsapp"),
+        }
+        let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "whatsapp").unwrap();
+        assert!(s.1, "whatsapp must be supported");
     }
 
     #[test]
