@@ -48,7 +48,8 @@ stdout:
     { "type": "calendar", "present": true, "supported": true, "count": 212 },
     { "type": "notes", "present": true, "supported": true, "count": 87 },
     { "type": "photos", "present": true, "supported": true, "count": 1240 },
-    { "type": "attachments", "present": true, "supported": true, "count": 312 }
+    { "type": "attachments", "present": true, "supported": true, "count": 312 },
+    { "type": "whatsapp", "present": true, "supported": true, "count": 5821 }
   ]
 }
 ```
@@ -291,6 +292,21 @@ Each attachment: `name` (original transfer name, else the on-device basename),
 when absent from the backup). Envelope carries a `files` object (`dir`,
 `extracted`, `missing`) when extraction ran. No Messages store → `count: 0`,
 `outputs: []`, plus a `note`.
+
+### `whatsapp` — export WhatsApp messages and media
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> whatsapp -f <FORMAT> [--no-files]
+```
+
+`FORMAT` is one of `csv | json | html`. Writes `<OUT>/whatsapp.<ext>`. **Media is
+extracted by default** into `<OUT>/whatsapp_media/`; pass `--no-files` for a
+text-only transcript. Reads `ChatStorage.sqlite` from the WhatsApp shared app-group
+container. Each message: `chat` (contact/group name), `sender` (JID; empty when
+from me), `from_me` (bool), `date` (ISO 8601 UTC), `text`, `media_file`
+(output-relative extracted media, or `null`). Envelope carries a `media` object
+(`dir`, `extracted`, `missing`) when extraction ran; `count` is total messages. No
+WhatsApp store → `count: 0`, `outputs: []`, plus a `note`.
 
 ### `recover` — one-shot customer package
 

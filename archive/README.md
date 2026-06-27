@@ -45,6 +45,9 @@ archive --backup <backup-dir> -o <out> photos -f html
 
 # Messages attachments: extract media into <out>/attachments/ (--no-files for catalog only)
 archive --backup <backup-dir> -o <out> attachments -f html
+
+# WhatsApp messages + media (--no-files for transcript only)
+archive --backup <backup-dir> -o <out> whatsapp -f html
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -63,4 +66,5 @@ Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 - [x] recover — one-shot: all extractors + customer index.html (device sheet + links)
 - [x] backup — create a fresh backup from a connected iPhone (libimobiledevice)
 - [x] integrity — verify backup completeness (manifest file presence + size)
-- [ ] pdf output · message text export
+- [x] whatsapp — csv, json, html transcript + media extraction
+- [ ] pdf output · iMessage text export
