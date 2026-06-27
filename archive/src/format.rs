@@ -219,9 +219,6 @@ pub fn voicemail_html(items: &[crate::voicemail::Voicemail]) -> String {
     VoicemailTemplate { voicemails: items }.render().unwrap()
 }
 
-// Wired into the CLI in the `voice-memos` command step; the allows are removed
-// once `run_voice_memos` calls these renderers.
-#[allow(dead_code)]
 pub fn voice_memos_csv(items: &[crate::voice_memos::VoiceMemo]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record(["title", "date", "duration_seconds", "source_file", "audio_file"])
@@ -239,7 +236,6 @@ pub fn voice_memos_csv(items: &[crate::voice_memos::VoiceMemo]) -> String {
     String::from_utf8(wtr.into_inner().unwrap()).unwrap()
 }
 
-#[allow(dead_code)]
 pub fn voice_memos_json(items: &[crate::voice_memos::VoiceMemo]) -> String {
     serde_json::to_string_pretty(items).unwrap()
 }
@@ -250,7 +246,6 @@ struct VoiceMemosTemplate<'a> {
     memos: &'a [crate::voice_memos::VoiceMemo],
 }
 
-#[allow(dead_code)]
 pub fn voice_memos_html(items: &[crate::voice_memos::VoiceMemo]) -> String {
     VoiceMemosTemplate { memos: items }.render().unwrap()
 }
