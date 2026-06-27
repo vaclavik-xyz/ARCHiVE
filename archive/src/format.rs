@@ -432,6 +432,37 @@ pub fn attachments_html(items: &[crate::attachments::Attachment]) -> String {
     AttachmentsTemplate { attachments: items }.render().unwrap()
 }
 
+pub fn whatsapp_csv(items: &[crate::whatsapp::WaMessage]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["chat", "sender", "from_me", "date", "text", "media_file"]).unwrap();
+    for m in items {
+        wtr.write_record([
+            m.chat.clone(),
+            m.sender.clone(),
+            m.from_me.to_string(),
+            m.date.clone(),
+            m.text.clone(),
+            m.media_file.clone().unwrap_or_default(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn whatsapp_json(items: &[crate::whatsapp::WaMessage]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "whatsapp.html")]
+struct WhatsappTemplate<'a> {
+    messages: &'a [crate::whatsapp::WaMessage],
+}
+
+pub fn whatsapp_html(items: &[crate::whatsapp::WaMessage]) -> String {
+    WhatsappTemplate { messages: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -791,6 +822,42 @@ mod tests {
         a.name = "<script>alert(1)</script>".into();
         let html = attachments_html(&[a]);
         assert!(!html.contains("<img")); // non-image → link, not inline image
+        assert!(html.contains("&#60;script&#62;"));
+        assert!(!html.contains("<script>alert"));
+    }
+
+    fn sample_wa() -> crate::whatsapp::WaMessage {
+        crate::whatsapp::WaMessage {
+            chat: "Jana".into(),
+            sender: "420@s.whatsapp.net".into(),
+            from_me: false,
+            date: "2020-01-06T10:40:00+00:00".into(),
+            text: "Ahoj".into(),
+            source_path: "Message/Media/x/photo.jpg".into(),
+            media_file: Some("whatsapp_media/2_photo.jpg".into()),
+        }
+    }
+
+    #[test]
+    fn whatsapp_csv_json_and_html_inline_image() {
+        let m = vec![sample_wa()];
+        let csv = whatsapp_csv(&m);
+        assert!(csv.starts_with("chat,sender,from_me,date,text,media_file"));
+        assert!(csv.contains("Jana,420@s.whatsapp.net,false,2020-01-06T10:40:00+00:00,Ahoj,whatsapp_media/2_photo.jpg"));
+        let back: serde_json::Value = serde_json::from_str(&whatsapp_json(&m)).unwrap();
+        assert_eq!(back[0]["chat"], "Jana");
+        assert_eq!(back[0]["from_me"], false);
+        // image media → inline <img>.
+        assert!(whatsapp_html(&m).contains("<img src=\"whatsapp_media/2_photo.jpg\""));
+    }
+
+    #[test]
+    fn whatsapp_html_escapes_text_and_links_non_image() {
+        let mut m = sample_wa();
+        m.media_file = Some("whatsapp_media/3_clip.mp4".into());
+        m.text = "<script>alert(1)</script>".into();
+        let html = whatsapp_html(&[m]);
+        assert!(!html.contains("<img")); // non-image → link
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
     }

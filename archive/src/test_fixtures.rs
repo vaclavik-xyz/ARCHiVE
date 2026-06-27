@@ -67,6 +67,26 @@ pub fn make_callhistory(path: &Path) {
     .unwrap();
 }
 
+/// Build a minimal real WhatsApp `ChatStorage.sqlite`: one chat session, a media
+/// item, and three messages (from-me text, incoming media, from-me text). Cocoa
+/// `ZMESSAGEDATE` seconds.
+pub fn make_whatsapp(path: &Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE ZWACHATSESSION (Z_PK INTEGER PRIMARY KEY, ZPARTNERNAME TEXT, ZCONTACTJID TEXT);
+         CREATE TABLE ZWAMEDIAITEM (Z_PK INTEGER PRIMARY KEY, ZMESSAGE INTEGER, ZMEDIALOCALPATH TEXT);
+         CREATE TABLE ZWAMESSAGE (Z_PK INTEGER PRIMARY KEY, ZTEXT TEXT, ZMESSAGEDATE REAL,
+            ZISFROMME INTEGER, ZFROMJID TEXT, ZCHATSESSION INTEGER, ZMEDIAITEM INTEGER);
+         INSERT INTO ZWACHATSESSION VALUES (1, 'Jana', '420776452878@s.whatsapp.net');
+         INSERT INTO ZWAMEDIAITEM VALUES (1, 2, 'Media/420776452878@s.whatsapp.net/7/d/photo.jpg');
+         INSERT INTO ZWAMESSAGE VALUES
+            (1, 'Ahoj', 600000000.0, 1, NULL, 1, NULL),
+            (2, NULL, 600000100.0, 0, '420776452878@s.whatsapp.net', 1, 1),
+            (3, 'Měj se', 600000200.0, 1, NULL, 1, NULL);",
+    )
+    .unwrap();
+}
+
 /// Build a minimal real Messages `sms.db` `attachment` table (nanosecond Cocoa
 /// dates, as modern iOS uses): an iMessage image (`~/Library/Messages/…`), an
 /// SMS video (`~/Library/SMS/…`), and a row whose filename has no recoverable
