@@ -157,32 +157,48 @@ impl Backup {
         else {
             return Ok(None);
         };
-        // Both paths **stream** to a sibling temp file, then atomically rename it
-        // onto `dest` only on success — so large media (e.g. videos) never buffer
-        // fully in memory and a failed fetch never leaves a truncated file at the
-        // export path (the temp file is auto-removed on any early return).
-        // Encrypted entries use crabapple's streaming decrypt reader; unencrypted
-        // entries already sit in plaintext on disk and are copied directly.
-        let parent = dest.parent().unwrap_or_else(|| Path::new("."));
-        std::fs::create_dir_all(parent)?;
-        let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+        // Materialize atomically (stream to a sibling temp file, rename onto
+        // `dest` only on success) so large media (e.g. videos) never buffer fully
+        // in memory and a failed fetch never leaves a truncated file at the export
+        // path. Encrypted entries stream through crabapple's decrypt reader;
+        // unencrypted entries already sit in plaintext on disk.
         if self.raw.is_encrypted() {
             let mut reader = self
                 .raw
                 .decrypt_entry_stream(&entry)
                 .map_err(|why| BackupError::Open(why.to_string()))?;
-            std::io::copy(&mut reader, tmp.as_file_mut())?;
+            write_atomic(dest, |out| std::io::copy(&mut reader, out).map(|_| ()))?;
         } else {
-            std::fs::copy(self.raw.backup_path.join(entry.source()), tmp.path())?;
+            let src = self.raw.backup_path.join(entry.source());
+            write_atomic(dest, |out| {
+                let mut input = std::fs::File::open(&src)?;
+                std::io::copy(&mut input, out).map(|_| ())
+            })?;
         }
-        tmp.persist(dest).map_err(|e| BackupError::Io(e.error))?;
         Ok(Some(dest.to_path_buf()))
     }
+}
+
+/// Atomically materialize a file: `write` fills a sibling temp file, which is
+/// renamed onto `dest` only after it succeeds. On any error the temp file is
+/// discarded (and a pre-existing `dest` is left untouched), so callers never see
+/// a truncated output at the export path.
+fn write_atomic(
+    dest: &Path,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> Result<(), BackupError> {
+    let parent = dest.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)?;
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+    write(tmp.as_file_mut())?;
+    tmp.persist(dest).map_err(|e| BackupError::Io(e.error))?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     // Integration test against a real backup. Set ARCHIVE_TEST_BACKUP
     // to a backup directory (and ARCHIVE_TEST_PASSWORD if encrypted).
@@ -198,6 +214,28 @@ mod tests {
             .expect("open backup");
         let info = backup.device_info();
         assert!(!info.product_version.is_empty(), "iOS version should be set");
+    }
+
+    #[test]
+    fn write_atomic_writes_dest_on_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("nested/out.bin");
+        write_atomic(&dest, |f| f.write_all(b"hello")).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn write_atomic_leaves_dest_untouched_on_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("out.bin");
+        std::fs::write(&dest, b"original").unwrap();
+        // The writer partially writes, then fails: dest must keep its old content.
+        let result = write_atomic(&dest, |f| {
+            f.write_all(b"partial").unwrap();
+            Err(std::io::Error::other("boom"))
+        });
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"original", "no partial output exposed");
     }
 
     #[test]
