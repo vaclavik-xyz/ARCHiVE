@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Kalendář</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}</style></head><body>
+<h1>Kalendář ({{ events.len() }})</h1>
+<table>
+<tr><th>Začátek</th><th>Konec</th><th>Událost</th><th>Celý den</th><th>Kalendář</th></tr>
+{% for e in events %}
+<tr><td>{{ e.start }}</td><td>{{ e.end }}</td><td>{{ e.summary }}</td><td>{{ e.all_day }}</td><td>{{ e.calendar }}</td></tr>
+{% endfor %}
+</table>
+</body></html>

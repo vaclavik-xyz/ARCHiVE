@@ -41,6 +41,9 @@ stdout:
     { "type": "calls", "present": true, "supported": true, "count": 5678 },
     { "type": "voicemail", "present": true, "supported": true, "count": 42 },
     { "type": "voice-memos", "present": true, "supported": true, "count": 8 },
+    { "type": "safari-history", "present": true, "supported": true, "count": 940 },
+    { "type": "safari-bookmarks", "present": true, "supported": true, "count": 31 },
+    { "type": "calendar", "present": true, "supported": true, "count": 212 },
     { "type": "photos", "present": true, "supported": false, "count": null },
     { "type": "notes", "present": false, "supported": false, "count": null }
   ]
@@ -185,6 +188,40 @@ The `audio` envelope is present only when extraction ran (i.e. not `--no-audio`)
 `source_file` (the recording's filename in the backup), `audio_file`
 (output-relative path, e.g. `voice_memos/<name>`, or `null`). No Voice Memos store
 → `count: 0`, `outputs: []`, plus a `note`.
+
+### `safari-history` — export Safari browsing history
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> safari-history -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html`. Writes `<OUT>/safari-history.<ext>`. One
+record per visit: `url`, `title` (page title at visit time; empty when unknown),
+`date` (ISO 8601 UTC), `visit_count` (total visits for the URL). No history →
+`count: 0`, `outputs: []`, plus a `note`.
+
+### `safari-bookmarks` — export Safari bookmarks
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> safari-bookmarks -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html`. Writes `<OUT>/safari-bookmarks.<ext>`. One
+record per leaf bookmark: `title`, `url`, `folder` (containing folder's name;
+empty at the root). No bookmarks → `count: 0`, `outputs: []`, plus a `note`.
+
+### `calendar` — export calendar events
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> calendar -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html`. Writes `<OUT>/calendar.<ext>`. One record
+per event: `summary`, `start` / `end` (ISO 8601 UTC; `end` empty when unset),
+`all_day` (bool), `calendar` (owning calendar's title). Dates are the raw
+Cocoa→UTC conversion; all-day/floating events are stored timezone-less by iOS and
+are not normalized. Reminders are **not** exported (their backup storage varies).
+No calendar → `count: 0`, `outputs: []`, plus a `note`.
 
 ## Result envelope (every command)
 

@@ -22,6 +22,11 @@ archive --backup <backup-dir> -o <out> voicemail -f json --audio
 
 # Extract Voice Memos metadata + audio (audio on by default; --no-audio for metadata only)
 archive --backup <backup-dir> -o <out> voice-memos -f html
+
+# Safari history / bookmarks and calendar events
+archive --backup <backup-dir> -o <out> safari-history   -f json
+archive --backup <backup-dir> -o <out> safari-bookmarks -f json
+archive --backup <backup-dir> -o <out> calendar         -f html
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -33,4 +38,5 @@ Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 - [x] calls — csv, json, html
 - [x] voicemail — csv, json, html (metadata) + audio extraction (`--audio`, raw `.amr` or ffmpeg `m4a`/`wav`)
 - [x] voice-memos — csv, json, html (metadata) + audio extraction (native copy by default, or ffmpeg `m4a`/`wav`)
-- [ ] photos · notes · attachment audio · pdf output
+- [x] safari-history · safari-bookmarks · calendar — csv, json, html
+- [ ] notes · photos · attachment audio · pdf output
