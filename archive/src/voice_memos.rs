@@ -30,12 +30,13 @@ pub struct VoiceMemo {
 pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<VoiceMemo>> {
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let cols = table_columns(&conn, "ZCLOUDRECORDING")?;
-    let label_sel = if cols.contains("ZCUSTOMLABEL") {
-        "ZCUSTOMLABEL"
-    } else if cols.contains("ZENCRYPTEDTITLE") {
-        "ZENCRYPTEDTITLE"
-    } else {
-        "NULL"
+    // Title column varies by iOS version; when both exist, fall back per-row so a
+    // row with a NULL `ZCUSTOMLABEL` still keeps its `ZENCRYPTEDTITLE` name.
+    let label_sel = match (cols.contains("ZCUSTOMLABEL"), cols.contains("ZENCRYPTEDTITLE")) {
+        (true, true) => "COALESCE(ZCUSTOMLABEL, ZENCRYPTEDTITLE)",
+        (true, false) => "ZCUSTOMLABEL",
+        (false, true) => "ZENCRYPTEDTITLE",
+        (false, false) => "NULL",
     };
     let path_sel = if cols.contains("ZPATH") { "ZPATH" } else { "NULL" };
 
@@ -248,6 +249,31 @@ mod tests {
         assert_eq!(memos[0].audio_file, None);
         assert_eq!(memos[1].title, ""); // NULL label → empty
         assert_eq!(memos[1].source_file, "A1B2C3.m4a");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn title_falls_back_to_encrypted_title_per_row() {
+        use rusqlite::Connection;
+        let dir = std::env::temp_dir().join(format!("be-vm-coalesce-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("CloudRecordings.db");
+        let _ = std::fs::remove_file(&db);
+        let conn = Connection::open(&db).unwrap();
+        // Both title columns exist; row 1 has only ZCUSTOMLABEL, row 2 only ZENCRYPTEDTITLE.
+        conn.execute_batch(
+            "CREATE TABLE ZCLOUDRECORDING (Z_PK INTEGER PRIMARY KEY, ZDATE REAL, ZDURATION REAL,
+                ZCUSTOMLABEL TEXT, ZENCRYPTEDTITLE TEXT, ZPATH TEXT);
+             INSERT INTO ZCLOUDRECORDING (Z_PK, ZDATE, ZDURATION, ZCUSTOMLABEL, ZENCRYPTEDTITLE, ZPATH) VALUES
+                (1, 600000000.0, 1.0, 'Custom', NULL, 'a.m4a'),
+                (2, 600000100.0, 1.0, NULL, 'Encrypted', 'b.m4a');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let memos = parse(&db).unwrap();
+        assert_eq!(memos[0].title, "Custom");
+        assert_eq!(memos[1].title, "Encrypted"); // fell back to ZENCRYPTEDTITLE
         std::fs::remove_dir_all(&dir).ok();
     }
 
