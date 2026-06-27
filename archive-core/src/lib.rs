@@ -198,8 +198,11 @@ impl Backup {
             }
             report.total_files += 1;
             let path = self.raw.backup_path.join(e.source());
-            match std::fs::metadata(&path) {
-                Ok(md) => {
+            // `symlink_metadata` does not follow links; require an actual regular
+            // file at the storage path (a dir/symlink there means a malformed
+            // backup and is treated as missing, not silently counted present).
+            match std::fs::symlink_metadata(&path) {
+                Ok(md) if md.file_type().is_file() => {
                     report.present += 1;
                     if size_checked && md.len() != e.metadata.size {
                         report.size_mismatch += 1;
@@ -208,7 +211,7 @@ impl Backup {
                         }
                     }
                 }
-                Err(_) => {
+                _ => {
                     report.missing += 1;
                     if report.missing_sample.len() < sample_cap {
                         report.missing_sample.push(format!("{}:{}", e.domain, e.relative_path));
