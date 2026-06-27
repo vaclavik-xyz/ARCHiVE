@@ -30,6 +30,9 @@ archive --backup <backup-dir> -o <out> calendar         -f html
 
 # Apple Notes (body decoded from gzip+protobuf, snippet fallback)
 archive --backup <backup-dir> -o <out> notes -f html
+
+# Camera Roll: metadata + extract photo/video files into <out>/photos/ (--no-files for catalog only)
+archive --backup <backup-dir> -o <out> photos -f html
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -43,4 +46,5 @@ Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 - [x] voice-memos — csv, json, html (metadata) + audio extraction (native copy by default, or ffmpeg `m4a`/`wav`)
 - [x] safari-history · safari-bookmarks · calendar — csv, json, html
 - [x] notes — csv, json, html (body decoded from gzip+protobuf, snippet fallback)
-- [ ] photos · attachment audio · pdf output
+- [x] photos — csv, json, html gallery + photo/video file extraction
+- [ ] message attachments · pdf output

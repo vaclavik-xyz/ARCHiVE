@@ -45,7 +45,7 @@ stdout:
     { "type": "safari-bookmarks", "present": true, "supported": true, "count": 31 },
     { "type": "calendar", "present": true, "supported": true, "count": 212 },
     { "type": "notes", "present": true, "supported": true, "count": 87 },
-    { "type": "photos", "present": true, "supported": false, "count": null }
+    { "type": "photos", "present": true, "supported": true, "count": 1240 }
   ]
 }
 ```
@@ -237,6 +237,38 @@ stored on-device as a gzip-compressed protobuf; it is decoded best-effort and
 `snippet` (only the preview was recoverable — e.g. an encrypted/undecodable note),
 or `empty`. Rich formatting, inline images, and attachments are not recovered
 (plain text only). No notes store → `count: 0`, `outputs: []`, plus a `note`.
+
+### `photos` — export Camera Roll metadata and files
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> photos -f <FORMAT> [--no-files]
+```
+
+`FORMAT` is one of `csv | json | html`. Writes `<OUT>/photos.<ext>`. **Files are
+extracted by default** into `<OUT>/photos/` (the camera roll can be many
+gigabytes); pass `--no-files` for a metadata-only catalog. Files are copied
+byte-for-byte (no transcoding/thumbnailing). The HTML output is a gallery linking
+the extracted files (HEIC/HEVC may not render inline in every browser; the files
+are present regardless).
+
+Each asset: `filename`, `kind` (`image`/`video`/`unknown`), `created` (ISO 8601
+UTC), `favorite`, `trashed` (in Recently Deleted), `width`/`height`, `latitude`/
+`longitude` (`null` when no GPS fix), `duration_seconds` (videos; `null`
+otherwise), `source_path` (backup-relative source), `file` (output-relative
+extracted path, or `null` when the asset is iCloud-only / absent from the backup).
+
+stdout envelope (the `files` object is present only when extraction ran):
+
+```json
+{
+  "ok": true, "command": "photos", "count": 1240,
+  "outputs": ["<OUT>/photos.json"],
+  "files": { "dir": "photos", "extracted": 1238, "missing": 2 },
+  "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." }
+}
+```
+
+No photos store → `count: 0`, `outputs: []`, plus a `note`.
 
 ## Result envelope (every command)
 
