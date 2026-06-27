@@ -1208,6 +1208,23 @@ mod cli_tests {
     }
 
     #[test]
+    fn device_json_includes_model_and_serial() {
+        let d = archive_core::DeviceInfo {
+            device_name: "iPhone".into(),
+            product_version: "17.5".into(),
+            model: "iPhone14,2".into(),
+            serial: "F2LABC".into(),
+            udid: "00008110-x".into(),
+        };
+        let v = device_json(&d);
+        assert_eq!(v["name"], "iPhone");
+        assert_eq!(v["model"], "iPhone14,2");
+        assert_eq!(v["ios"], "17.5");
+        assert_eq!(v["serial"], "F2LABC");
+        assert_eq!(v["udid"], "00008110-x");
+    }
+
+    #[test]
     fn parses_recover_invocation() {
         let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "recover", "--no-files"]).unwrap();
         match cli.command {
