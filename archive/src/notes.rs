@@ -108,14 +108,21 @@ pub(crate) fn decode_body(blob: &[u8]) -> Option<String> {
     if s.trim().is_empty() { None } else { Some(s) }
 }
 
-/// Decompress a gzip (or, as a fallback, zlib) stream. `None` on failure.
+/// Decompress a gzip (or, as a fallback, zlib) stream. `None` on failure. The
+/// output is capped (a note body is text — far below the cap) so a crafted blob
+/// cannot decompress to unbounded memory.
 fn inflate(blob: &[u8]) -> Option<Vec<u8>> {
+    const MAX_DECOMPRESSED: u64 = 64 * 1024 * 1024;
     let mut out = Vec::new();
-    if flate2::read::GzDecoder::new(blob).read_to_end(&mut out).is_ok() && !out.is_empty() {
+    if flate2::read::GzDecoder::new(blob).take(MAX_DECOMPRESSED).read_to_end(&mut out).is_ok()
+        && !out.is_empty()
+    {
         return Some(out);
     }
     out.clear();
-    if flate2::read::ZlibDecoder::new(blob).read_to_end(&mut out).is_ok() && !out.is_empty() {
+    if flate2::read::ZlibDecoder::new(blob).take(MAX_DECOMPRESSED).read_to_end(&mut out).is_ok()
+        && !out.is_empty()
+    {
         return Some(out);
     }
     None
