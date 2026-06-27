@@ -822,6 +822,14 @@ mod tests {
     }
 
     #[test]
+    fn photos_html_shows_burst_marker() {
+        let mut p = sample_photo();
+        p.burst_id = Some("BURST1".into());
+        let html = photos_html(&[p]);
+        assert!(html.contains("🔥BURST1"));
+    }
+
+    #[test]
     fn photos_html_escapes_filename() {
         let mut p = sample_photo();
         p.file = None;
