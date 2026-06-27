@@ -61,7 +61,7 @@ Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 - [x] voice-memos — csv, json, html (metadata) + audio extraction (native copy by default, or ffmpeg `m4a`/`wav`)
 - [x] safari-history · safari-bookmarks · calendar — csv, json, html
 - [x] notes — csv, json, html (body decoded from gzip+protobuf, snippet fallback)
-- [x] photos — csv, json, html gallery + photo/video file extraction
+- [x] photos — csv, json, html gallery + file extraction; albums, hidden, Live/burst, edited, GPS, original name/title
 - [x] attachments — csv, json, html gallery + Messages attachment file extraction
 - [x] recover — one-shot: all extractors + customer index.html (device sheet + links)
 - [x] backup — create a fresh backup from a connected iPhone (libimobiledevice)

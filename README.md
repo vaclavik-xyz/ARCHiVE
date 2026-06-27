@@ -1,14 +1,18 @@
 # ARCHiVE
 
-Extract your personal data from iOS backups — messages, contacts, calls, and
-voicemail — from the command line, built to be driven equally well by humans and
-AI agents.
+Extract your personal data from iOS backups — messages, photos & videos,
+contacts, calls, voicemail, voice memos, notes, Safari history/bookmarks,
+calendar, WhatsApp, and more — from the command line, built to be driven equally
+well by humans and AI agents.
 
 ARCHiVE is a Rust workspace bundling two CLIs that read an on-disk iPhone/iPad
 backup (encrypted or not) and give you full ownership of your data in open,
 portable formats:
 
-- **`archive`** — contacts, calls, and voicemail (agent-first JSON output)
+- **`archive`** — a full iOS-backup **recovery toolset**: contacts, calls,
+  voicemail, voice memos, Safari, calendar, notes, photos & videos, message
+  attachments, and WhatsApp — plus a one-shot `recover` package, on-device
+  `backup` capture, and a backup `integrity` check (agent-first JSON output)
 - **`imessage-exporter`** — iMessage / SMS / RCS conversations and attachments
 
 ```bash
@@ -17,26 +21,44 @@ cargo build --release   # binaries: target/release/{archive, imessage-exporter}
 
 ---
 
-## `archive` — contacts · calls · voicemail
+## `archive` — iOS backup recovery toolset
 
 An **agent-first** extractor: every command prints exactly one JSON object to
-stdout, human progress goes to stderr, and exit codes are stable. Output formats
-are `csv` / `json` / `vcf` / `html` depending on the data type.
+stdout, human progress goes to stderr, and exit codes are stable. Export formats
+are `csv` / `json` / `vcf` / `html` depending on the data type; media-bearing
+types also extract the actual files (photos, videos, audio, attachments).
 
 ```bash
-# Discover what a backup contains (read-only)
+# Triage a backup (read-only): what's in it, and is it complete?
 archive --backup ~/Backup/<UDID> inspect
+archive --backup ~/Backup/<UDID> integrity
 
-# Export each data type to out/
-archive --backup ~/Backup/<UDID> -o out contacts  -f vcf    # incl. postal addresses
-archive --backup ~/Backup/<UDID> -o out calls     -f json
-archive --backup ~/Backup/<UDID> -o out voicemail -f json
+# One-shot: recover everything into out/ with a customer-ready index.html
+archive --backup ~/Backup/<UDID> -o out recover        # --no-files for metadata only
+
+# Or capture a fresh backup from a USB-connected iPhone first (libimobiledevice)
+archive -o out backup                                   # writes out/<UDID>/
+
+# Per data type (csv | json | vcf | html; media types extract files by default)
+archive --backup ~/Backup/<UDID> -o out contacts        -f vcf   # incl. postal addresses
+archive --backup ~/Backup/<UDID> -o out calls           -f json
+archive --backup ~/Backup/<UDID> -o out voicemail       -f json --audio
+archive --backup ~/Backup/<UDID> -o out voice-memos     -f html
+archive --backup ~/Backup/<UDID> -o out safari-history  -f json
+archive --backup ~/Backup/<UDID> -o out safari-bookmarks -f json
+archive --backup ~/Backup/<UDID> -o out calendar        -f html
+archive --backup ~/Backup/<UDID> -o out notes           -f html  # body decoded from gzip+protobuf
+archive --backup ~/Backup/<UDID> -o out photos          -f html  # gallery: albums, hidden, Live/burst, GPS
+archive --backup ~/Backup/<UDID> -o out attachments     -f html  # Messages media gallery
+archive --backup ~/Backup/<UDID> -o out whatsapp        -f html  # transcript + media
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
-The canonical, machine-readable contract lives in **[AGENTS.md](AGENTS.md)**.
-Crates: `archive` (the CLI) over `archive-core` (the crabapple-backed
-open/decrypt/fetch layer); neither depends on the Messages tooling below.
+The canonical, machine-readable contract (every command's flags, envelope, and
+exit codes) lives in **[AGENTS.md](AGENTS.md)**; a per-type checklist is in
+**[archive/README.md](archive/README.md)**. Crates: `archive` (the CLI) over
+`archive-core` (the crabapple-backed open/decrypt/fetch layer); neither depends
+on the Messages tooling below.
 
 ---
 
