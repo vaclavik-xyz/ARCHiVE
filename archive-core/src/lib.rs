@@ -50,6 +50,33 @@ pub struct DeviceInfo {
     pub udid: String,
 }
 
+/// Result of a backup completeness check (see [`Backup::verify_integrity`]).
+pub struct IntegrityReport {
+    /// Regular-file entries considered (directories/symlinks excluded).
+    pub total_files: usize,
+    /// Entries whose stored file exists on disk.
+    pub present: usize,
+    /// Entries whose stored file is missing (an incomplete/truncated backup).
+    pub missing: usize,
+    /// Whether on-disk sizes were compared (false for encrypted backups, whose
+    /// stored blobs are AES-padded and legitimately differ in size).
+    pub size_checked: bool,
+    /// Present entries whose on-disk size differs from the recorded size
+    /// (always 0 when `size_checked` is false).
+    pub size_mismatch: usize,
+    /// Up to `sample_cap` missing entries as `"<domain>:<relative_path>"`.
+    pub missing_sample: Vec<String>,
+    /// Up to `sample_cap` size-mismatched entries as `"<domain>:<relative_path>"`.
+    pub mismatch_sample: Vec<String>,
+}
+
+/// Whether a Unix `mode` word denotes a regular file (vs a directory or symlink).
+fn is_regular_file(mode: u64) -> bool {
+    const S_IFMT: u64 = 0o170000;
+    const S_IFREG: u64 = 0o100000;
+    (mode & S_IFMT) == S_IFREG
+}
+
 /// Pick the crabapple authentication for a given optional password.
 /// No (or empty) password → `None` (unencrypted backups); otherwise `Password`.
 fn choose_auth(password: Option<&str>) -> Authentication {
@@ -143,6 +170,53 @@ impl Backup {
             .collect();
         paths.sort();
         Ok(paths)
+    }
+
+    /// Verify the backup is complete: every regular-file manifest entry has its
+    /// stored file on disk, and (for unencrypted backups only) the on-disk size
+    /// matches the recorded size. `sample_cap` bounds each sample list. Read-only;
+    /// decrypts nothing.
+    pub fn verify_integrity(&self, sample_cap: usize) -> Result<IntegrityReport, BackupError> {
+        let entries = self
+            .raw
+            .entries()
+            .map_err(|why| BackupError::Open(why.to_string()))?;
+        let size_checked = !self.raw.is_encrypted();
+        let mut report = IntegrityReport {
+            total_files: 0,
+            present: 0,
+            missing: 0,
+            size_checked,
+            size_mismatch: 0,
+            missing_sample: Vec::new(),
+            mismatch_sample: Vec::new(),
+        };
+        for e in entries.iter() {
+            // Only regular files have stored content; skip directories/symlinks.
+            if !is_regular_file(e.metadata.mode) {
+                continue;
+            }
+            report.total_files += 1;
+            let path = self.raw.backup_path.join(e.source());
+            match std::fs::metadata(&path) {
+                Ok(md) => {
+                    report.present += 1;
+                    if size_checked && md.len() != e.metadata.size {
+                        report.size_mismatch += 1;
+                        if report.mismatch_sample.len() < sample_cap {
+                            report.mismatch_sample.push(format!("{}:{}", e.domain, e.relative_path));
+                        }
+                    }
+                }
+                Err(_) => {
+                    report.missing += 1;
+                    if report.missing_sample.len() < sample_cap {
+                        report.missing_sample.push(format!("{}:{}", e.domain, e.relative_path));
+                    }
+                }
+            }
+        }
+        Ok(report)
     }
 
     /// Decrypt the file at `domain` + `relative_path` to `dest` and return its
@@ -246,6 +320,31 @@ mod tests {
         });
         assert!(result.is_err());
         assert_eq!(std::fs::read(&dest).unwrap(), b"original", "no partial output exposed");
+    }
+
+    #[test]
+    fn is_regular_file_detects_file_type() {
+        assert!(is_regular_file(0o100644)); // regular file
+        assert!(!is_regular_file(0o040755)); // directory
+        assert!(!is_regular_file(0o120777)); // symlink
+        assert!(!is_regular_file(0));
+    }
+
+    #[test]
+    fn verify_integrity_on_real_backup() {
+        let Ok(dir) = std::env::var("ARCHIVE_TEST_BACKUP") else {
+            eprintln!("skipping: set ARCHIVE_TEST_BACKUP to run");
+            return;
+        };
+        let pw = std::env::var("ARCHIVE_TEST_PASSWORD").ok();
+        let backup = Backup::open(std::path::Path::new(&dir), pw.as_deref()).unwrap();
+        let r = backup.verify_integrity(20).unwrap();
+        assert_eq!(r.present + r.missing, r.total_files, "present + missing == total");
+        assert!(r.missing_sample.len() <= 20, "missing sample is capped");
+        assert!(r.mismatch_sample.len() <= 20, "mismatch sample is capped");
+        if !r.size_checked {
+            assert_eq!(r.size_mismatch, 0, "size mismatch is 0 when size not checked");
+        }
     }
 
     #[test]
