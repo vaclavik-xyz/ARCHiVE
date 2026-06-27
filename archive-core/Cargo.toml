@@ -6,3 +6,4 @@ license = "GPL-3.0-or-later"
 
 [dependencies]
 crabapple = "=0.4.7"
+tempfile = "=3.27.0"

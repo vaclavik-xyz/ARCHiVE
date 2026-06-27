@@ -135,6 +135,7 @@ name = "archive-core"
 version = "0.0.0"
 dependencies = [
  "crabapple",
+ "tempfile",
 ]
 
 [[package]]

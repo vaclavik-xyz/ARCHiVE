@@ -157,23 +157,25 @@ impl Backup {
         else {
             return Ok(None);
         };
-        // Both paths **stream** straight to `dest`, so large media (e.g. videos)
-        // never buffer fully in memory. Encrypted entries use crabapple's
-        // streaming decrypt reader; unencrypted entries already sit in plaintext
-        // on disk under `backup_path/<id[..2]>/<id>` and are copied directly.
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        // Both paths **stream** to a sibling temp file, then atomically rename it
+        // onto `dest` only on success — so large media (e.g. videos) never buffer
+        // fully in memory and a failed fetch never leaves a truncated file at the
+        // export path (the temp file is auto-removed on any early return).
+        // Encrypted entries use crabapple's streaming decrypt reader; unencrypted
+        // entries already sit in plaintext on disk and are copied directly.
+        let parent = dest.parent().unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent)?;
+        let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
         if self.raw.is_encrypted() {
             let mut reader = self
                 .raw
                 .decrypt_entry_stream(&entry)
                 .map_err(|why| BackupError::Open(why.to_string()))?;
-            let mut out = std::fs::File::create(dest)?;
-            std::io::copy(&mut reader, &mut out)?;
+            std::io::copy(&mut reader, tmp.as_file_mut())?;
         } else {
-            std::fs::copy(self.raw.backup_path.join(entry.source()), dest)?;
+            std::fs::copy(self.raw.backup_path.join(entry.source()), tmp.path())?;
         }
+        tmp.persist(dest).map_err(|e| BackupError::Io(e.error))?;
         Ok(Some(dest.to_path_buf()))
     }
 }
