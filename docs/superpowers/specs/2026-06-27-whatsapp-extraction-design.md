@@ -101,7 +101,7 @@ messages, not all messages — see envelope). `--no-files` skips extraction.
 `count` = total messages. `files` (present only when extraction ran, named for
 consistency with `photos`/`attachments`) counts media
 files: `extracted` written, `missing` media-bearing messages whose file was absent.
-Store absent → `count: 0`, `outputs: []`, `note`, no `media`.
+Store absent → `count: 0`, `outputs: []`, `note`, no `files`.
 
 ## Formatters
 
