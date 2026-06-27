@@ -112,16 +112,24 @@ pub(crate) fn decode_body(blob: &[u8]) -> Option<String> {
 /// output is capped (a note body is text — far below the cap) so a crafted blob
 /// cannot decompress to unbounded memory.
 fn inflate(blob: &[u8]) -> Option<Vec<u8>> {
-    const MAX_DECOMPRESSED: u64 = 64 * 1024 * 1024;
+    inflate_capped(blob, 64 * 1024 * 1024)
+}
+
+/// Inflate with an explicit `max` decompressed-byte cap. Reads one past the cap
+/// and **rejects** (returns `None`) when the output exceeds it, rather than
+/// silently truncating an over-limit stream into partial note data.
+fn inflate_capped(blob: &[u8], max: u64) -> Option<Vec<u8>> {
     let mut out = Vec::new();
-    if flate2::read::GzDecoder::new(blob).take(MAX_DECOMPRESSED).read_to_end(&mut out).is_ok()
+    if flate2::read::GzDecoder::new(blob).take(max + 1).read_to_end(&mut out).is_ok()
         && !out.is_empty()
+        && out.len() as u64 <= max
     {
         return Some(out);
     }
     out.clear();
-    if flate2::read::ZlibDecoder::new(blob).take(MAX_DECOMPRESSED).read_to_end(&mut out).is_ok()
+    if flate2::read::ZlibDecoder::new(blob).take(max + 1).read_to_end(&mut out).is_ok()
         && !out.is_empty()
+        && out.len() as u64 <= max
     {
         return Some(out);
     }
@@ -241,6 +249,15 @@ mod tests {
     fn decode_body_returns_none_for_non_gzip() {
         assert_eq!(decode_body(b"not gzip at all"), None);
         assert_eq!(decode_body(&[]), None);
+    }
+
+    #[test]
+    fn inflate_rejects_output_over_cap() {
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(&vec![b'a'; 100]).unwrap();
+        let gz = e.finish().unwrap();
+        assert!(inflate_capped(&gz, 10).is_none(), "over-cap output is rejected, not truncated");
+        assert_eq!(inflate_capped(&gz, 1000).map(|v| v.len()), Some(100));
     }
 
     #[test]
