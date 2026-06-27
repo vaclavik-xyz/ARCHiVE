@@ -219,6 +219,37 @@ pub fn voicemail_html(items: &[crate::voicemail::Voicemail]) -> String {
     VoicemailTemplate { voicemails: items }.render().unwrap()
 }
 
+pub fn voice_memos_csv(items: &[crate::voice_memos::VoiceMemo]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["title", "date", "duration_seconds", "source_file", "audio_file"])
+        .unwrap();
+    for v in items {
+        wtr.write_record([
+            v.title.clone(),
+            v.date.clone(),
+            v.duration_seconds.to_string(),
+            v.source_file.clone(),
+            v.audio_file.clone().unwrap_or_default(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn voice_memos_json(items: &[crate::voice_memos::VoiceMemo]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "voice-memos.html")]
+struct VoiceMemosTemplate<'a> {
+    memos: &'a [crate::voice_memos::VoiceMemo],
+}
+
+pub fn voice_memos_html(items: &[crate::voice_memos::VoiceMemo]) -> String {
+    VoiceMemosTemplate { memos: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,6 +401,54 @@ mod tests {
         let back: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(back[0]["rowid"], 3);
         assert_eq!(back[0]["audio_file"], "voicemail_audio/x_3.amr");
+    }
+
+    fn sample_voice_memos() -> Vec<crate::voice_memos::VoiceMemo> {
+        vec![crate::voice_memos::VoiceMemo {
+            title: "Schůzka".into(),
+            date: "2020-01-06T10:40:00+00:00".into(),
+            duration_seconds: 13,
+            source_file: "A1B2C3.m4a".into(),
+            audio_file: None,
+        }]
+    }
+
+    #[test]
+    fn voice_memos_csv_has_header_and_row() {
+        let out = voice_memos_csv(&sample_voice_memos());
+        assert!(out.starts_with("title,date,duration_seconds,source_file,audio_file"));
+        // No audio extracted → trailing empty audio_file cell.
+        assert!(out.contains("Schůzka,2020-01-06T10:40:00+00:00,13,A1B2C3.m4a,"));
+    }
+
+    #[test]
+    fn voice_memos_json_roundtrips() {
+        let mut items = sample_voice_memos();
+        items[0].audio_file = Some("voice_memos/2020-01-06_104000_Schuzka_1.m4a".into());
+        let out = voice_memos_json(&items);
+        let back: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(back[0]["title"], "Schůzka");
+        assert_eq!(back[0]["audio_file"], "voice_memos/2020-01-06_104000_Schuzka_1.m4a");
+    }
+
+    #[test]
+    fn voice_memos_html_renders_audio_player_when_present() {
+        let mut items = sample_voice_memos();
+        items[0].audio_file = Some("voice_memos/2020-01-06_104000_Schuzka_1.m4a".into());
+        let out = voice_memos_html(&items);
+        assert!(out.contains("<html"));
+        assert!(out.contains(
+            "<audio controls src=\"voice_memos/2020-01-06_104000_Schuzka_1.m4a\"></audio>"
+        ));
+    }
+
+    #[test]
+    fn voice_memos_html_escapes_audio_file_attribute() {
+        let mut items = sample_voice_memos();
+        items[0].audio_file = Some("\"><script>alert(1)</script>".into());
+        let out = voice_memos_html(&items);
+        assert!(!out.contains("\"><script>"));
+        assert!(out.contains("&#60;script&#62;"));
     }
 
     fn sample_calls() -> Vec<crate::calls::Call> {

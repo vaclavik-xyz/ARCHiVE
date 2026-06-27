@@ -1,8 +1,10 @@
+mod audio;
 mod calls;
 mod contacts;
 mod datetime;
 mod format;
 mod sqlite_util;
+mod voice_memos;
 mod voicemail;
 mod voicemail_audio;
 #[cfg(test)]
@@ -53,6 +55,18 @@ enum Command {
         #[arg(long)]
         audio: bool,
         /// Audio output format: amr (raw, default), m4a, or wav (m4a/wav need ffmpeg).
+        #[arg(long)]
+        audio_format: Option<String>,
+    },
+    /// Export Voice Memos metadata and audio (audio on by default; --no-audio to skip).
+    VoiceMemos {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+        /// Skip audio extraction (metadata only).
+        #[arg(long)]
+        no_audio: bool,
+        /// Transcode audio to m4a or wav (needs ffmpeg). Default: raw native copy.
         #[arg(long)]
         audio_format: Option<String>,
     },
@@ -112,6 +126,9 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Calls { format } => run_calls(&cli, password.as_deref(), format),
         Command::Voicemail { format, audio, audio_format } => {
             run_voicemail(&cli, password.as_deref(), format, *audio, audio_format.as_deref())
+        }
+        Command::VoiceMemos { format, no_audio, audio_format } => {
+            run_voice_memos(&cli, password.as_deref(), format, *no_audio, audio_format.as_deref())
         }
         Command::Inspect => run_inspect(&cli, password.as_deref()),
     }
@@ -268,8 +285,8 @@ fn load_voicemail(backup: &archive_core::Backup) -> Result<Option<Vec<voicemail:
 fn resolve_audio_format(
     audio: bool,
     audio_format: Option<&str>,
-) -> Result<Option<voicemail_audio::AudioFormat>, AppError> {
-    use voicemail_audio::AudioFormat;
+) -> Result<Option<audio::AudioFormat>, AppError> {
+    use audio::AudioFormat;
     if !audio {
         if audio_format.is_some() {
             return Err(AppError::usage("--audio-format requires --audio"));
@@ -282,7 +299,7 @@ fn resolve_audio_format(
             AppError::usage(format!("unknown audio format `{s}` (use amr, m4a, wav)"))
         })?,
     };
-    if fmt.needs_ffmpeg() && !voicemail_audio::ffmpeg_available() {
+    if fmt.needs_ffmpeg() && !audio::ffmpeg_available() {
         return Err(AppError::other(format!(
             "audio format `{}` requires ffmpeg, which was not found on PATH; \
              install ffmpeg or use --audio-format amr",
@@ -358,6 +375,130 @@ fn run_voicemail(
     Ok(envelope)
 }
 
+/// Validate a `voice-memos` format string: csv/json/html only.
+fn voice_memos_format(format: &str) -> Result<Format, AppError> {
+    let f = Format::from_cli(format)
+        .ok_or_else(|| AppError::usage(format!("unknown voice-memos format `{format}` (use csv, json, html)")))?;
+    if f == Format::Vcf {
+        return Err(AppError::usage("vcf is not a valid format for voice-memos (use csv, json, html)"));
+    }
+    Ok(f)
+}
+
+/// Fetch and parse the Voice Memos store via a secure auto-cleaned temp dir,
+/// trying the modern group container then the legacy `MediaDomain` location.
+/// `Ok(None)` when the backup has neither.
+fn load_voice_memos(
+    backup: &archive_core::Backup,
+) -> Result<Option<Vec<voice_memos::VoiceMemo>>, AppError> {
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let tmp = scratch.path().join("CloudRecordings.db");
+    let mut db = None;
+    for (domain, path) in voice_memos::DB_LOCATIONS {
+        if let Some(p) = backup.fetch(domain, path, &tmp).map_err(|e| AppError::other(e.to_string()))? {
+            db = Some(p);
+            break;
+        }
+    }
+    let Some(db) = db else { return Ok(None) };
+    let items = voice_memos::parse(&db).map_err(|e| AppError::other(e.to_string()))?;
+    Ok(Some(items))
+}
+
+/// Resolve the Voice Memos audio choice. Outer `None` = `--no-audio` (skip);
+/// `Some(None)` = extract raw native copies; `Some(Some(fmt))` = transcode.
+/// Usage error for `--audio-format` with `--no-audio`, an unknown format, or
+/// `amr` (voicemail-only); fatal (exit 1) when a transcode format is requested
+/// but ffmpeg is absent (fail fast, before any extraction).
+fn resolve_vm_audio(
+    no_audio: bool,
+    audio_format: Option<&str>,
+) -> Result<Option<Option<audio::AudioFormat>>, AppError> {
+    use audio::AudioFormat;
+    if no_audio {
+        if audio_format.is_some() {
+            return Err(AppError::usage("--audio-format conflicts with --no-audio"));
+        }
+        return Ok(None);
+    }
+    let fmt = match audio_format {
+        None => return Ok(Some(None)), // raw native copy
+        Some(s) => AudioFormat::from_cli(s)
+            .ok_or_else(|| AppError::usage(format!("unknown audio format `{s}` (use m4a, wav)")))?,
+    };
+    if fmt == AudioFormat::Amr {
+        return Err(AppError::usage("voice-memos supports --audio-format m4a or wav, not amr"));
+    }
+    if fmt.needs_ffmpeg() && !audio::ffmpeg_available() {
+        return Err(AppError::other(format!(
+            "audio format `{}` requires ffmpeg, which was not found on PATH; \
+             install ffmpeg or omit --audio-format to keep native copies",
+            fmt.extension()
+        )));
+    }
+    Ok(Some(Some(fmt)))
+}
+
+fn run_voice_memos(
+    cli: &Cli,
+    password: Option<&str>,
+    format: &str,
+    no_audio: bool,
+    audio_format: Option<&str>,
+) -> Result<serde_json::Value, AppError> {
+    let format = voice_memos_format(format)?;
+    let audio_choice = resolve_vm_audio(no_audio, audio_format)?;
+    let out = cli
+        .out
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--out is required to export voice memos"))?;
+
+    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let device = device_json(backup.device_info());
+
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(mut items) = load_voice_memos(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "voice-memos", "count": 0, "outputs": [],
+            "note": "this backup has no voice memos", "device": device
+        }));
+    };
+
+    // Extract audio (unless --no-audio) before rendering so `audio_file` is set.
+    let vm_summary = match audio_choice {
+        Some(fmt) => Some(
+            voice_memos::extract_voice_memos(&backup, &mut items, out, fmt)
+                .map_err(|e| AppError::other(e.to_string()))?,
+        ),
+        None => None,
+    };
+
+    let rendered = match format {
+        Format::Csv => format::voice_memos_csv(&items),
+        Format::Json => format::voice_memos_json(&items),
+        Format::Html => format::voice_memos_html(&items),
+        Format::Vcf => unreachable!("voice_memos_format rejects vcf"),
+    };
+    let out_file = out.join(format!("voice-memos.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} voice memo(s) to {}", items.len(), out_file.display());
+
+    let mut envelope = serde_json::json!({
+        "ok": true, "command": "voice-memos", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    });
+    if let Some(s) = vm_summary {
+        eprintln!(
+            "Extracted {} recording(s) ({} missing) to {}/{}",
+            s.extracted, s.missing, out.display(), s.dir
+        );
+        envelope["audio"] = serde_json::json!({
+            "format": s.format, "dir": s.dir, "extracted": s.extracted, "missing": s.missing
+        });
+    }
+    Ok(envelope)
+}
+
 /// One row of `inspect` output: a known store and its availability.
 struct StoreStatus {
     name: &'static str,
@@ -381,6 +522,7 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("contacts", true, "HomeDomain", "Library/AddressBook/AddressBook.sqlitedb"),
     ("calls", true, "HomeDomain", "Library/CallHistoryDB/CallHistory.storedata"),
     ("voicemail", true, "HomeDomain", "Library/Voicemail/voicemail.db"),
+    ("voice-memos", true, "AppDomainGroup-group.com.apple.VoiceMemos", "Recordings/CloudRecordings.db"),
     ("photos", false, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
     ("notes", false, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
 ];
@@ -391,9 +533,22 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
 
     let mut stores = Vec::new();
     for &(name, supported, domain, path) in KNOWN_STORES {
-        let present = backup
-            .has(domain, path)
-            .map_err(|e| AppError::other(e.to_string()))?;
+        // Voice Memos lives at a modern or a legacy location; report present if
+        // either exists, matching what `load_voice_memos` will actually read.
+        let present = if name == "voice-memos" {
+            let mut any = false;
+            for (d, p) in voice_memos::DB_LOCATIONS {
+                if backup.has(d, p).map_err(|e| AppError::other(e.to_string()))? {
+                    any = true;
+                    break;
+                }
+            }
+            any
+        } else {
+            backup
+                .has(domain, path)
+                .map_err(|e| AppError::other(e.to_string()))?
+        };
         // `count` is best-effort: a present-but-unparseable store yields `None`
         // (count: null) without aborting inspect. `.ok()` drops a read error,
         // `.flatten()` collapses store-absent `Ok(None)`, `.map(len)` counts a
@@ -403,6 +558,7 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "contacts" => load_contacts(&backup).ok().flatten().map(|p| p.len()),
                 "calls" => load_calls(&backup).ok().flatten().map(|c| c.len()),
                 "voicemail" => load_voicemail(&backup).ok().flatten().map(|v| v.len()),
+                "voice-memos" => load_voice_memos(&backup).ok().flatten().map(|v| v.len()),
                 _ => None,
             }
         } else {
@@ -500,7 +656,7 @@ mod cli_tests {
     #[test]
     fn resolve_audio_defaults_to_amr() {
         let fmt = super::resolve_audio_format(true, None).unwrap();
-        assert_eq!(fmt, Some(crate::voicemail_audio::AudioFormat::Amr));
+        assert_eq!(fmt, Some(crate::audio::AudioFormat::Amr));
     }
 
     #[test]
@@ -508,6 +664,58 @@ mod cli_tests {
         let err = super::resolve_audio_format(true, Some("ogg")).unwrap_err();
         assert_eq!(err.code, 1);
         assert_eq!(err.kind, "usage");
+    }
+
+    #[test]
+    fn parses_voice_memos_invocation() {
+        let cli = Cli::try_parse_from([
+            "archive", "--backup", "/b", "-o", "/out", "voice-memos", "-f", "json",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::VoiceMemos { format, no_audio, audio_format } => {
+                assert_eq!(format, "json");
+                assert!(!no_audio);
+                assert_eq!(audio_format, None);
+            }
+            _ => panic!("expected VoiceMemos"),
+        }
+    }
+
+    #[test]
+    fn voice_memos_format_rejects_vcf() {
+        assert_eq!(voice_memos_format("html").unwrap(), Format::Html);
+        assert_eq!(voice_memos_format("vcf").unwrap_err().code, 1);
+        assert_eq!(voice_memos_format("nope").unwrap_err().code, 1);
+    }
+
+    #[test]
+    fn resolve_vm_audio_no_audio_skips() {
+        assert!(super::resolve_vm_audio(true, None).unwrap().is_none());
+    }
+
+    #[test]
+    fn resolve_vm_audio_default_is_raw() {
+        assert_eq!(super::resolve_vm_audio(false, None).unwrap(), Some(None));
+    }
+
+    #[test]
+    fn resolve_vm_audio_format_with_no_audio_is_usage_error() {
+        let err = super::resolve_vm_audio(true, Some("m4a")).unwrap_err();
+        assert_eq!(err.code, 1);
+        assert_eq!(err.kind, "usage");
+    }
+
+    #[test]
+    fn resolve_vm_audio_rejects_amr_and_unknown() {
+        assert_eq!(super::resolve_vm_audio(false, Some("amr")).unwrap_err().kind, "usage");
+        assert_eq!(super::resolve_vm_audio(false, Some("ogg")).unwrap_err().kind, "usage");
+    }
+
+    #[test]
+    fn known_stores_lists_voice_memos_supported() {
+        let vm = KNOWN_STORES.iter().find(|(n, ..)| *n == "voice-memos").unwrap();
+        assert!(vm.1, "voice-memos must be supported");
     }
 
     #[test]

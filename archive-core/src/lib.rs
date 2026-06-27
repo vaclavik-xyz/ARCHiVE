@@ -123,6 +123,23 @@ impl Backup {
             .any(|e| e.domain == domain && e.relative_path == relative_path))
     }
 
+    /// Relative paths of every backup entry in `domain` whose `relative_path`
+    /// starts with `prefix` (empty `prefix` lists the whole domain). Sorted for
+    /// deterministic output. Read-only; decrypts nothing (manifest scan only).
+    pub fn list(&self, domain: &str, prefix: &str) -> Result<Vec<String>, BackupError> {
+        let entries = self
+            .raw
+            .entries()
+            .map_err(|why| BackupError::Open(why.to_string()))?;
+        let mut paths: Vec<String> = entries
+            .iter()
+            .filter(|e| e.domain == domain && e.relative_path.starts_with(prefix))
+            .map(|e| e.relative_path.clone())
+            .collect();
+        paths.sort();
+        Ok(paths)
+    }
+
     /// Decrypt the file at `domain` + `relative_path` to `dest` and return its
     /// path, or `Ok(None)` when the backup contains no such file.
     pub fn fetch(
@@ -225,6 +242,21 @@ mod tests {
         assert_eq!(returned, dest);
         assert_eq!(std::fs::read(&dest).unwrap(), b"hello bytes");
         std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn list_filters_by_domain_and_prefix() {
+        let Ok(dir) = std::env::var("ARCHIVE_TEST_BACKUP") else {
+            eprintln!("skipping: set ARCHIVE_TEST_BACKUP to run");
+            return;
+        };
+        let pw = std::env::var("ARCHIVE_TEST_PASSWORD").ok();
+        let backup = Backup::open(std::path::Path::new(&dir), pw.as_deref()).unwrap();
+        let got = backup.list("HomeDomain", "Library/").unwrap();
+        assert!(got.iter().all(|p| p.starts_with("Library/")), "all under prefix");
+        let mut sorted = got.clone();
+        sorted.sort();
+        assert_eq!(got, sorted, "list returns sorted paths");
     }
 
     #[test]
