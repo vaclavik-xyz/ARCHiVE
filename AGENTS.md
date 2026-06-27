@@ -354,6 +354,41 @@ stdout envelope:
 read for device info (e.g. it is encrypted). Afterward, point the other commands
 at it: `archive --backup <OUT>/<udid> recover`.
 
+### `integrity` — verify the backup is complete (read-only)
+
+```
+archive --backup <DIR> [--password <PW>] integrity
+```
+
+Read-only; no `--out`. Checks that every regular-file entry in the backup's
+`Manifest.db` has its stored file present on disk (and, for **unencrypted**
+backups only, that the on-disk size matches the recorded size — encrypted blobs
+are AES-padded so size is not checked there). Content hashing is not possible from
+the manifest (the file id is path-derived, not content-derived).
+
+stdout:
+
+```json
+{
+  "ok": true,
+  "command": "integrity",
+  "complete": false,
+  "total_files": 48213,
+  "present": 48200,
+  "missing": 13,
+  "size_checked": true,
+  "size_mismatch": 0,
+  "missing_sample": ["CameraRollDomain:Media/DCIM/100APPLE/IMG_0007.HEIC"],
+  "mismatch_sample": [],
+  "device": { "name": "...", "model": "...", "ios": "...", "serial": "...", "udid": "..." }
+}
+```
+
+`complete` = `missing == 0 && size_mismatch == 0`. `ok` stays `true` even when
+incomplete (a report, not a failure — exit 0); the sample lists are capped (the
+counts carry the true totals). Encrypted backups set `size_checked: false` and add
+a `note`.
+
 ## Result envelope (every command)
 
 The `device` object on every command carries `name`, `model` (hardware id, e.g.
