@@ -10,8 +10,10 @@ built to be driven by agents: every command prints exactly one JSON object to
 archive --backup <DIR> [--password <PW>] [-o <OUT>] <COMMAND> [ARGS]
 ```
 
-- `--backup <DIR>` (required): the iOS backup directory. Must appear **before**
-  the subcommand.
+- `--backup <DIR>`: the iOS backup directory. Must appear **before** the
+  subcommand. Required for every command **except `backup`** (which creates a new
+  backup and has no input directory); a read command without it fails with a
+  usage error (exit 1).
 - `--password <PW>` (optional): encrypted-backup password. May also be supplied
   via the `ARCHIVE_PASSWORD` environment variable. Not needed for
   unencrypted backups. Headless runs never prompt.
@@ -323,6 +325,35 @@ stdout envelope:
 `outputs[0]` is always `index.html`. `--zip` packaging is not yet implemented (zip
 the `<OUT>` folder yourself).
 
+### `backup` — create a backup from a connected iPhone
+
+```
+archive -o <OUT> backup [--full]
+```
+
+Creates a fresh iOS backup from a USB-connected iPhone via `libimobiledevice`'s
+`idevicebackup2`, into `<OUT>/<udid>/`. Does **not** take `--backup`. `--full`
+forces a full backup (default is incremental when `<OUT>` already holds one).
+Requires `idevicebackup2` and `idevice_id` on `PATH` (missing → exit 1 with an
+install hint such as `brew install libimobiledevice`); no connected device → exit
+1. Live progress from `idevicebackup2` streams to stderr.
+
+stdout envelope:
+
+```json
+{
+  "ok": true,
+  "command": "backup",
+  "dir": "<OUT>/<udid>",
+  "udid": "<udid>",
+  "device": { "name": "...", "model": "iPhone14,2", "ios": "17.5", "serial": "...", "udid": "..." }
+}
+```
+
+`device` is omitted (with an explanatory `note`) if the fresh backup cannot be
+read for device info (e.g. it is encrypted). Afterward, point the other commands
+at it: `archive --backup <OUT>/<udid> recover`.
+
 ## Result envelope (every command)
 
 The `device` object on every command carries `name`, `model` (hardware id, e.g.
@@ -350,12 +381,14 @@ A command that runs far enough to produce a result prints the JSON envelope
 | 1 | `{ "ok": false, "kind": "usage" }` or `"other"` — unknown `-f` format, missing `--out`, parse/IO error |
 
 **Argument-parsing errors are a separate channel.** If the invocation itself is
-malformed (a missing required flag such as `--backup`, or an unknown flag),
-`clap` prints plain-text usage to **stderr**, writes **nothing** to stdout, and
-also exits **2** — there is no JSON envelope. Disambiguate exit 2 by inspecting
-stdout: a JSON object with `"kind": "auth"` is an authentication failure; empty
-stdout (with usage text on stderr) is a malformed invocation. When unsure, run
-`--help` or `inspect` first to learn the contract.
+malformed (a missing subcommand, or an unknown flag), `clap` prints plain-text
+usage to **stderr**, writes **nothing** to stdout, and also exits **2** — there is
+no JSON envelope. (A missing `--backup` on a read command is **not** a clap error
+— `--backup` is optional at parse time so the `backup` command can omit it — it is
+a runtime usage error: a JSON `"kind": "usage"` envelope on stdout, exit 1.)
+Disambiguate exit 2 by inspecting stdout: a JSON object with `"kind": "auth"` is an
+authentication failure; empty stdout (with usage text on stderr) is a malformed
+invocation. When unsure, run `--help` or `inspect` first to learn the contract.
 
 > Note: argument/usage errors (an unknown `-f` format, a missing `--out`) are detected **before** the backup is opened, so they surface as exit 1 even when the backup is an encrypted one that would otherwise report an auth error.
 

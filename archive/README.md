@@ -9,6 +9,9 @@ object on stdout with stable exit codes, progress on stderr.
 ## Quick start
 
 ```
+# Create a fresh backup from a USB-connected iPhone (needs libimobiledevice)
+archive -o <out> backup            # writes <out>/<udid>/
+
 # Discover what the backup contains (read-only)
 archive --backup <backup-dir> inspect
 
@@ -55,4 +58,5 @@ Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 - [x] photos — csv, json, html gallery + photo/video file extraction
 - [x] attachments — csv, json, html gallery + Messages attachment file extraction
 - [x] recover — one-shot: all extractors + customer index.html (device sheet + links)
+- [x] backup — create a fresh backup from a connected iPhone (libimobiledevice)
 - [ ] pdf output · message text export
