@@ -1,4 +1,8 @@
 mod audio;
+// Built bottom-up: wired into the CLI in a later step; the allow is removed once
+// the `attachments` command consumes it.
+#[allow(dead_code)]
+mod attachments;
 mod calendar;
 mod calls;
 mod contacts;
