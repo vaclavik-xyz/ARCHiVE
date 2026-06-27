@@ -67,6 +67,23 @@ pub fn make_callhistory(path: &Path) {
     .unwrap();
 }
 
+/// Build a minimal real `Photos.sqlite` (`ZASSET`): a favorited photo with GPS,
+/// a video with a duration and the `-180` no-location sentinel, and a trashed
+/// photo with NULL coordinates. Cocoa `ZDATECREATED`.
+pub fn make_photos(path: &Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE ZASSET (Z_PK INTEGER PRIMARY KEY, ZFILENAME TEXT, ZDIRECTORY TEXT,
+            ZDATECREATED REAL, ZKIND INTEGER, ZFAVORITE INTEGER, ZTRASHEDSTATE INTEGER,
+            ZWIDTH INTEGER, ZHEIGHT INTEGER, ZLATITUDE REAL, ZLONGITUDE REAL, ZDURATION REAL);
+         INSERT INTO ZASSET VALUES
+            (1, 'IMG_0001.HEIC', 'DCIM/100APPLE', 600000000.0, 0, 1, 0, 4032, 3024, 50.087, 14.42, NULL),
+            (2, 'IMG_0002.MOV', 'DCIM/100APPLE', 600000100.0, 1, 0, 0, 1920, 1080, -180.0, -180.0, 12.5),
+            (3, 'IMG_0003.JPG', 'DCIM/100APPLE', 600000200.0, 0, 0, 1, 3024, 4032, NULL, NULL, NULL);",
+    )
+    .unwrap();
+}
+
 /// Build a minimal real Apple `NoteStore.sqlite`: one folder, and two notes —
 /// the first with the provided gzip-protobuf body blob, the second with no blob
 /// (so the snippet fallback is exercised). Cocoa dates.

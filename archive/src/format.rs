@@ -358,6 +358,50 @@ pub fn notes_html(items: &[crate::notes::Note]) -> String {
     NotesTemplate { notes: items }.render().unwrap()
 }
 
+fn opt_num<T: ToString>(v: Option<T>) -> String {
+    v.map(|x| x.to_string()).unwrap_or_default()
+}
+
+pub fn photos_csv(items: &[crate::photos::Photo]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record([
+        "filename", "kind", "created", "favorite", "trashed", "width", "height",
+        "latitude", "longitude", "duration_seconds", "file",
+    ])
+    .unwrap();
+    for p in items {
+        wtr.write_record([
+            p.filename.clone(),
+            p.kind.clone(),
+            p.created.clone(),
+            p.favorite.to_string(),
+            p.trashed.to_string(),
+            p.width.to_string(),
+            p.height.to_string(),
+            opt_num(p.latitude),
+            opt_num(p.longitude),
+            opt_num(p.duration_seconds),
+            p.file.clone().unwrap_or_default(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn photos_json(items: &[crate::photos::Photo]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "photos.html")]
+struct PhotosTemplate<'a> {
+    photos: &'a [crate::photos::Photo],
+}
+
+pub fn photos_html(items: &[crate::photos::Photo]) -> String {
+    PhotosTemplate { photos: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -643,6 +687,58 @@ mod tests {
         let html = notes_html(&x);
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
+    }
+
+    fn sample_photo() -> crate::photos::Photo {
+        crate::photos::Photo {
+            filename: "IMG_0001.HEIC".into(),
+            kind: "image".into(),
+            created: "2020-01-06T10:40:00+00:00".into(),
+            favorite: true,
+            trashed: false,
+            width: 4032,
+            height: 3024,
+            latitude: Some(50.087),
+            longitude: Some(14.42),
+            duration_seconds: None,
+            source_path: "Media/DCIM/100APPLE/IMG_0001.HEIC".into(),
+            file: Some("photos/1_IMG_0001.HEIC".into()),
+        }
+    }
+
+    #[test]
+    fn photos_csv_json_and_html() {
+        let p = vec![sample_photo()];
+        let csv = photos_csv(&p);
+        assert!(csv.starts_with(
+            "filename,kind,created,favorite,trashed,width,height,latitude,longitude,duration_seconds,file"
+        ));
+        assert!(csv.contains("IMG_0001.HEIC,image,2020-01-06T10:40:00+00:00,true,false,4032,3024,50.087,14.42,,photos/1_IMG_0001.HEIC"));
+        let back: serde_json::Value = serde_json::from_str(&photos_json(&p)).unwrap();
+        assert_eq!(back[0]["latitude"], 50.087);
+        assert_eq!(back[0]["duration_seconds"], serde_json::Value::Null);
+        let html = photos_html(&p);
+        assert!(html.contains("<img src=\"photos/1_IMG_0001.HEIC\""));
+    }
+
+    #[test]
+    fn photos_html_escapes_filename() {
+        let mut p = sample_photo();
+        p.file = None;
+        p.filename = "<script>alert(1)</script>".into();
+        let html = photos_html(&[p]);
+        assert!(html.contains("&#60;script&#62;"));
+        assert!(!html.contains("<script>alert"));
+    }
+
+    #[test]
+    fn photos_html_escapes_file_path_in_src_attribute() {
+        // A crafted file path must not break out of the src/href attribute.
+        let mut p = sample_photo();
+        p.file = Some("photos/1_a\"><script>.jpg".into());
+        let html = photos_html(&[p]);
+        assert!(!html.contains("\"><script>"));
+        assert!(html.contains("&#34;") || html.contains("&#62;"));
     }
 
     fn sample_calls() -> Vec<crate::calls::Call> {

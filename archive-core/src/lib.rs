@@ -159,16 +159,23 @@ impl Backup {
             return Ok(None);
         };
         // crabapple's `decrypt_entry` only works on encrypted backups (it returns
-        // `NotEncrypted` otherwise). On an unencrypted backup the file already
-        // sits in plaintext under `backup_path/<id[..2]>/<id>`, so read it directly.
-        let bytes = if self.raw.is_encrypted() {
-            self.raw
+        // `NotEncrypted` otherwise) and hands back the plaintext bytes in full, so
+        // an encrypted entry is necessarily buffered in memory. On an unencrypted
+        // backup the file already sits in plaintext under
+        // `backup_path/<id[..2]>/<id>`, so it is **stream-copied** straight to
+        // `dest` — avoiding a full-file buffer for large media (e.g. videos).
+        if self.raw.is_encrypted() {
+            let bytes = self
+                .raw
                 .decrypt_entry(&entry)
-                .map_err(|why| BackupError::Open(why.to_string()))?
+                .map_err(|why| BackupError::Open(why.to_string()))?;
+            write_file(dest, &bytes)?;
         } else {
-            std::fs::read(self.raw.backup_path.join(entry.source()))?
-        };
-        write_file(dest, &bytes)?;
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(self.raw.backup_path.join(entry.source()), dest)?;
+        }
         Ok(Some(dest.to_path_buf()))
     }
 }
