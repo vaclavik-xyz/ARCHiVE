@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Obnovená data</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;max-width:900px}
+table{border-collapse:collapse;margin-bottom:16px}td,th{border:1px solid #ddd;padding:6px 10px;text-align:left}
+th{background:#f5f5f5}table.device th{width:160px}.gen{color:#777;font-size:13px}
+a{color:#0366d6;text-decoration:none}a:hover{text-decoration:underline}</style></head><body>
+<h1>Obnovená data</h1>
+
+<h2>Zařízení</h2>
+<table class="device">
+<tr><th>Název</th><td>{{ name }}</td></tr>
+<tr><th>Model</th><td>{{ model }}</td></tr>
+<tr><th>iOS</th><td>{{ ios }}</td></tr>
+<tr><th>Sériové číslo</th><td>{{ serial }}</td></tr>
+<tr><th>UDID</th><td>{{ udid }}</td></tr>
+</table>
+<p class="gen">Vygenerováno: {{ generated }}</p>
+
+<h2>Obsah ({{ sections.len() }})</h2>
+<table>
+<tr><th>Typ</th><th>Počet</th><th>Export</th><th>Soubory</th></tr>
+{% for s in sections %}
+<tr>
+<td>{{ s.label }}</td>
+<td>{{ s.count }}</td>
+<td><a href="{{ s.file }}">{{ s.file }}</a></td>
+<td>{% if let Some(m) = s.media.as_ref() %}<a href="{{ m.dir }}/">{{ m.dir }}/</a> ({{ m.extracted }} souborů, {{ m.missing }} chybí){% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>

@@ -7,6 +7,7 @@ mod datetime;
 mod format;
 mod notes;
 mod photos;
+mod recover;
 mod safari;
 mod sqlite_util;
 mod voice_memos;
@@ -117,6 +118,12 @@ enum Command {
         #[arg(long)]
         no_files: bool,
     },
+    /// Run every extractor into <out>/ and write a customer index.html package.
+    Recover {
+        /// Skip large media extraction (metadata + HTML only).
+        #[arg(long)]
+        no_files: bool,
+    },
     /// Report (as JSON) which data stores the backup contains. Read-only;
     /// does not need `--out`.
     Inspect,
@@ -136,7 +143,10 @@ impl AppError {
 }
 
 fn device_json(d: &archive_core::DeviceInfo) -> serde_json::Value {
-    serde_json::json!({ "name": d.device_name, "ios": d.product_version, "udid": d.udid })
+    serde_json::json!({
+        "name": d.device_name, "model": d.model, "ios": d.product_version,
+        "serial": d.serial, "udid": d.udid
+    })
 }
 
 /// Map a `archive-core` open error to the right `AppError`: a locked/encrypted
@@ -183,6 +193,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Notes { format } => run_notes(&cli, password.as_deref(), format),
         Command::Photos { format, no_files } => run_photos(&cli, password.as_deref(), format, *no_files),
         Command::Attachments { format, no_files } => run_attachments(&cli, password.as_deref(), format, *no_files),
+        Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
     }
 }
@@ -796,6 +807,153 @@ fn run_attachments(cli: &Cli, password: Option<&str>, format: &str, no_files: bo
     Ok(envelope)
 }
 
+/// Turn a `load_*` result into an `Option`, logging (not aborting) on error so
+/// one unreadable store never aborts the whole recovery.
+fn opt_or_log<T>(r: Result<Option<T>, AppError>, what: &str) -> Option<T> {
+    match r {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("recover: skipping {what}: {}", e.message);
+            None
+        }
+    }
+}
+
+/// Accumulates the `recover` package: writes each section's HTML under `out` and
+/// records it for the index and the JSON envelope.
+struct Recovery<'a> {
+    out: &'a std::path::Path,
+    sections: Vec<recover::RecoverSection>,
+    outputs: Vec<String>,
+}
+
+impl Recovery<'_> {
+    fn add(
+        &mut self,
+        data_type: &str,
+        label: &str,
+        file: &str,
+        html: String,
+        count: usize,
+        media: Option<recover::RecoverMedia>,
+    ) -> Result<(), AppError> {
+        let p = self.out.join(file);
+        std::fs::write(&p, html).map_err(|e| AppError::other(e.to_string()))?;
+        self.outputs.push(p.to_string_lossy().into_owned());
+        self.sections.push(recover::RecoverSection {
+            data_type: data_type.to_string(),
+            label: label.to_string(),
+            file: file.to_string(),
+            count,
+            media,
+        });
+        Ok(())
+    }
+}
+
+/// Wrap an `extract_*` summary into `RecoverMedia`, logging and yielding `None`
+/// on error (best-effort; the metadata HTML is still written).
+fn media_or_log(
+    result: std::io::Result<(String, usize, usize)>,
+    what: &str,
+) -> Option<recover::RecoverMedia> {
+    match result {
+        Ok((dir, extracted, missing)) => Some(recover::RecoverMedia { dir, extracted, missing }),
+        Err(e) => {
+            eprintln!("recover: {what} files: {e}");
+            None
+        }
+    }
+}
+
+fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serde_json::Value, AppError> {
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required for recover"))?;
+    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let device = backup.device_info();
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let mut rec = Recovery { out, sections: Vec::new(), outputs: Vec::new() };
+
+    if let Some(items) = opt_or_log(load_contacts(&backup), "contacts") {
+        rec.add("contacts", "Kontakty", "contacts.html", format::contacts_html(&items), items.len(), None)?;
+    }
+    if let Some(items) = opt_or_log(load_calls(&backup), "calls") {
+        rec.add("calls", "Hovory", "calls.html", format::calls_html(&items), items.len(), None)?;
+    }
+    if let Some(mut items) = opt_or_log(load_voicemail(&backup), "voicemail") {
+        let media = if no_files {
+            None
+        } else {
+            media_or_log(
+                voicemail_audio::extract_audio(&backup, &mut items, out, audio::AudioFormat::Amr)
+                    .map(|s| (s.dir, s.extracted, s.missing)),
+                "voicemail",
+            )
+        };
+        rec.add("voicemail", "Hlasové zprávy", "voicemail.html", format::voicemail_html(&items), items.len(), media)?;
+    }
+    if let Some(mut items) = opt_or_log(load_voice_memos(&backup), "voice-memos") {
+        let media = if no_files {
+            None
+        } else {
+            media_or_log(
+                voice_memos::extract_voice_memos(&backup, &mut items, out, None)
+                    .map(|s| (s.dir, s.extracted, s.missing)),
+                "voice-memos",
+            )
+        };
+        rec.add("voice-memos", "Hlasové poznámky", "voice-memos.html", format::voice_memos_html(&items), items.len(), media)?;
+    }
+    if let Some(items) = opt_or_log(load_safari_history(&backup), "safari-history") {
+        rec.add("safari-history", "Historie Safari", "safari-history.html", format::safari_history_html(&items), items.len(), None)?;
+    }
+    if let Some(items) = opt_or_log(load_safari_bookmarks(&backup), "safari-bookmarks") {
+        rec.add("safari-bookmarks", "Záložky Safari", "safari-bookmarks.html", format::safari_bookmarks_html(&items), items.len(), None)?;
+    }
+    if let Some(items) = opt_or_log(load_calendar(&backup), "calendar") {
+        rec.add("calendar", "Kalendář", "calendar.html", format::calendar_html(&items), items.len(), None)?;
+    }
+    if let Some(items) = opt_or_log(load_notes(&backup), "notes") {
+        rec.add("notes", "Poznámky", "notes.html", format::notes_html(&items), items.len(), None)?;
+    }
+    if let Some(mut items) = opt_or_log(load_photos(&backup), "photos") {
+        let media = if no_files {
+            None
+        } else {
+            media_or_log(
+                photos::extract_photos(&backup, &mut items, out).map(|s| (s.dir, s.extracted, s.missing)),
+                "photos",
+            )
+        };
+        rec.add("photos", "Fotky a videa", "photos.html", format::photos_html(&items), items.len(), media)?;
+    }
+    if let Some(mut items) = opt_or_log(load_attachments(&backup), "attachments") {
+        let media = if no_files {
+            None
+        } else {
+            media_or_log(
+                attachments::extract_attachments(&backup, &mut items, out).map(|s| (s.dir, s.extracted, s.missing)),
+                "attachments",
+            )
+        };
+        rec.add("attachments", "Přílohy zpráv", "attachments.html", format::attachments_html(&items), items.len(), media)?;
+    }
+
+    let generated = chrono::Utc::now().to_rfc3339();
+    let index_html = recover::render_index(device, &generated, &rec.sections);
+    let index_path = out.join("index.html");
+    std::fs::write(&index_path, index_html).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Recovered {} section(s) to {}", rec.sections.len(), out.display());
+
+    // index.html leads the outputs list.
+    let mut all_outputs = vec![index_path.to_string_lossy().into_owned()];
+    all_outputs.extend(rec.outputs);
+    Ok(serde_json::json!({
+        "ok": true, "command": "recover",
+        "outputs": all_outputs, "sections": rec.sections, "device": device_json(device)
+    }))
+}
+
 /// One row of `inspect` output: a known store and its availability.
 struct StoreStatus {
     name: &'static str,
@@ -1046,6 +1204,20 @@ mod cli_tests {
         for name in ["safari-history", "safari-bookmarks", "calendar"] {
             let s = KNOWN_STORES.iter().find(|(n, ..)| *n == name).unwrap();
             assert!(s.1, "{name} must be supported");
+        }
+    }
+
+    #[test]
+    fn parses_recover_invocation() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "recover", "--no-files"]).unwrap();
+        match cli.command {
+            Command::Recover { no_files } => assert!(no_files),
+            _ => panic!("expected Recover"),
+        }
+        let bare = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "recover"]).unwrap();
+        match bare.command {
+            Command::Recover { no_files } => assert!(!no_files),
+            _ => panic!("expected Recover"),
         }
     }
 
