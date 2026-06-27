@@ -1,3 +1,4 @@
+mod audio;
 mod calls;
 mod contacts;
 mod datetime;
@@ -268,8 +269,8 @@ fn load_voicemail(backup: &archive_core::Backup) -> Result<Option<Vec<voicemail:
 fn resolve_audio_format(
     audio: bool,
     audio_format: Option<&str>,
-) -> Result<Option<voicemail_audio::AudioFormat>, AppError> {
-    use voicemail_audio::AudioFormat;
+) -> Result<Option<audio::AudioFormat>, AppError> {
+    use audio::AudioFormat;
     if !audio {
         if audio_format.is_some() {
             return Err(AppError::usage("--audio-format requires --audio"));
@@ -282,7 +283,7 @@ fn resolve_audio_format(
             AppError::usage(format!("unknown audio format `{s}` (use amr, m4a, wav)"))
         })?,
     };
-    if fmt.needs_ffmpeg() && !voicemail_audio::ffmpeg_available() {
+    if fmt.needs_ffmpeg() && !audio::ffmpeg_available() {
         return Err(AppError::other(format!(
             "audio format `{}` requires ffmpeg, which was not found on PATH; \
              install ffmpeg or use --audio-format amr",
@@ -500,7 +501,7 @@ mod cli_tests {
     #[test]
     fn resolve_audio_defaults_to_amr() {
         let fmt = super::resolve_audio_format(true, None).unwrap();
-        assert_eq!(fmt, Some(crate::voicemail_audio::AudioFormat::Amr));
+        assert_eq!(fmt, Some(crate::audio::AudioFormat::Amr));
     }
 
     #[test]
