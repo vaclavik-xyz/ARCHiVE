@@ -79,9 +79,9 @@ archive --backup <dir> -o <out> voice-memos -f <csv|json|html> \
 - `--audio-format`:
   - default (omitted) — **raw copy**, preserving each file's native extension
     (`.m4a`/`.caf`/…). No ffmpeg.
-  - `m4a` / `wav` / `aac` — transcode every recording to that format via
-    `ffmpeg` (reusing the voicemail transcode helpers). `wav`/`aac` and a `caf`
-    source are the real use case (portability).
+  - `m4a` / `wav` — transcode every recording to that format via `ffmpeg`
+    (reusing the voicemail transcode helpers). Transcoding a `.caf` source to a
+    portable container is the real use case.
 - `--audio-format` together with `--no-audio` is a usage error (exit 1):
   `"--audio-format conflicts with --no-audio"`.
 - A non-raw `--audio-format` when ffmpeg is **not** on PATH: **fail fast** before
