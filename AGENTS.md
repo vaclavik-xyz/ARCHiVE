@@ -35,7 +35,7 @@ stdout:
 {
   "ok": true,
   "command": "inspect",
-  "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." },
+  "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." },
   "stores": [
     { "type": "contacts", "present": true, "supported": true, "count": 1234 },
     { "type": "calls", "present": true, "supported": true, "count": 5678 },
@@ -290,7 +290,44 @@ when absent from the backup). Envelope carries a `files` object (`dir`,
 `extracted`, `missing`) when extraction ran. No Messages store → `count: 0`,
 `outputs: []`, plus a `note`.
 
+### `recover` — one-shot customer package
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> recover [--no-files]
+```
+
+Runs **every** supported extractor in one shot into `<OUT>/`, writing one HTML
+file per data type plus the media folders, plus a customer-facing
+`<OUT>/index.html` landing page (device sheet — name, model, serial, iOS, UDID —
+and a table linking each export with counts). The backup is opened once.
+`--no-files` skips the large media extraction (metadata + HTML only). A store
+absent from the backup is skipped; one unreadable store is logged and skipped, not
+fatal.
+
+stdout envelope:
+
+```json
+{
+  "ok": true,
+  "command": "recover",
+  "outputs": ["<OUT>/index.html", "<OUT>/contacts.html", "..."],
+  "sections": [
+    { "type": "contacts", "file": "contacts.html", "count": 1234 },
+    { "type": "photos", "file": "photos.html", "count": 1240,
+      "files": { "dir": "photos", "extracted": 1238, "missing": 2 } }
+  ],
+  "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
+}
+```
+
+`outputs[0]` is always `index.html`. `--zip` packaging is not yet implemented (zip
+the `<OUT>` folder yourself).
+
 ## Result envelope (every command)
+
+The `device` object on every command carries `name`, `model` (hardware id, e.g.
+`iPhone14,2`), `ios`, `serial`, and `udid`.
+
 
 - Success → the per-command object above (always `"ok": true`).
 - Failure →

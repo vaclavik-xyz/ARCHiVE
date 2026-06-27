@@ -12,6 +12,9 @@ object on stdout with stable exit codes, progress on stderr.
 # Discover what the backup contains (read-only)
 archive --backup <backup-dir> inspect
 
+# One-shot: recover everything into <out>/ with a customer index.html (--no-files for metadata only)
+archive --backup <backup-dir> -o <out> recover
+
 # Export each data type to <out>/
 archive --backup <backup-dir> -o <out> contacts  -f vcf    # csv | json | vcf | html
 archive --backup <backup-dir> -o <out> calls     -f json   # csv | json | html
@@ -51,4 +54,5 @@ Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 - [x] notes — csv, json, html (body decoded from gzip+protobuf, snippet fallback)
 - [x] photos — csv, json, html gallery + photo/video file extraction
 - [x] attachments — csv, json, html gallery + Messages attachment file extraction
+- [x] recover — one-shot: all extractors + customer index.html (device sheet + links)
 - [ ] pdf output · message text export
