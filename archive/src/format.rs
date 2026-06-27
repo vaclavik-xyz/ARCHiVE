@@ -327,6 +327,37 @@ pub fn calendar_html(items: &[crate::calendar::CalendarEvent]) -> String {
     CalendarTemplate { events: items }.render().unwrap()
 }
 
+pub fn notes_csv(items: &[crate::notes::Note]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["title", "folder", "created", "modified", "body_source", "body"]).unwrap();
+    for n in items {
+        wtr.write_record([
+            n.title.clone(),
+            n.folder.clone(),
+            n.created.clone(),
+            n.modified.clone(),
+            n.body_source.clone(),
+            n.body.clone(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn notes_json(items: &[crate::notes::Note]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "notes.html")]
+struct NotesTemplate<'a> {
+    notes: &'a [crate::notes::Note],
+}
+
+pub fn notes_html(items: &[crate::notes::Note]) -> String {
+    NotesTemplate { notes: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -587,6 +618,29 @@ mod tests {
         let mut x = e.clone();
         x[0].summary = "<script>alert(1)</script>".into();
         let html = calendar_html(&x);
+        assert!(html.contains("&#60;script&#62;"));
+        assert!(!html.contains("<script>alert"));
+    }
+
+    #[test]
+    fn notes_csv_json_and_html_escape() {
+        let n = vec![crate::notes::Note {
+            title: "Nákup".into(),
+            folder: "Práce".into(),
+            created: "2020-01-06T10:40:00+00:00".into(),
+            modified: "2020-01-06T10:48:20+00:00".into(),
+            body: "mléko\nchléb".into(),
+            body_source: "decoded".into(),
+        }];
+        let csv = notes_csv(&n);
+        assert!(csv.starts_with("title,folder,created,modified,body_source,body"));
+        let back: serde_json::Value = serde_json::from_str(&notes_json(&n)).unwrap();
+        assert_eq!(back[0]["body_source"], "decoded");
+        assert_eq!(back[0]["body"], "mléko\nchléb");
+
+        let mut x = n.clone();
+        x[0].body = "<script>alert(1)</script>".into();
+        let html = notes_html(&x);
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
     }

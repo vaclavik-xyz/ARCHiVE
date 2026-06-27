@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Poznámky</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top}
+th{background:#f5f5f5}pre{margin:0;white-space:pre-wrap;font-family:inherit}</style></head><body>
+<h1>Poznámky ({{ notes.len() }})</h1>
+<table>
+<tr><th>Změněno</th><th>Název</th><th>Složka</th><th>Zdroj těla</th><th>Text</th></tr>
+{% for n in notes %}
+<tr>
+<td>{{ n.modified }}</td><td>{{ n.title }}</td><td>{{ n.folder }}</td><td>{{ n.body_source }}</td>
+<td><pre>{{ n.body }}</pre></td>
+</tr>
+{% endfor %}
+</table>
+</body></html>

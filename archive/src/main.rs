@@ -4,6 +4,7 @@ mod calls;
 mod contacts;
 mod datetime;
 mod format;
+mod notes;
 mod safari;
 mod sqlite_util;
 mod voice_memos;
@@ -90,6 +91,12 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Export Apple Notes (title, folder, dates, body text).
+    Notes {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Report (as JSON) which data stores the backup contains. Read-only;
     /// does not need `--out`.
     Inspect,
@@ -153,6 +160,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::SafariHistory { format } => run_safari_history(&cli, password.as_deref(), format),
         Command::SafariBookmarks { format } => run_safari_bookmarks(&cli, password.as_deref(), format),
         Command::Calendar { format } => run_calendar(&cli, password.as_deref(), format),
+        Command::Notes { format } => run_notes(&cli, password.as_deref(), format),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
     }
 }
@@ -562,6 +570,10 @@ fn load_calendar(backup: &archive_core::Backup) -> Result<Option<Vec<calendar::C
     load_store(backup, "HomeDomain", "Library/Calendar/Calendar.sqlitedb", "Calendar.sqlitedb", calendar::parse)
 }
 
+fn load_notes(backup: &archive_core::Backup) -> Result<Option<Vec<notes::Note>>, AppError> {
+    load_store(backup, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite", "NoteStore.sqlite", notes::parse)
+}
+
 fn run_safari_history(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "safari-history")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export Safari history"))?;
@@ -643,6 +655,33 @@ fn run_calendar(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     }))
 }
 
+fn run_notes(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "notes")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export notes"))?;
+    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(items) = load_notes(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "notes", "count": 0, "outputs": [],
+            "note": "this backup has no notes", "device": device
+        }));
+    };
+    let rendered = match format {
+        Format::Csv => format::notes_csv(&items),
+        Format::Json => format::notes_json(&items),
+        Format::Html => format::notes_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("notes.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} note(s) to {}", items.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "notes", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
 /// One row of `inspect` output: a known store and its availability.
 struct StoreStatus {
     name: &'static str,
@@ -670,8 +709,8 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("safari-history", true, "AppDomain-com.apple.mobilesafari", "Library/Safari/History.db"),
     ("safari-bookmarks", true, "AppDomain-com.apple.mobilesafari", "Library/Safari/Bookmarks.db"),
     ("calendar", true, "HomeDomain", "Library/Calendar/Calendar.sqlitedb"),
+    ("notes", true, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
     ("photos", false, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
-    ("notes", false, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
 ];
 
 fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, AppError> {
@@ -709,6 +748,7 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "safari-history" => load_safari_history(&backup).ok().flatten().map(|v| v.len()),
                 "safari-bookmarks" => load_safari_bookmarks(&backup).ok().flatten().map(|v| v.len()),
                 "calendar" => load_calendar(&backup).ok().flatten().map(|v| v.len()),
+                "notes" => load_notes(&backup).ok().flatten().map(|v| v.len()),
                 _ => None,
             }
         } else {
@@ -890,6 +930,17 @@ mod cli_tests {
             let s = KNOWN_STORES.iter().find(|(n, ..)| *n == name).unwrap();
             assert!(s.1, "{name} must be supported");
         }
+    }
+
+    #[test]
+    fn parses_notes_invocation_and_notes_supported() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "notes", "-f", "html"]).unwrap();
+        match cli.command {
+            Command::Notes { format } => assert_eq!(format, "html"),
+            _ => panic!("expected Notes"),
+        }
+        let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "notes").unwrap();
+        assert!(s.1, "notes must now be supported");
     }
 
     #[test]

@@ -44,8 +44,8 @@ stdout:
     { "type": "safari-history", "present": true, "supported": true, "count": 940 },
     { "type": "safari-bookmarks", "present": true, "supported": true, "count": 31 },
     { "type": "calendar", "present": true, "supported": true, "count": 212 },
-    { "type": "photos", "present": true, "supported": false, "count": null },
-    { "type": "notes", "present": false, "supported": false, "count": null }
+    { "type": "notes", "present": true, "supported": true, "count": 87 },
+    { "type": "photos", "present": true, "supported": false, "count": null }
   ]
 }
 ```
@@ -222,6 +222,21 @@ per event: `summary`, `start` / `end` (ISO 8601 UTC; `end` empty when unset),
 Cocoa→UTC conversion; all-day/floating events are stored timezone-less by iOS and
 are not normalized. Reminders are **not** exported (their backup storage varies).
 No calendar → `count: 0`, `outputs: []`, plus a `note`.
+
+### `notes` — export Apple Notes
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> notes -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html`. Writes `<OUT>/notes.<ext>`. One record
+per note: `title`, `folder` (containing folder's name; empty when none), `created`
+/ `modified` (ISO 8601 UTC), `body` (the note text), `body_source`. The body is
+stored on-device as a gzip-compressed protobuf; it is decoded best-effort and
+`body_source` says which path produced `body`: `decoded` (full text recovered),
+`snippet` (only the preview was recoverable — e.g. an encrypted/undecodable note),
+or `empty`. Rich formatting, inline images, and attachments are not recovered
+(plain text only). No notes store → `count: 0`, `outputs: []`, plus a `note`.
 
 ## Result envelope (every command)
 

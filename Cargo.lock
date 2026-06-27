@@ -123,6 +123,7 @@ dependencies = [
  "chrono",
  "clap",
  "csv",
+ "flate2",
  "rusqlite",
  "serde",
  "serde_json",
