@@ -1,7 +1,6 @@
 #![warn(missing_docs)]
 //! Open, decrypt, and read files from an on-disk iOS backup.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crabapple::error::BackupError as CrabError;
@@ -158,35 +157,25 @@ impl Backup {
         else {
             return Ok(None);
         };
-        // crabapple's `decrypt_entry` only works on encrypted backups (it returns
-        // `NotEncrypted` otherwise) and hands back the plaintext bytes in full, so
-        // an encrypted entry is necessarily buffered in memory. On an unencrypted
-        // backup the file already sits in plaintext under
-        // `backup_path/<id[..2]>/<id>`, so it is **stream-copied** straight to
-        // `dest` — avoiding a full-file buffer for large media (e.g. videos).
+        // Both paths **stream** straight to `dest`, so large media (e.g. videos)
+        // never buffer fully in memory. Encrypted entries use crabapple's
+        // streaming decrypt reader; unencrypted entries already sit in plaintext
+        // on disk under `backup_path/<id[..2]>/<id>` and are copied directly.
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         if self.raw.is_encrypted() {
-            let bytes = self
+            let mut reader = self
                 .raw
-                .decrypt_entry(&entry)
+                .decrypt_entry_stream(&entry)
                 .map_err(|why| BackupError::Open(why.to_string()))?;
-            write_file(dest, &bytes)?;
+            let mut out = std::fs::File::create(dest)?;
+            std::io::copy(&mut reader, &mut out)?;
         } else {
-            if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
             std::fs::copy(self.raw.backup_path.join(entry.source()), dest)?;
         }
         Ok(Some(dest.to_path_buf()))
     }
-}
-
-/// Write `bytes` to `dest`, creating parent directories as needed; returns `dest`.
-fn write_file(dest: &Path, bytes: &[u8]) -> Result<PathBuf, BackupError> {
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::File::create(dest)?.write_all(bytes)?;
-    Ok(dest.to_path_buf())
 }
 
 #[cfg(test)]
@@ -238,17 +227,6 @@ mod tests {
             Authentication::Password(p) => assert_eq!(p, "secret"),
             other => panic!("expected Password, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn write_file_creates_parent_dirs_and_writes() {
-        let base = std::env::temp_dir().join(format!("be-writefile-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        let dest = base.join("nested/deeper/out.bin");
-        let returned = write_file(&dest, b"hello bytes").unwrap();
-        assert_eq!(returned, dest);
-        assert_eq!(std::fs::read(&dest).unwrap(), b"hello bytes");
-        std::fs::remove_dir_all(&base).ok();
     }
 
     #[test]

@@ -51,11 +51,10 @@ archive --backup <dir> -o <out> photos -f <csv|json|html> [--no-files]
 No transcoding/thumbnailing (no ffmpeg/image deps): files are copied byte-for-byte
 from the backup. The HTML gallery references the extracted files directly.
 
-**Large-file handling:** `Backup::fetch` stream-copies unencrypted entries
-straight to disk (no full-file buffer), so large videos do not spike memory.
-Encrypted backups are the exception — crabapple's `decrypt_entry` returns the
-plaintext in full, so an encrypted asset is buffered in memory while written
-(a documented limitation bounded by the largest single asset).
+**Large-file handling:** `Backup::fetch` streams every entry straight to disk
+(no full-file buffer), so large videos do not spike memory — unencrypted entries
+via `std::fs::copy`, encrypted entries via crabapple's `decrypt_entry_stream`
+reader piped through `std::io::copy`.
 
 ## Data model
 
