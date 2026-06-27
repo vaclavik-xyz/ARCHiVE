@@ -367,6 +367,8 @@ pub fn photos_csv(items: &[crate::photos::Photo]) -> String {
     wtr.write_record([
         "filename", "kind", "created", "favorite", "trashed", "width", "height",
         "latitude", "longitude", "duration_seconds", "file",
+        "hidden", "edited", "live_photo", "modified", "added",
+        "original_filename", "title", "burst_id", "albums",
     ])
     .unwrap();
     for p in items {
@@ -382,6 +384,15 @@ pub fn photos_csv(items: &[crate::photos::Photo]) -> String {
             opt_num(p.longitude),
             opt_num(p.duration_seconds),
             p.file.clone().unwrap_or_default(),
+            p.hidden.to_string(),
+            p.edited.to_string(),
+            p.live_photo.to_string(),
+            p.modified.clone(),
+            p.added.clone(),
+            p.original_filename.clone(),
+            p.title.clone(),
+            p.burst_id.clone().unwrap_or_default(),
+            p.albums.join("; "),
         ])
         .unwrap();
     }
@@ -785,11 +796,29 @@ mod tests {
             "filename,kind,created,favorite,trashed,width,height,latitude,longitude,duration_seconds,file"
         ));
         assert!(csv.contains("IMG_0001.HEIC,image,2020-01-06T10:40:00+00:00,true,false,4032,3024,50.087,14.42,,photos/1_IMG_0001.HEIC"));
+        // Enriched columns appended.
+        let header = csv.lines().next().unwrap();
+        assert!(header.ends_with("hidden,edited,live_photo,modified,added,original_filename,title,burst_id,albums"));
+        assert!(csv.contains("IMG_E0001.HEIC,Západ,,Dovolená; Rodina")); // original,title,burst(empty),albums
         let back: serde_json::Value = serde_json::from_str(&photos_json(&p)).unwrap();
         assert_eq!(back[0]["latitude"], 50.087);
         assert_eq!(back[0]["duration_seconds"], serde_json::Value::Null);
+        assert_eq!(back[0]["live_photo"], true);
+        assert_eq!(back[0]["albums"][0], "Dovolená");
         let html = photos_html(&p);
         assert!(html.contains("<img src=\"photos/1_IMG_0001.HEIC\""));
+        assert!(html.contains("◉Live")); // Live marker
+        assert!(html.contains("Dovolená")); // album shown
+        assert!(html.contains("Západ")); // title shown
+    }
+
+    #[test]
+    fn photos_html_escapes_album_title() {
+        let mut p = sample_photo();
+        p.albums = vec!["<script>alert(1)</script>".into()];
+        let html = photos_html(&[p]);
+        assert!(html.contains("&#60;script&#62;"));
+        assert!(!html.contains("<script>alert"));
     }
 
     #[test]

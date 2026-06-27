@@ -15,7 +15,11 @@
 {% endif %}
 {% else %}{{ p.filename }}
 {% endif %}
-<div class="cap">{{ p.created }}{% if p.favorite %} ★{% endif %}{% if p.trashed %} 🗑{% endif %}{% if let Some(lat) = p.latitude %}{% if let Some(lon) = p.longitude %} · {{ lat }}, {{ lon }}{% endif %}{% endif %}</div>
+<div class="cap">
+{% if !p.title.is_empty() %}<b>{{ p.title }}</b><br>{% endif %}
+{{ p.created }}{% if p.favorite %} ★{% endif %}{% if p.hidden %} 🙈{% endif %}{% if p.edited %} ✎{% endif %}{% if p.live_photo %} ◉Live{% endif %}{% if p.trashed %} 🗑{% endif %}{% if let Some(lat) = p.latitude %}{% if let Some(lon) = p.longitude %} · {{ lat }}, {{ lon }}{% endif %}{% endif %}
+{% if !p.albums.is_empty() %}<br>📁 {% for al in p.albums %}{{ al }}{% if !loop.last %}, {% endif %}{% endfor %}{% endif %}
+</div>
 </div>
 {% endfor %}
 </div>
