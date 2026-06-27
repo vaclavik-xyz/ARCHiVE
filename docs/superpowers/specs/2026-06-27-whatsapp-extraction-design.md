@@ -93,12 +93,13 @@ messages, not all messages — see envelope). `--no-files` skips extraction.
 {
   "ok": true, "command": "whatsapp", "count": 5821,
   "outputs": ["<out>/whatsapp.json"],
-  "media": { "dir": "whatsapp_media", "extracted": 410, "missing": 12 },
+  "files": { "dir": "whatsapp_media", "extracted": 410, "missing": 12 },
   "device": { ... }
 }
 ```
 
-`count` = total messages. `media` (present only when extraction ran) counts media
+`count` = total messages. `files` (present only when extraction ran, named for
+consistency with `photos`/`attachments`) counts media
 files: `extracted` written, `missing` media-bearing messages whose file was absent.
 Store absent → `count: 0`, `outputs: []`, `note`, no `media`.
 

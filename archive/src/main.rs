@@ -944,7 +944,8 @@ fn run_whatsapp(cli: &Cli, password: Option<&str>, format: &str, no_files: bool)
     });
     if let Some(s) = summary {
         eprintln!("Extracted {} media file(s) ({} missing) to {}/{}", s.extracted, s.missing, out.display(), s.dir);
-        envelope["media"] = serde_json::json!({
+        // `files`, consistent with photos/attachments and recover sections.
+        envelope["files"] = serde_json::json!({
             "dir": s.dir, "extracted": s.extracted, "missing": s.missing
         });
     }

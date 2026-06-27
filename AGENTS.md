@@ -304,9 +304,10 @@ extracted by default** into `<OUT>/whatsapp_media/`; pass `--no-files` for a
 text-only transcript. Reads `ChatStorage.sqlite` from the WhatsApp shared app-group
 container. Each message: `chat` (contact/group name), `sender` (JID; empty when
 from me), `from_me` (bool), `date` (ISO 8601 UTC), `text`, `media_file`
-(output-relative extracted media, or `null`). Envelope carries a `media` object
-(`dir`, `extracted`, `missing`) when extraction ran; `count` is total messages. No
-WhatsApp store → `count: 0`, `outputs: []`, plus a `note`.
+(output-relative extracted media, or `null`). Envelope carries a `files` object
+(`dir`, `extracted`, `missing`) when extraction ran — consistent with `photos`/
+`attachments`; `count` is total messages. No WhatsApp store → `count: 0`,
+`outputs: []`, plus a `note`.
 
 ### `recover` — one-shot customer package
 
