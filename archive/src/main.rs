@@ -4,6 +4,7 @@ mod calendar;
 mod calls;
 mod contacts;
 mod datetime;
+mod device_backup;
 mod format;
 mod notes;
 mod photos;
@@ -125,6 +126,12 @@ enum Command {
         #[arg(long)]
         no_files: bool,
     },
+    /// Create a fresh backup from a USB-connected iPhone via libimobiledevice.
+    Backup {
+        /// Force a full backup (default: incremental when <out> already has one).
+        #[arg(long)]
+        full: bool,
+    },
     /// Report (as JSON) which data stores the backup contains. Read-only;
     /// does not need `--out`.
     Inspect,
@@ -205,6 +212,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Photos { format, no_files } => run_photos(&cli, password.as_deref(), format, *no_files),
         Command::Attachments { format, no_files } => run_attachments(&cli, password.as_deref(), format, *no_files),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
+        Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
     }
 }
@@ -964,6 +972,63 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     }))
 }
 
+fn run_backup(cli: &Cli, password: Option<&str>, full: bool) -> Result<serde_json::Value, AppError> {
+    use device_backup::{backup_args, parse_udids, tool_available, BACKUP_TOOL, DEVICE_TOOL};
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required for backup"))?;
+
+    // Fail fast when the external tools are not installed.
+    for tool in [BACKUP_TOOL, DEVICE_TOOL] {
+        if !tool_available(tool) {
+            return Err(AppError::other(format!(
+                "`{tool}` was not found on PATH; install libimobiledevice \
+                 (e.g. `brew install libimobiledevice`) to use `backup`"
+            )));
+        }
+    }
+
+    // Require a connected device.
+    let listed = std::process::Command::new(DEVICE_TOOL)
+        .arg("-l")
+        .output()
+        .map_err(|e| AppError::other(format!("running {DEVICE_TOOL}: {e}")))?;
+    let udids = parse_udids(&String::from_utf8_lossy(&listed.stdout));
+    let Some(udid) = udids.first().cloned() else {
+        return Err(AppError::other("no iOS device connected (idevice_id -l found none)"));
+    };
+
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Backing up device {udid} to {} …", out.display());
+    // Inherit stdio so the user sees idevicebackup2's live progress.
+    let status = std::process::Command::new(BACKUP_TOOL)
+        .args(backup_args(out, full))
+        .status()
+        .map_err(|e| AppError::other(format!("running {BACKUP_TOOL}: {e}")))?;
+    if !status.success() {
+        return Err(AppError::other(format!("{BACKUP_TOOL} failed ({status})")));
+    }
+
+    let dir = out.join(&udid);
+    let mut envelope = serde_json::json!({
+        "ok": true, "command": "backup",
+        "dir": dir.to_string_lossy(), "udid": udid
+    });
+    match archive_core::Backup::open(&dir, password) {
+        Ok(b) => envelope["device"] = device_json(b.device_info()),
+        Err(e) => {
+            envelope["note"] = serde_json::json!(format!(
+                "backup created, but device info could not be read: {e}"
+            ));
+        }
+    }
+    if udids.len() > 1 {
+        envelope["note"] = serde_json::json!(format!(
+            "{} devices connected; backed up the first ({udid})",
+            udids.len()
+        ));
+    }
+    Ok(envelope)
+}
+
 /// One row of `inspect` output: a known store and its availability.
 struct StoreStatus {
     name: &'static str,
@@ -1240,6 +1305,17 @@ mod cli_tests {
         assert_eq!(v["ios"], "17.5");
         assert_eq!(v["serial"], "F2LABC");
         assert_eq!(v["udid"], "00008110-x");
+    }
+
+    #[test]
+    fn parses_backup_invocation_without_backup_flag() {
+        // `backup` creates a backup, so it does not require the global --backup.
+        let cli = Cli::try_parse_from(["archive", "-o", "/out", "backup", "--full"]).unwrap();
+        match cli.command {
+            Command::Backup { full } => assert!(full),
+            _ => panic!("expected Backup"),
+        }
+        assert!(cli.backup.is_none());
     }
 
     #[test]
