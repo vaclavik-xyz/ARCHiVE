@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn inflate_rejects_output_over_cap() {
         let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        e.write_all(&vec![b'a'; 100]).unwrap();
+        e.write_all(&[b'a'; 100]).unwrap();
         let gz = e.finish().unwrap();
         assert!(inflate_capped(&gz, 10).is_none(), "over-cap output is rejected, not truncated");
         assert_eq!(inflate_capped(&gz, 1000).map(|v| v.len()), Some(100));
