@@ -4,6 +4,10 @@ mod calls;
 mod contacts;
 mod datetime;
 mod format;
+// Built bottom-up: wired into the CLI in a later step; the allow is removed once
+// the `notes` command consumes it.
+#[allow(dead_code)]
+mod notes;
 mod safari;
 mod sqlite_util;
 mod voice_memos;

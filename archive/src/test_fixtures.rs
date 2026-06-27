@@ -67,6 +67,32 @@ pub fn make_callhistory(path: &Path) {
     .unwrap();
 }
 
+/// Build a minimal real Apple `NoteStore.sqlite`: one folder, and two notes —
+/// the first with the provided gzip-protobuf body blob, the second with no blob
+/// (so the snippet fallback is exercised). Cocoa dates.
+pub fn make_notes(path: &Path, note1_zdata: &[u8]) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE ZICNOTEDATA (Z_PK INTEGER PRIMARY KEY, ZNOTE INTEGER, ZDATA BLOB);
+         CREATE TABLE ZICCLOUDSYNCINGOBJECT (Z_PK INTEGER PRIMARY KEY, ZTITLE1 TEXT, ZTITLE2 TEXT,
+            ZSNIPPET TEXT, ZNOTEDATA INTEGER, ZFOLDER INTEGER, ZCREATIONDATE REAL, ZMODIFICATIONDATE1 REAL);
+         INSERT INTO ZICCLOUDSYNCINGOBJECT (Z_PK, ZTITLE2) VALUES (10, 'Práce');
+         INSERT INTO ZICNOTEDATA (Z_PK, ZNOTE, ZDATA) VALUES (2, 101, NULL);",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO ZICNOTEDATA (Z_PK, ZNOTE, ZDATA) VALUES (1, 100, ?1)",
+        rusqlite::params![note1_zdata],
+    )
+    .unwrap();
+    conn.execute_batch(
+        "INSERT INTO ZICCLOUDSYNCINGOBJECT (Z_PK, ZTITLE1, ZSNIPPET, ZNOTEDATA, ZFOLDER, ZCREATIONDATE, ZMODIFICATIONDATE1) VALUES
+            (100, 'Nákup', 'snippet1', 1, 10, 600000000.0, 600000500.0),
+            (101, 'Druhá', 'jen náhled', 2, 10, 600000100.0, 600000600.0);",
+    )
+    .unwrap();
+}
+
 /// Build a minimal real Safari `History.db`: two history items each with one
 /// visit (Cocoa `visit_time`), so the items↔visits join can be exercised.
 pub fn make_safari_history(path: &Path) {
