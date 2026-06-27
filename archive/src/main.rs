@@ -135,6 +135,9 @@ enum Command {
     /// Report (as JSON) which data stores the backup contains. Read-only;
     /// does not need `--out`.
     Inspect,
+    /// Verify the backup is complete (every manifest file present). Read-only;
+    /// does not need `--out`.
+    Integrity,
 }
 
 /// A failure with a machine-stable `kind` and a documented exit code.
@@ -214,6 +217,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
+        Command::Integrity => run_integrity(&cli, password.as_deref()),
     }
 }
 
@@ -1037,6 +1041,37 @@ fn run_backup(cli: &Cli, password: Option<&str>, full: bool) -> Result<serde_jso
     Ok(envelope)
 }
 
+/// Cap on each integrity sample list, keeping the envelope bounded.
+const INTEGRITY_SAMPLE_CAP: usize = 20;
+
+fn run_integrity(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, AppError> {
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    let r = backup
+        .verify_integrity(INTEGRITY_SAMPLE_CAP)
+        .map_err(|e| AppError::other(e.to_string()))?;
+    let complete = r.missing == 0 && r.size_mismatch == 0;
+    eprintln!(
+        "Integrity: {}/{} files present, {} missing, {} size mismatch{}",
+        r.present,
+        r.total_files,
+        r.missing,
+        r.size_mismatch,
+        if r.size_checked { "" } else { " (size check skipped: encrypted)" }
+    );
+    let mut envelope = serde_json::json!({
+        "ok": true, "command": "integrity", "complete": complete,
+        "total_files": r.total_files, "present": r.present, "missing": r.missing,
+        "size_checked": r.size_checked, "size_mismatch": r.size_mismatch,
+        "missing_sample": r.missing_sample, "mismatch_sample": r.mismatch_sample,
+        "device": device
+    });
+    if !r.size_checked {
+        envelope["note"] = serde_json::json!("size verification skipped (encrypted backup)");
+    }
+    Ok(envelope)
+}
+
 /// One row of `inspect` output: a known store and its availability.
 struct StoreStatus {
     name: &'static str,
@@ -1313,6 +1348,13 @@ mod cli_tests {
         assert_eq!(v["ios"], "17.5");
         assert_eq!(v["serial"], "F2LABC");
         assert_eq!(v["udid"], "00008110-x");
+    }
+
+    #[test]
+    fn parses_integrity_invocation_without_out() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "integrity"]).unwrap();
+        assert!(matches!(cli.command, Command::Integrity));
+        assert_eq!(cli.out, None);
     }
 
     #[test]
