@@ -77,7 +77,7 @@ result cannot be opened for device info (e.g. encrypted), `device` is omitted an
 Pure, unit-testable helpers (the actual spawn is integration territory, gated):
 
 ```rust
-pub fn backup_args(out: &Path, full: bool) -> Vec<OsString>; // ["backup", ("--full"?), out]
+pub fn backup_args(udid: &str, out: &Path, full: bool) -> Vec<OsString>; // ["--udid", udid, "backup", ("--full"?), out]
 pub fn parse_udids(idevice_id_stdout: &str) -> Vec<String>;  // non-empty trimmed lines
 pub fn tool_available(tool: &str) -> bool;                   // mirrors audio::ffmpeg_available
 pub const BACKUP_TOOL: &str = "idevicebackup2";

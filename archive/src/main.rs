@@ -1022,19 +1022,17 @@ fn run_backup(cli: &Cli, password: Option<&str>, full: bool) -> Result<serde_jso
         "ok": true, "command": "backup",
         "dir": dir.to_string_lossy(), "udid": udid
     });
+    let mut notes: Vec<String> = Vec::new();
     match archive_core::Backup::open(&dir, password) {
         Ok(b) => envelope["device"] = device_json(b.device_info()),
-        Err(e) => {
-            envelope["note"] = serde_json::json!(format!(
-                "backup created, but device info could not be read: {e}"
-            ));
-        }
+        Err(e) => notes.push(format!("backup created, but device info could not be read: {e}")),
     }
     if udids.len() > 1 {
-        envelope["note"] = serde_json::json!(format!(
-            "{} devices connected; backed up the first ({udid})",
-            udids.len()
-        ));
+        notes.push(format!("{} devices connected; backed up the first ({udid})", udids.len()));
+    }
+    if !notes.is_empty() {
+        // Merge all notes so neither (unreadable result / multiple devices) clobbers the other.
+        envelope["note"] = serde_json::json!(notes.join("; "));
     }
     Ok(envelope)
 }
