@@ -25,9 +25,10 @@ use crate::format::Format;
 #[derive(Parser)]
 #[command(name = "archive", about = "Extract personal data from an iOS backup")]
 struct Cli {
-    /// Path to the iOS backup directory.
-    #[arg(long, required = true)]
-    backup: PathBuf,
+    /// Path to the iOS backup directory (required for every command except `backup`,
+    /// which creates one).
+    #[arg(long)]
+    backup: Option<PathBuf>,
     /// Password for an encrypted backup (ignored for unencrypted backups).
     #[arg(long, global = true)]
     password: Option<String>,
@@ -149,6 +150,16 @@ fn device_json(d: &archive_core::DeviceInfo) -> serde_json::Value {
     })
 }
 
+/// Resolve `--backup` (a usage error when absent) and open it, mapping open
+/// failures to the right `AppError`. Shared by every read command.
+fn open_backup(cli: &Cli, password: Option<&str>) -> Result<archive_core::Backup, AppError> {
+    let dir = cli
+        .backup
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--backup <DIR> is required"))?;
+    archive_core::Backup::open(dir, password).map_err(open_error)
+}
+
 /// Map a `archive-core` open error to the right `AppError`: a locked/encrypted
 /// backup needs auth (exit 2); anything else is a usage/other error (exit 1).
 fn open_error(e: archive_core::BackupError) -> AppError {
@@ -226,8 +237,7 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
         .as_deref()
         .ok_or_else(|| AppError::usage("--out is required to export contacts"))?;
 
-    let backup = archive_core::Backup::open(&cli.backup, password)
-        .map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
@@ -289,7 +299,7 @@ fn run_calls(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
         .as_deref()
         .ok_or_else(|| AppError::usage("--out is required to export calls"))?;
 
-    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
@@ -388,7 +398,7 @@ fn run_voicemail(
         .as_deref()
         .ok_or_else(|| AppError::usage("--out is required to export voicemail"))?;
 
-    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
@@ -517,7 +527,7 @@ fn run_voice_memos(
         .as_deref()
         .ok_or_else(|| AppError::usage("--out is required to export voice memos"))?;
 
-    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
@@ -618,7 +628,7 @@ fn load_attachments(backup: &archive_core::Backup) -> Result<Option<Vec<attachme
 fn run_safari_history(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "safari-history")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export Safari history"))?;
-    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
     let Some(items) = load_safari_history(&backup)? else {
@@ -645,7 +655,7 @@ fn run_safari_history(cli: &Cli, password: Option<&str>, format: &str) -> Result
 fn run_safari_bookmarks(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "safari-bookmarks")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export Safari bookmarks"))?;
-    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
     let Some(items) = load_safari_bookmarks(&backup)? else {
@@ -672,7 +682,7 @@ fn run_safari_bookmarks(cli: &Cli, password: Option<&str>, format: &str) -> Resu
 fn run_calendar(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "calendar")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export calendar"))?;
-    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
     let Some(items) = load_calendar(&backup)? else {
@@ -699,7 +709,7 @@ fn run_calendar(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
 fn run_notes(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "notes")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export notes"))?;
-    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
     let Some(items) = load_notes(&backup)? else {
@@ -726,7 +736,7 @@ fn run_notes(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
 fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "photos")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export photos"))?;
-    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
     let Some(mut items) = load_photos(&backup)? else {
@@ -768,7 +778,7 @@ fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -
 fn run_attachments(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "attachments")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export attachments"))?;
-    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
     let Some(mut items) = load_attachments(&backup)? else {
@@ -868,7 +878,7 @@ fn media_or_log(
 
 fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serde_json::Value, AppError> {
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required for recover"))?;
-    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = backup.device_info();
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
 
@@ -987,7 +997,7 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
 ];
 
 fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, AppError> {
-    let backup = archive_core::Backup::open(&cli.backup, password).map_err(open_error)?;
+    let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
 
     let mut stores = Vec::new();
@@ -1044,7 +1054,7 @@ mod cli_tests {
             "archive", "--backup", "/b", "-o", "/out", "contacts", "-f", "vcf",
         ])
         .unwrap();
-        assert_eq!(cli.backup, PathBuf::from("/b"));
+        assert_eq!(cli.backup, Some(PathBuf::from("/b")));
         match cli.command {
             Command::Contacts { format } => assert_eq!(format, "vcf"),
             _ => panic!("expected Contacts"),
@@ -1052,8 +1062,16 @@ mod cli_tests {
     }
 
     #[test]
-    fn rejects_missing_backup() {
-        assert!(Cli::try_parse_from(["archive", "-o", "/out", "contacts", "-f", "csv"]).is_err());
+    fn missing_backup_is_a_runtime_usage_error() {
+        // `--backup` is now optional at parse time (the `backup` command creates
+        // one); a read command without it fails at runtime with a usage error.
+        let cli = Cli::try_parse_from(["archive", "-o", "/out", "contacts", "-f", "csv"]).unwrap();
+        let err = match open_backup(&cli, None) {
+            Err(e) => e,
+            Ok(_) => panic!("expected a usage error for missing --backup"),
+        };
+        assert_eq!(err.code, 1);
+        assert_eq!(err.kind, "usage");
     }
 
     #[test]
@@ -1068,7 +1086,7 @@ mod cli_tests {
             "archive", "--backup", "/b", "contacts", "-f", "csv", "-o", "/out",
         ])
         .unwrap();
-        assert_eq!(cli.backup, PathBuf::from("/b"));
+        assert_eq!(cli.backup, Some(PathBuf::from("/b")));
         assert_eq!(cli.out, Some(PathBuf::from("/out")));
     }
 
