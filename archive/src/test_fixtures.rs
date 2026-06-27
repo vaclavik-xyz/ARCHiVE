@@ -67,6 +67,52 @@ pub fn make_callhistory(path: &Path) {
     .unwrap();
 }
 
+/// Build a minimal real Safari `History.db`: two history items each with one
+/// visit (Cocoa `visit_time`), so the items↔visits join can be exercised.
+pub fn make_safari_history(path: &Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE history_items (id INTEGER PRIMARY KEY, url TEXT, visit_count INTEGER);
+         CREATE TABLE history_visits (id INTEGER PRIMARY KEY, history_item INTEGER, visit_time REAL, title TEXT);
+         INSERT INTO history_items VALUES (1, 'https://apple.com', 5), (2, 'https://bbc.com', 2);
+         INSERT INTO history_visits VALUES
+            (1, 1, 600000000.0, 'Apple'),
+            (2, 2, 600000100.0, 'BBC News');",
+    )
+    .unwrap();
+}
+
+/// Build a minimal real Safari `Bookmarks.db`: two folders and two leaf
+/// bookmarks, so the parent→folder-name resolution and leaf filtering run.
+pub fn make_safari_bookmarks(path: &Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE bookmarks (id INTEGER PRIMARY KEY, title TEXT, url TEXT, parent INTEGER, type INTEGER);
+         INSERT INTO bookmarks VALUES
+            (1, 'Favorites', NULL, NULL, 1),
+            (2, 'Apple', 'https://apple.com', 1, 0),
+            (3, 'News', NULL, 1, 1),
+            (4, 'BBC', 'https://bbc.com', 3, 0);",
+    )
+    .unwrap();
+}
+
+/// Build a minimal real `Calendar.sqlitedb`: two calendars and two events
+/// (Cocoa dates), one all-day, so the CalendarItem↔Calendar join is covered.
+pub fn make_calendar(path: &Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE Calendar (ROWID INTEGER PRIMARY KEY, title TEXT);
+         CREATE TABLE CalendarItem (ROWID INTEGER PRIMARY KEY, summary TEXT, start_date REAL,
+            end_date REAL, all_day INTEGER, calendar_id INTEGER);
+         INSERT INTO Calendar VALUES (1, 'Work'), (2, 'Home');
+         INSERT INTO CalendarItem VALUES
+            (1, 'Standup', 600000000.0, 600001800.0, 0, 1),
+            (2, 'Holiday', 600100000.0, 600186400.0, 1, 2);",
+    )
+    .unwrap();
+}
+
 /// Build a minimal real Voice Memos `CloudRecordings.db` (`ZCLOUDRECORDING`):
 /// a titled memo and an untitled one. `ZDATE` is the Cocoa/2001 epoch.
 pub fn make_voicememos(path: &Path) {

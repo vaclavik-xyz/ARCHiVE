@@ -1,8 +1,14 @@
 mod audio;
+// Built bottom-up: parsers are wired into the CLI in a later step; the allows
+// are removed once the `safari-*`/`calendar` commands consume them.
+#[allow(dead_code)]
+mod calendar;
 mod calls;
 mod contacts;
 mod datetime;
 mod format;
+#[allow(dead_code)]
+mod safari;
 mod sqlite_util;
 mod voice_memos;
 mod voicemail;
