@@ -14,6 +14,10 @@ mod sqlite_util;
 mod voice_memos;
 mod voicemail;
 mod voicemail_audio;
+// Built bottom-up: wired into the CLI in a later step; the allow is removed once
+// the `whatsapp` command consumes it.
+#[allow(dead_code)]
+mod whatsapp;
 #[cfg(test)]
 mod test_fixtures;
 
