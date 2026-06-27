@@ -312,9 +312,9 @@ stdout envelope:
   "command": "recover",
   "outputs": ["<OUT>/index.html", "<OUT>/contacts.html", "..."],
   "sections": [
-    { "data_type": "contacts", "label": "Kontakty", "file": "contacts.html", "count": 1234, "media": null },
-    { "data_type": "photos", "label": "Fotky a videa", "file": "photos.html", "count": 1240,
-      "media": { "dir": "photos", "extracted": 1238, "missing": 2 } }
+    { "type": "contacts", "file": "contacts.html", "count": 1234 },
+    { "type": "photos", "file": "photos.html", "count": 1240,
+      "files": { "dir": "photos", "extracted": 1238, "missing": 2 } }
   ],
   "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
 }

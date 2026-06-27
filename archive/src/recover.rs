@@ -16,18 +16,23 @@ pub struct RecoverMedia {
     pub missing: usize,
 }
 
-/// One recovered data type in the package.
+/// One recovered data type in the package. Serializes to the documented envelope
+/// shape (`type`/`count`/`file`/`files?`) — `label` is HTML-only and the media
+/// object is named `files` and omitted when absent, matching the other commands.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RecoverSection {
     /// Machine type, e.g. `contacts`.
+    #[serde(rename = "type")]
     pub data_type: String,
-    /// Human label for the index, e.g. `Kontakty`.
+    /// Human label for the index (HTML only, not part of the JSON API).
+    #[serde(skip)]
     pub label: String,
     /// HTML file written for this type, e.g. `contacts.html`.
     pub file: String,
     /// Item count.
     pub count: usize,
     /// Media folder details, when this type extracted files.
+    #[serde(rename = "files", skip_serializing_if = "Option::is_none")]
     pub media: Option<RecoverMedia>,
 }
 
@@ -121,6 +126,22 @@ mod tests {
         let html = render_index(&d, "2026-06-27T12:00:00+00:00", &sections());
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
+    }
+
+    #[test]
+    fn section_serializes_to_documented_api_shape() {
+        let v = serde_json::to_value(sections()).unwrap();
+        // Non-media section: `type`/`count`/`file`, no `files`, no `label`/`data_type`.
+        assert_eq!(v[0]["type"], "contacts");
+        assert_eq!(v[0]["count"], 1234);
+        assert_eq!(v[0]["file"], "contacts.html");
+        assert!(v[0].get("files").is_none());
+        assert!(v[0].get("label").is_none());
+        assert!(v[0].get("data_type").is_none());
+        // Media section: `files` object present.
+        assert_eq!(v[1]["type"], "photos");
+        assert_eq!(v[1]["files"]["extracted"], 1238);
+        assert_eq!(v[1]["files"]["missing"], 2);
     }
 
     #[test]
