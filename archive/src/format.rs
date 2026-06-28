@@ -629,6 +629,31 @@ pub fn apps_html(items: &[String]) -> String {
     AppsTemplate { apps: items }.render().unwrap()
 }
 
+// --- Timeline -------------------------------------------------------------
+
+pub fn timeline_csv(items: &[crate::timeline::Event]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["timestamp", "kind", "summary"]).unwrap();
+    for e in items {
+        wtr.write_record([e.timestamp.clone(), e.kind.clone(), e.summary.clone()]).unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn timeline_json(items: &[crate::timeline::Event]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "timeline.html")]
+struct TimelineTemplate<'a> {
+    events: &'a [crate::timeline::Event],
+}
+
+pub fn timeline_html(items: &[crate::timeline::Event]) -> String {
+    TimelineTemplate { events: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1266,5 +1291,14 @@ mod tests {
         assert!(apps_html(&apps).contains("com.acme.app"));
         assert!(apps_csv(&apps).contains("bundle_id"));
         assert!(apps_json(&apps).contains("net.example.tool"));
+
+        let events = vec![crate::timeline::Event {
+            timestamp: "2021-01-01T00:00:00+00:00".into(),
+            kind: "call".into(),
+            summary: "incoming +420 (5s)".into(),
+        }];
+        assert!(timeline_html(&events).contains("call"));
+        assert!(timeline_csv(&events).contains("timestamp,kind,summary"));
+        assert!(timeline_json(&events).contains("\"kind\""));
     }
 }

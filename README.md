@@ -12,8 +12,9 @@ portable formats:
 - **`archive`** — a full iOS-backup **recovery toolset**: contacts, calls,
   voicemail, voice memos, Safari, calendar, notes, photos & videos, message
   attachments, WhatsApp, iMessage/SMS/RCS transcripts, Health, Reminders, Mail,
-  and an installed-app inventory — plus a one-shot `recover` package, on-device
-  `backup` capture, and a backup `integrity` check (agent-first JSON output)
+  an installed-app inventory, and a unified chronological `timeline` — plus a
+  one-shot `recover` package, on-device `backup` capture, and a backup
+  `integrity` check (agent-first JSON output)
 - **`imessage-exporter`** — iMessage / SMS / RCS conversations and attachments
 
 ```bash
@@ -59,6 +60,7 @@ archive --backup ~/Backup/<UDID> -o out health          -f html  # workouts + qu
 archive --backup ~/Backup/<UDID> -o out reminders       -f html  # lists, items, due/completion
 archive --backup ~/Backup/<UDID> -o out mail            -f html  # local/POP3 .emlx (often empty on iOS)
 archive --backup ~/Backup/<UDID> -o out apps            -f json  # installed app bundle ids
+archive --backup ~/Backup/<UDID> -o out timeline        -f html  # everything merged chronologically
 ```
 
 The `messages` command drives the `imessage-exporter` binary (built in the same

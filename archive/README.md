@@ -63,6 +63,9 @@ archive --backup <backup-dir> -o <out> mail -f html
 
 # Installed third-party apps (bundle ids) from the backup manifest
 archive --backup <backup-dir> -o <out> apps -f json
+
+# Unified chronological timeline merging every in-process extractor
+archive --backup <backup-dir> -o <out> timeline -f html
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -92,4 +95,5 @@ written under `<out>/messages`.
 - [x] reminders — csv, json, html: lists, items, due/completion, priority (Core Data store)
 - [x] mail — csv, json, html: local/POP3 `.emlx` messages (best-effort; usually absent on iOS)
 - [x] apps — csv, json, html: installed third-party app bundle ids (manifest-derived)
+- [x] timeline — csv, json, html: every in-process extractor merged into one chronological stream
 - [ ] pdf output for the in-process extractors

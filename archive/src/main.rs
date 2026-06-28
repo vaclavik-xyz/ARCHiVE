@@ -15,6 +15,7 @@ mod recover;
 mod reminders;
 mod safari;
 mod sqlite_util;
+mod timeline;
 mod voice_memos;
 mod voicemail;
 mod voicemail_audio;
@@ -165,6 +166,12 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Merge every in-process extractor into one chronological timeline.
+    Timeline {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Run every extractor into <out>/ and write a customer index.html package.
     Recover {
         /// Skip large media extraction (metadata + HTML only).
@@ -265,6 +272,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Reminders { format } => run_reminders(&cli, password.as_deref(), format),
         Command::Mail { format } => run_mail(&cli, password.as_deref(), format),
         Command::Apps { format } => run_apps(&cli, password.as_deref(), format),
+        Command::Timeline { format } => run_timeline(&cli, password.as_deref(), format),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
@@ -915,6 +923,72 @@ fn run_apps(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_jso
     }))
 }
 
+// Merge every in-process extractor into one chronological timeline. Like
+// `recover`, each store is best-effort (absent/unreadable is logged and skipped).
+// A view over the other extractors, not a data store: standalone (not in
+// `inspect`/`recover`). Conversation text (`messages`) and the app inventory are
+// not event streams and are excluded.
+fn run_timeline(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "timeline")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export timeline"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let mut events: Vec<timeline::Event> = Vec::new();
+    if let Some(v) = opt_or_log(load_calls(&backup), "calls") {
+        events.extend(timeline::from_calls(&v));
+    }
+    if let Some(v) = opt_or_log(load_voicemail(&backup), "voicemail") {
+        events.extend(timeline::from_voicemail(&v));
+    }
+    if let Some(v) = opt_or_log(load_voice_memos(&backup), "voice-memos") {
+        events.extend(timeline::from_voice_memos(&v));
+    }
+    if let Some(v) = opt_or_log(load_safari_history(&backup), "safari-history") {
+        events.extend(timeline::from_safari_history(&v));
+    }
+    if let Some(v) = opt_or_log(load_calendar(&backup), "calendar") {
+        events.extend(timeline::from_calendar(&v));
+    }
+    if let Some(v) = opt_or_log(load_notes(&backup), "notes") {
+        events.extend(timeline::from_notes(&v));
+    }
+    if let Some(v) = opt_or_log(load_photos(&backup), "photos") {
+        events.extend(timeline::from_photos(&v));
+    }
+    if let Some(v) = opt_or_log(load_attachments(&backup), "attachments") {
+        events.extend(timeline::from_attachments(&v));
+    }
+    if let Some(v) = opt_or_log(load_whatsapp(&backup), "whatsapp") {
+        events.extend(timeline::from_whatsapp(&v));
+    }
+    if let Some(v) = opt_or_log(load_reminders(&backup), "reminders") {
+        events.extend(timeline::from_reminders(&v));
+    }
+    if let Some(d) = opt_or_log(load_health(&backup), "health") {
+        events.extend(timeline::from_workouts(&d.workouts));
+    }
+    if let Some(v) = opt_or_log(load_mail(&backup), "mail") {
+        events.extend(timeline::from_mail(&v));
+    }
+
+    let events = timeline::finalize(events);
+    let rendered = match format {
+        Format::Csv => format::timeline_csv(&events),
+        Format::Json => format::timeline_json(&events),
+        Format::Html => format::timeline_html(&events),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("timeline.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} timeline event(s) to {}", events.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "timeline", "count": events.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
 fn run_health(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "health")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export health"))?;
@@ -1086,11 +1160,14 @@ fn run_attachments(cli: &Cli, password: Option<&str>, format: &str, no_files: bo
 
 /// Turn a `load_*` result into an `Option`, logging (not aborting) on error so
 /// one unreadable store never aborts the whole recovery.
+// Best-effort store load shared by `recover` and `timeline`: an error is logged
+// to stderr (command-neutral, since both callers use it) and yields `None` so the
+// run continues; `Ok(None)` (store absent) also yields `None`.
 fn opt_or_log<T>(r: Result<Option<T>, AppError>, what: &str) -> Option<T> {
     match r {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("recover: skipping {what}: {}", e.message);
+            eprintln!("skipping {what}: {}", e.message);
             None
         }
     }
@@ -1607,6 +1684,8 @@ mod cli_tests {
         assert!(matches!(m.command, Command::Mail { format } if format == "html"));
         let a = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "apps", "-f", "csv"]).unwrap();
         assert!(matches!(a.command, Command::Apps { format } if format == "csv"));
+        let t = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "timeline", "-f", "json"]).unwrap();
+        assert!(matches!(t.command, Command::Timeline { format } if format == "json"));
     }
 
     #[test]
