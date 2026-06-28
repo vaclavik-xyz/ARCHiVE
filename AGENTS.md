@@ -317,6 +317,45 @@ from me), `from_me` (bool), `date` (ISO 8601 UTC), `text`, `media_file`
 `attachments`; `count` is total messages. No WhatsApp store → `count: 0`,
 `outputs: []`, plus a `note`.
 
+### `messages` — export iMessage/SMS/RCS conversation transcript
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> messages -f <FORMAT>
+```
+
+`FORMAT` is one of `txt | html | pdf` (an unsupported value is a usage error,
+exit 1, before anything else runs). Unlike the other commands, `archive` does
+**not** decode messages in-process: it drives the bundled `imessage-exporter`
+binary as a subprocess and writes the full transcript tree (per-conversation
+files plus an `attachments/` directory) under `<OUT>/messages/`.
+
+The exporter binary is resolved in this order: the `ARCHIVE_IMESSAGE_EXPORTER`
+env var (if set and non-empty) → a sibling of the running `archive` executable →
+the bare name `imessage-exporter` on `PATH`. A resolution/spawn failure is exit 1
+with a hint to build the workspace or set the env var.
+
+The backup is opened with `archive-core` first, so the auth contract holds: an
+encrypted backup without the right password fails with exit 2 **before** the
+subprocess starts. The password is forwarded to the exporter (`-x`) only for
+encrypted backups. The exporter's own progress is redirected to stderr so stdout
+stays a single JSON object.
+
+stdout envelope:
+
+```json
+{
+  "ok": true,
+  "command": "messages",
+  "format": "html",
+  "output": "<OUT>/messages",
+  "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
+}
+```
+
+The envelope points at the output directory rather than embedding message bodies
+(consistent with `backup`/`recover`). `inspect` lists `messages` as a supported
+store with `count: null` (extracted out-of-process; `present` tracks `sms.db`).
+
 ### `recover` — one-shot customer package
 
 ```
