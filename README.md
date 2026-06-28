@@ -34,7 +34,8 @@ types also extract the actual files (photos, videos, audio, attachments).
 archive --backup ~/Backup/<UDID> inspect
 archive --backup ~/Backup/<UDID> integrity
 
-# One-shot: recover everything into out/ with a customer-ready index.html
+# One-shot: recover every in-process extractor into out/ with a customer-ready
+# index.html (conversation transcripts are a separate `messages` command)
 archive --backup ~/Backup/<UDID> -o out recover        # --no-files for metadata only
 
 # Or capture a fresh backup from a USB-connected iPhone first (libimobiledevice)
