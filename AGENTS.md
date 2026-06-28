@@ -420,6 +420,23 @@ domains (each installed user app has one), sorted; `json` is a flat array of
 bundle-id strings. Manifest-derived, not a data store: **not** listed by
 `inspect` and **not** part of `recover`.
 
+### `timeline` — unified chronological timeline
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> timeline -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html`. Writes `<OUT>/timeline.<ext>`. Merges every
+in-process extractor (calls, voicemail, voice memos, Safari history, calendar,
+notes, photos, attachments, WhatsApp, reminders, Health workouts, mail) into one
+stream of events, each `{ timestamp (ISO 8601 UTC), kind, summary }`, sorted
+chronologically (undated records are dropped). Each source is best-effort: an
+absent or unreadable store is skipped, not fatal. A **view** over the other
+extractors, not a data store — like `apps`, it is **not** listed by `inspect`
+and **not** part of `recover`. `messages` (conversation text, exported out of
+process) and `apps` (not an event stream) are excluded. Envelope: `ok`,
+`command`, `count` (total events), `outputs`, `device`.
+
 ### `recover` — one-shot customer package
 
 ```
