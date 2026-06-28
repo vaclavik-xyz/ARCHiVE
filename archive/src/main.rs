@@ -317,7 +317,7 @@ fn load_contacts(
 
 fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = Format::from_cli(format)
-        .ok_or_else(|| AppError::usage(format!("unknown contacts format `{format}` (use csv, json, vcf, html)")))?;
+        .ok_or_else(|| AppError::usage(format!("unknown contacts format `{format}` (use csv, json, vcf, html, pdf)")))?;
 
     let out = cli
         .out
@@ -357,9 +357,9 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
 /// calls). Returns a usage `AppError` (exit 1) on a bad or unsupported format.
 fn calls_format(format: &str) -> Result<Format, AppError> {
     let f = Format::from_cli(format)
-        .ok_or_else(|| AppError::usage(format!("unknown calls format `{format}` (use csv, json, html)")))?;
+        .ok_or_else(|| AppError::usage(format!("unknown calls format `{format}` (use csv, json, html, pdf)")))?;
     if f == Format::Vcf {
-        return Err(AppError::usage("vcf is not a valid format for calls (use csv, json, html)"));
+        return Err(AppError::usage("vcf is not a valid format for calls (use csv, json, html, pdf)"));
     }
     Ok(f)
 }
@@ -416,9 +416,9 @@ fn run_calls(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
 /// Validate a `voicemail` format string: csv/json/html only.
 fn voicemail_format(format: &str) -> Result<Format, AppError> {
     let f = Format::from_cli(format)
-        .ok_or_else(|| AppError::usage(format!("unknown voicemail format `{format}` (use csv, json, html)")))?;
+        .ok_or_else(|| AppError::usage(format!("unknown voicemail format `{format}` (use csv, json, html, pdf)")))?;
     if f == Format::Vcf {
-        return Err(AppError::usage("vcf is not a valid format for voicemail (use csv, json, html)"));
+        return Err(AppError::usage("vcf is not a valid format for voicemail (use csv, json, html, pdf)"));
     }
     Ok(f)
 }
@@ -539,9 +539,9 @@ fn run_voicemail(
 /// Validate a `voice-memos` format string: csv/json/html only.
 fn voice_memos_format(format: &str) -> Result<Format, AppError> {
     let f = Format::from_cli(format)
-        .ok_or_else(|| AppError::usage(format!("unknown voice-memos format `{format}` (use csv, json, html)")))?;
+        .ok_or_else(|| AppError::usage(format!("unknown voice-memos format `{format}` (use csv, json, html, pdf)")))?;
     if f == Format::Vcf {
-        return Err(AppError::usage("vcf is not a valid format for voice-memos (use csv, json, html)"));
+        return Err(AppError::usage("vcf is not a valid format for voice-memos (use csv, json, html, pdf)"));
     }
     Ok(f)
 }
