@@ -28,7 +28,8 @@
 //! integrity-checks the key). Apple encrypts the payload with AES-256-GCM using a
 //! **blank IV** (J0 = all-zeros), which is exactly AES-256-CTR with the counter
 //! block starting at 1 (32-bit big-endian increment of the last four bytes). The
-//! GCM tag is not verified — the RFC 3394 unwrap already proves the key.
+//! trailing 16-byte GCM tag **is** verified before decrypting (a mismatch skips
+//! the item); under the blank IV the tag is `GHASH_H(ciphertext) XOR H`.
 //!
 //! The decrypted plaintext is an **ASN.1 DER** `SET OF SEQUENCE { UTF8String key,
 //! value }` — the item's real attributes. Wi-Fi items have `svce = "AirPort"` and
@@ -54,7 +55,7 @@ const GENP_KEY: &str = "genp";
 /// Only version-3 (AES-GCM) items are supported; older CBC items are skipped.
 const ITEM_VERSION_GCM: u32 = 3;
 
-/// AES-GCM authentication tag length (trailing bytes of the payload, not verified).
+/// AES-GCM authentication tag length (trailing 16 bytes of the payload; verified).
 const GCM_TAG_LEN: usize = 16;
 
 /// One recovered Wi-Fi credential: the network name and its plaintext password.
