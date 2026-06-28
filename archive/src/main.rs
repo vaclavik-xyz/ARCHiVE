@@ -745,6 +745,12 @@ fn load_mail(backup: &archive_core::Backup) -> Result<Option<Vec<mail::MailMessa
             }
         }
     }
+    // `.emlx` files existed but none yielded a message (corrupt/unsupported):
+    // treat as "no mail" so the caller emits the clear absent-store note rather
+    // than writing a zero-row file.
+    if messages.is_empty() {
+        return Ok(None);
+    }
     Ok(Some(messages))
 }
 
@@ -917,14 +923,14 @@ fn run_health(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_j
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
     let Some(data) = load_health(&backup)? else {
         return Ok(serde_json::json!({
-            "ok": true, "command": "health", "count": 0, "outputs": [],
-            "note": "this backup has no Health database", "device": device
+            "ok": true, "command": "health", "count": 0, "workouts": 0, "quantity_types": 0,
+            "outputs": [], "note": "this backup has no Health database", "device": device
         }));
     };
     if data.workouts.is_empty() && data.quantity_summary.is_empty() {
         return Ok(serde_json::json!({
-            "ok": true, "command": "health", "count": 0, "outputs": [],
-            "note": "Health database present but no workouts or known quantity samples",
+            "ok": true, "command": "health", "count": 0, "workouts": 0, "quantity_types": 0,
+            "outputs": [], "note": "Health database present but no workouts or known quantity samples",
             "device": device
         }));
     }
@@ -1609,6 +1615,9 @@ mod cli_tests {
             let s = KNOWN_STORES.iter().find(|(n, ..)| *n == name).unwrap();
             assert!(s.1, "{name} must be supported");
         }
+        // `apps` is manifest-derived, not a data store: it must NOT be advertised
+        // by inspect (keeps inspect/recover store coverage consistent).
+        assert!(KNOWN_STORES.iter().all(|(n, ..)| *n != "apps"), "apps must not be a store");
     }
 
     #[test]
