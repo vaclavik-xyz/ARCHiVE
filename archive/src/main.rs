@@ -963,7 +963,50 @@ fn carve_store(
         None => None,
     };
     let carved = archive_core::carve::carve_sqlite(&main_bytes, wal_bytes.as_deref());
-    Ok(recover_deleted::recover(store, &carved))
+    // Exclude rows still live in the current DB (esp. live cells captured in WAL
+    // frame images). Open the temp copy read-write so its -wal is applied,
+    // yielding the true current state to compare against.
+    let live = live_keys(&main_path, store);
+    Ok(recover_deleted::recover(store, &carved, &live))
+}
+
+/// Read the keys of rows still LIVE in `db_path` for `store`, used to reject
+/// carved candidates that are not actually deleted. Best-effort: any open/query
+/// failure (schema drift, locked db) yields empty keys (exclude nothing).
+fn live_keys(db_path: &std::path::Path, store: &str) -> recover_deleted::LiveKeys {
+    let mut keys = recover_deleted::LiveKeys::default();
+    let Ok(conn) = rusqlite::Connection::open(db_path) else {
+        return keys;
+    };
+    // Best-effort: a failed query (schema drift) leaves that key set empty.
+    let _ = match store {
+        "messages" => message_live_keys(&conn, &mut keys),
+        "calls" => rowid_live_keys(&conn, "SELECT Z_PK FROM ZCALLRECORD", &mut keys.rowids),
+        "contacts" => rowid_live_keys(&conn, "SELECT ROWID FROM ABPerson", &mut keys.rowids),
+        _ => Ok(()),
+    };
+    keys
+}
+
+fn message_live_keys(conn: &rusqlite::Connection, keys: &mut recover_deleted::LiveKeys) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare("SELECT ROWID, guid FROM message")?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?)))?;
+    for (rowid, guid) in rows.flatten() {
+        keys.rowids.insert(rowid);
+        if let Some(g) = guid {
+            keys.guids.insert(g);
+        }
+    }
+    Ok(())
+}
+
+fn rowid_live_keys(conn: &rusqlite::Connection, sql: &str, out: &mut std::collections::HashSet<i64>) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+    for id in rows.flatten() {
+        out.insert(id);
+    }
+    Ok(())
 }
 
 /// (store, domain, db relative path) for each carvable store.

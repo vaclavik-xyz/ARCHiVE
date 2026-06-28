@@ -454,6 +454,11 @@ GUID), `calls` (`CallHistory.storedata`, anchored by a Cocoa-seconds REAL date),
 `{ store, source (freelist|freeblock|unallocated|wal), rowid, date (ISO 8601 UTC
 or null), summary }`, sorted chronologically.
 
+Rows still **live** in the database are excluded (a carved candidate whose cell
+rowid — or, for messages, GUID — is still present in the live table is dropped),
+so the live rows that WAL page images inevitably contain are not misreported as
+deleted.
+
 **Best-effort and partial**: recoverability depends on whether SQLite has reused
 the space (VACUUM/auto_vacuum/page reuse and checkpointed WALs destroy remnants),
 and carved rows can include false positives. The envelope carries `count`,
