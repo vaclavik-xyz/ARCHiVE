@@ -178,6 +178,25 @@ impl Backup {
         Ok(paths)
     }
 
+    /// Distinct third-party app bundle identifiers installed on the device,
+    /// derived from the backup's per-app manifest domains (`AppDomain-<bundle id>`
+    /// — each installed user app gets one). Sorted, deduped. Read-only (manifest
+    /// scan only; decrypts nothing). App-group / system domains are excluded, as
+    /// they are containers shared between apps rather than apps themselves.
+    pub fn app_bundle_ids(&self) -> Result<Vec<String>, BackupError> {
+        let entries = self
+            .raw
+            .entries()
+            .map_err(|why| BackupError::Open(why.to_string()))?;
+        let mut ids = std::collections::BTreeSet::new();
+        for e in entries.iter() {
+            if let Some(id) = e.domain.strip_prefix("AppDomain-").filter(|id| !id.is_empty()) {
+                ids.insert(id.to_string());
+            }
+        }
+        Ok(ids.into_iter().collect())
+    }
+
     /// Verify the backup is complete: every regular-file manifest entry has its
     /// stored file on disk, and (for unencrypted backups only) the on-disk size
     /// matches the recorded size. `sample_cap` bounds each sample list. Read-only;

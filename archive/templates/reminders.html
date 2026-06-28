@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Připomínky</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}</style></head><body>
+<h1>Připomínky ({{ reminders.len() }})</h1>
+<table>
+<tr><th>Seznam</th><th>Název</th><th>Poznámky</th><th>Termín</th><th>Hotovo</th><th>Dokončeno</th><th>Priorita</th><th>Vytvořeno</th><th>Vlajka</th></tr>
+{% for r in reminders %}
+<tr><td>{{ r.list }}</td><td>{{ r.title }}</td><td>{{ r.notes }}</td>
+<td>{% if let Some(d) = r.due %}{{ d }}{% endif %}</td>
+<td>{{ r.completed }}</td>
+<td>{% if let Some(d) = r.completed_date %}{{ d }}{% endif %}</td>
+<td>{{ r.priority }}</td>
+<td>{% if let Some(d) = r.created %}{{ d }}{% endif %}</td>
+<td>{{ r.flagged }}</td></tr>
+{% endfor %}
+</table>
+</body></html>

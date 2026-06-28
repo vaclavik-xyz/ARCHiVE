@@ -206,6 +206,44 @@ pub fn make_calendar(path: &Path) {
     .unwrap();
 }
 
+/// Build a minimal real modern Reminders Core Data store (`Data-<UUID>.sqlite`)
+/// using single-table inheritance: one shared `ZREMCDOBJECT` holds both lists
+/// and reminders, distinguished by the `Z_ENT` discriminator and de-duplicated
+/// suffixed columns (`ZTITLE1` for reminder titles, `ZNAME2` for list names).
+/// A `Z_PRIMARYKEY` maps entity names to `Z_ENT` so the parser resolves the
+/// reminder discriminator by name (not a hard-coded integer). Two lists and
+/// three reminders (open with due+flagged, completed, high-priority open),
+/// across both lists. `Z*DATE` columns are the Cocoa/2001 epoch.
+pub fn make_reminders(path: &Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        // Core Data discriminator map. Z_ENT integers are arbitrary here on
+        // purpose — the parser must read them from Z_PRIMARYKEY by name.
+        "CREATE TABLE Z_PRIMARYKEY (Z_ENT INTEGER PRIMARY KEY, Z_NAME TEXT, Z_SUPER INTEGER, Z_MAX INTEGER);
+         INSERT INTO Z_PRIMARYKEY (Z_ENT, Z_NAME) VALUES
+            (7, 'REMCDReminder'), (25, 'REMCDList'), (30, 'REMCDSmartList');
+
+         CREATE TABLE ZREMCDOBJECT (
+            Z_PK INTEGER PRIMARY KEY, Z_ENT INTEGER,
+            ZTITLE1 TEXT, ZNOTES TEXT, ZDUEDATE REAL, ZCOMPLETED INTEGER,
+            ZCOMPLETIONDATE REAL, ZPRIORITY INTEGER, ZCREATIONDATE REAL,
+            ZFLAGGED INTEGER, ZLIST INTEGER, ZNAME2 TEXT);
+
+         -- Two lists (Z_ENT 25): names live in ZNAME2.
+         INSERT INTO ZREMCDOBJECT (Z_PK, Z_ENT, ZNAME2) VALUES
+            (1, 25, 'Nákup'),
+            (2, 25, 'Práce');
+
+         -- Three reminders (Z_ENT 7): titles in ZTITLE1, list FK in ZLIST.
+         INSERT INTO ZREMCDOBJECT
+            (Z_PK, Z_ENT, ZTITLE1, ZNOTES, ZDUEDATE, ZCOMPLETED, ZCOMPLETIONDATE, ZPRIORITY, ZCREATIONDATE, ZFLAGGED, ZLIST) VALUES
+            (10, 7, 'Koupit mléko', '2 litry', 600000000.0, 0, NULL, 1, 600000000.0, 1, 1),
+            (11, 7, 'Koupit chleba', NULL, NULL, 1, 600000100.0, 0, 600000050.0, 0, 1),
+            (12, 7, 'Zavolat doktorovi', NULL, NULL, 0, NULL, 9, 600000200.0, 0, 2);",
+    )
+    .unwrap();
+}
+
 /// Build a minimal real Voice Memos `CloudRecordings.db` (`ZCLOUDRECORDING`):
 /// a titled memo and an untitled one. `ZDATE` is the Cocoa/2001 epoch.
 pub fn make_voicememos(path: &Path) {

@@ -474,6 +474,161 @@ pub fn whatsapp_html(items: &[crate::whatsapp::WaMessage]) -> String {
     WhatsappTemplate { messages: items }.render().unwrap()
 }
 
+// --- Health ---------------------------------------------------------------
+
+pub fn health_workouts_csv(items: &[crate::health::Workout]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record([
+        "activity_type", "activity_type_id", "start", "end",
+        "duration_seconds", "total_distance", "total_energy_burned",
+    ])
+    .unwrap();
+    for w in items {
+        wtr.write_record([
+            w.activity_type.clone().unwrap_or_default(),
+            opt_num(w.activity_type_id),
+            w.start.clone(),
+            w.end.clone(),
+            opt_num(w.duration_seconds),
+            opt_num(w.total_distance),
+            opt_num(w.total_energy_burned),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn health_quantity_csv(items: &[crate::health::QuantitySummary]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["name", "data_type_id", "count", "sum", "min", "avg", "max", "first", "last"])
+        .unwrap();
+    for q in items {
+        wtr.write_record([
+            q.name.clone(),
+            q.data_type_id.to_string(),
+            q.count.to_string(),
+            opt_num(q.sum),
+            opt_num(q.min),
+            opt_num(q.avg),
+            opt_num(q.max),
+            q.first.clone(),
+            q.last.clone(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn health_json(data: &crate::health::HealthData) -> String {
+    serde_json::to_string_pretty(data).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "health.html")]
+struct HealthTemplate<'a> {
+    data: &'a crate::health::HealthData,
+}
+
+pub fn health_html(data: &crate::health::HealthData) -> String {
+    HealthTemplate { data }.render().unwrap()
+}
+
+// --- Reminders ------------------------------------------------------------
+
+pub fn reminders_csv(items: &[crate::reminders::Reminder]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record([
+        "list", "title", "notes", "due", "completed", "completed_date", "priority", "created", "flagged",
+    ])
+    .unwrap();
+    for r in items {
+        wtr.write_record([
+            r.list.clone(),
+            r.title.clone(),
+            r.notes.clone(),
+            r.due.clone().unwrap_or_default(),
+            r.completed.to_string(),
+            r.completed_date.clone().unwrap_or_default(),
+            r.priority.to_string(),
+            r.created.clone().unwrap_or_default(),
+            r.flagged.to_string(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn reminders_json(items: &[crate::reminders::Reminder]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "reminders.html")]
+struct RemindersTemplate<'a> {
+    reminders: &'a [crate::reminders::Reminder],
+}
+
+pub fn reminders_html(items: &[crate::reminders::Reminder]) -> String {
+    RemindersTemplate { reminders: items }.render().unwrap()
+}
+
+// --- Mail -----------------------------------------------------------------
+
+pub fn mail_csv(items: &[crate::mail::MailMessage]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["date", "from", "to", "subject", "snippet"]).unwrap();
+    for m in items {
+        wtr.write_record([
+            m.date.clone().unwrap_or_default(),
+            m.from.clone(),
+            m.to.clone(),
+            m.subject.clone(),
+            m.snippet.clone(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn mail_json(items: &[crate::mail::MailMessage]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "mail.html")]
+struct MailTemplate<'a> {
+    messages: &'a [crate::mail::MailMessage],
+}
+
+pub fn mail_html(items: &[crate::mail::MailMessage]) -> String {
+    MailTemplate { messages: items }.render().unwrap()
+}
+
+// --- Installed apps -------------------------------------------------------
+
+pub fn apps_csv(items: &[String]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["bundle_id"]).unwrap();
+    for id in items {
+        wtr.write_record([id]).unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn apps_json(items: &[String]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "apps.html")]
+struct AppsTemplate<'a> {
+    apps: &'a [String],
+}
+
+pub fn apps_html(items: &[String]) -> String {
+    AppsTemplate { apps: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1049,5 +1204,67 @@ mod tests {
         let out = contacts_vcard(&contacts);
         assert!(out.contains("FN:Firma s.r.o."));
         assert!(!out.contains("FN:\r\n"));
+    }
+
+    #[test]
+    fn renders_health_reminders_mail() {
+        let data = crate::health::HealthData {
+            workouts: vec![crate::health::Workout {
+                activity_type_id: Some(37),
+                activity_type: Some("running".into()),
+                start: "2024-01-01T10:00:00Z".into(),
+                end: "2024-01-01T10:30:00Z".into(),
+                duration_seconds: Some(1800),
+                total_distance: Some(5000.0),
+                total_energy_burned: Some(300.0),
+            }],
+            quantity_summary: vec![crate::health::QuantitySummary {
+                data_type_id: 7,
+                name: "step_count".into(),
+                count: 3,
+                sum: Some(12000.0),
+                min: None,
+                avg: None,
+                max: None,
+                first: "2024-01-01T00:00:00Z".into(),
+                last: "2024-01-03T00:00:00Z".into(),
+            }],
+        };
+        let html = health_html(&data);
+        assert!(html.contains("running") && html.contains("step_count"));
+        assert!(health_workouts_csv(&data.workouts).contains("running"));
+        assert!(health_quantity_csv(&data.quantity_summary).contains("step_count"));
+        assert!(health_json(&data).contains("\"workouts\""));
+
+        let reminders = vec![crate::reminders::Reminder {
+            list: "Nákup".into(),
+            title: "Mléko".into(),
+            notes: "2 l".into(),
+            due: Some("2024-01-02T09:00:00Z".into()),
+            completed: false,
+            completed_date: None,
+            priority: 1,
+            created: Some("2024-01-01T08:00:00Z".into()),
+            flagged: true,
+        }];
+        assert!(reminders_html(&reminders).contains("Mléko"));
+        assert!(reminders_csv(&reminders).contains("list,title,notes"));
+        assert!(reminders_json(&reminders).contains("\"title\""));
+
+        let mail = vec![crate::mail::MailMessage {
+            from: "a@x.cz".into(),
+            to: "b@y.cz".into(),
+            subject: "Ahoj".into(),
+            date: Some("2024-01-01T12:00:00Z".into()),
+            snippet: "text".into(),
+        }];
+        assert!(mail_html(&mail).contains("Ahoj"));
+        assert!(mail_csv(&mail).contains("date,from,to,subject,snippet"));
+        assert!(mail_json(&mail).contains("\"subject\""));
+
+        let apps = vec!["com.acme.app".to_string(), "net.example.tool".to_string()];
+        assert!(apps_html(&apps).contains("com.acme.app"));
+        assert!(apps_csv(&apps).contains("bundle_id"));
+        assert!(apps_json(&apps).contains("net.example.tool"));
     }
 }
