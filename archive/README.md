@@ -51,6 +51,18 @@ archive --backup <backup-dir> -o <out> whatsapp -f html
 
 # iMessage/SMS/RCS conversation transcript (drives the bundled imessage-exporter)
 archive --backup <backup-dir> -o <out> messages -f html   # txt | html | pdf
+
+# Apple Health: workouts + per-type quantity summaries (steps, heart rate, …)
+archive --backup <backup-dir> -o <out> health -f html
+
+# Apple Reminders (lists, items, due/completion, priority)
+archive --backup <backup-dir> -o <out> reminders -f html
+
+# Apple Mail (.emlx; iOS backs up mail only for local/POP3 mailboxes — often empty)
+archive --backup <backup-dir> -o <out> mail -f html
+
+# Installed third-party apps (bundle ids) from the backup manifest
+archive --backup <backup-dir> -o <out> apps -f json
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -76,4 +88,8 @@ written under `<out>/messages`.
 - [x] integrity — verify backup completeness (manifest file presence + size)
 - [x] whatsapp — csv, json, html transcript + media extraction
 - [x] messages — iMessage/SMS/RCS transcript (txt, html, pdf) via the bundled imessage-exporter
+- [x] health — csv, json, html: workouts + per-type quantity summaries (HealthDomain)
+- [x] reminders — csv, json, html: lists, items, due/completion, priority (Core Data store)
+- [x] mail — csv, json, html: local/POP3 `.emlx` messages (best-effort; usually absent on iOS)
+- [x] apps — csv, json, html: installed third-party app bundle ids (manifest-derived)
 - [ ] pdf output for the in-process extractors

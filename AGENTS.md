@@ -49,7 +49,10 @@ stdout:
     { "type": "notes", "present": true, "supported": true, "count": 87 },
     { "type": "photos", "present": true, "supported": true, "count": 1240 },
     { "type": "attachments", "present": true, "supported": true, "count": 312 },
-    { "type": "whatsapp", "present": true, "supported": true, "count": 5821 }
+    { "type": "whatsapp", "present": true, "supported": true, "count": 5821 },
+    { "type": "health", "present": true, "supported": true, "count": 9 },
+    { "type": "reminders", "present": true, "supported": true, "count": 64 },
+    { "type": "mail", "present": false, "supported": true, "count": null }
   ]
 }
 ```
@@ -356,6 +359,66 @@ The envelope points at the output directory rather than embedding message bodies
 (consistent with `backup`/`recover`). `messages` is **not** part of the `recover`
 one-shot package and is **not** listed by `inspect` (presence of message data is
 already visible via the `attachments` store, which reads the same `sms.db`).
+
+### `health` — export Apple Health
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> health -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html`. Reads `HealthDomain/Health/healthdb_secure.sqlite`.
+Two sections: **workouts** (`activity_type` friendly name + raw `activity_type_id`,
+`start`/`end` ISO 8601 UTC, `duration_seconds`, `total_distance` in meters,
+`total_energy_burned` in kcal) and a **quantity summary** per known type
+(`data_type_id`, `name`, `count`, `sum`, `min`/`avg`/`max`, `first`/`last` ISO
+date range) for step count, distance, heart rate, active/basal energy, flights.
+Handles both the legacy denormalized `workouts` schema and the modern split
+(`samples` + `workout_activities`); unknown quantity types are skipped. `csv`
+writes **two** files (`health-workouts.csv`, `health-quantity.csv`); `json`/`html`
+write one (`health.json` / `health.html`). Envelope carries `count` (workouts +
+quantity types), `workouts`, `quantity_types`, and `outputs`. No Health DB →
+`count: 0` + note; present-but-empty → `count: 0` + note.
+
+### `reminders` — export Apple Reminders
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> reminders -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html`. Writes `<OUT>/reminders.<ext>`. Reads the
+Reminders Core Data store under `AppDomainGroup-group.com.apple.reminders` (a
+`Data-<UUID>.sqlite` located by shape, not a fixed name). Per reminder: `list`,
+`title`, `notes`, `due` (ISO 8601 UTC or null), `completed` (bool),
+`completed_date` (or null), `priority` (raw int; Apple uses 1/5/9), `created`
+(or null), `flagged` (bool). Version-dependent `Z`-tables/columns are discovered
+at runtime (the `Z_ENT` discriminator is resolved from `Z_PRIMARYKEY` by name).
+No store → `count: 0` + note.
+
+### `mail` — export Apple Mail (`.emlx`)
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> mail -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html`. Writes `<OUT>/mail.<ext>`. Enumerates `.emlx`
+files under `MailDomain` and parses each (RFC 822 headers, RFC 2047
+encoded-words; snippet from the first `text/plain` part, capped). Per message:
+`date` (ISO 8601 UTC or null), `from`, `to`, `subject`, `snippet`. **iOS backs
+up mail only for local / POP3 / "On My iPhone" mailboxes**, so for most backups
+this reports `count: 0` + a note. The snippet is a preview (no body
+transfer-encoding decoding).
+
+### `apps` — list installed apps
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> apps -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html`. Writes `<OUT>/apps.<ext>`. Lists distinct
+third-party app bundle ids derived from the manifest's `AppDomain-<bundle id>`
+domains (each installed user app has one), sorted; `json` is a flat array of
+bundle-id strings. Manifest-derived, not a data store: **not** listed by
+`inspect` and **not** part of `recover`.
 
 ### `recover` — one-shot customer package
 
