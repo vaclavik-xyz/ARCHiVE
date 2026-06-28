@@ -66,6 +66,9 @@ archive --backup <backup-dir> -o <out> apps -f json
 
 # Unified chronological timeline merging every in-process extractor
 archive --backup <backup-dir> -o <out> timeline -f html
+
+# Recover DELETED rows by carving freed SQLite pages/WAL (best-effort)
+archive --backup <backup-dir> -o <out> recover-deleted -f html   # --store messages|calls|contacts|all
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -96,4 +99,5 @@ written under `<out>/messages`.
 - [x] mail — csv, json, html: local/POP3 `.emlx` messages (best-effort; usually absent on iOS)
 - [x] apps — csv, json, html: installed third-party app bundle ids (manifest-derived)
 - [x] timeline — csv, json, html: every in-process extractor merged into one chronological stream
+- [x] recover-deleted — csv, json, html: carve DELETED rows (messages/calls/contacts) from freed SQLite pages (+ WAL for messages) (best-effort)
 - [ ] pdf output for the in-process extractors

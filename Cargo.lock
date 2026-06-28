@@ -135,6 +135,9 @@ name = "archive-core"
 version = "0.0.0"
 dependencies = [
  "crabapple",
+ "rusqlite",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 

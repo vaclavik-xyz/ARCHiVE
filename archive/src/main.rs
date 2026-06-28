@@ -12,6 +12,7 @@ mod messages;
 mod notes;
 mod photos;
 mod recover;
+mod recover_deleted;
 mod reminders;
 mod safari;
 mod sqlite_util;
@@ -172,6 +173,16 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Recover DELETED rows from backup SQLite databases by carving freed
+    /// pages/freeblocks/WAL (best-effort). `--store`: messages, calls, contacts, all.
+    RecoverDeleted {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+        /// Which store(s) to carve: messages | calls | contacts | all.
+        #[arg(long, default_value = "all")]
+        store: String,
+    },
     /// Run every extractor into <out>/ and write a customer index.html package.
     Recover {
         /// Skip large media extraction (metadata + HTML only).
@@ -273,6 +284,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Mail { format } => run_mail(&cli, password.as_deref(), format),
         Command::Apps { format } => run_apps(&cli, password.as_deref(), format),
         Command::Timeline { format } => run_timeline(&cli, password.as_deref(), format),
+        Command::RecoverDeleted { format, store } => run_recover_deleted(&cli, password.as_deref(), format, store),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
@@ -920,6 +932,134 @@ fn run_apps(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_jso
     Ok(serde_json::json!({
         "ok": true, "command": "apps", "count": apps.len(),
         "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+// Carve one store's database (+ its `-wal` sidecar) for deleted rows. `Ok(empty)`
+// when the database is absent from the backup. The WAL often holds the freshest
+// pre-deletion page images; an absent sidecar is fine.
+fn carve_store(
+    backup: &archive_core::Backup,
+    domain: &str,
+    db_rel: &str,
+    store: &str,
+) -> Result<Vec<recover_deleted::DeletedRecord>, AppError> {
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let main_tmp = scratch.path().join("db.sqlite");
+    let Some(main_path) = backup
+        .fetch(domain, db_rel, &main_tmp)
+        .map_err(|e| AppError::other(e.to_string()))?
+    else {
+        return Ok(Vec::new());
+    };
+    let main_bytes = std::fs::read(&main_path).map_err(|e| AppError::other(e.to_string()))?;
+    let wal_tmp = scratch.path().join("db.sqlite-wal");
+    let wal_rel = format!("{db_rel}-wal");
+    let wal_bytes = match backup
+        .fetch(domain, &wal_rel, &wal_tmp)
+        .map_err(|e| AppError::other(e.to_string()))?
+    {
+        Some(p) => Some(std::fs::read(&p).map_err(|e| AppError::other(e.to_string()))?),
+        None => None,
+    };
+    let carved = archive_core::carve::carve_sqlite(&main_bytes, wal_bytes.as_deref());
+    // Exclude rows still live in the current DB (esp. live cells captured in WAL
+    // frame images). Open the temp copy read-write so its -wal is applied,
+    // yielding the true current state to compare against.
+    let live = live_keys(&main_path, store);
+    Ok(recover_deleted::recover(store, &carved, &live))
+}
+
+/// Read the keys of rows still LIVE in `db_path` for `store`, used to reject
+/// carved candidates that are not actually deleted. Best-effort: any open/query
+/// failure (schema drift, locked db) yields empty keys (exclude nothing).
+fn live_keys(db_path: &std::path::Path, store: &str) -> recover_deleted::LiveKeys {
+    let mut keys = recover_deleted::LiveKeys::default();
+    let Ok(conn) = rusqlite::Connection::open(db_path) else {
+        return keys;
+    };
+    // Best-effort: a failed query (schema drift) leaves that key set empty.
+    let _ = match store {
+        "messages" => message_live_keys(&conn, &mut keys),
+        "calls" => rowid_live_keys(&conn, "SELECT Z_PK FROM ZCALLRECORD", &mut keys.rowids),
+        "contacts" => rowid_live_keys(&conn, "SELECT ROWID FROM ABPerson", &mut keys.rowids),
+        _ => Ok(()),
+    };
+    keys
+}
+
+fn message_live_keys(conn: &rusqlite::Connection, keys: &mut recover_deleted::LiveKeys) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare("SELECT ROWID, guid FROM message")?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?)))?;
+    for (rowid, guid) in rows.flatten() {
+        keys.rowids.insert(rowid);
+        if let Some(g) = guid {
+            keys.guids.insert(g);
+        }
+    }
+    Ok(())
+}
+
+fn rowid_live_keys(conn: &rusqlite::Connection, sql: &str, out: &mut std::collections::HashSet<i64>) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+    for id in rows.flatten() {
+        out.insert(id);
+    }
+    Ok(())
+}
+
+/// (store, domain, db relative path) for each carvable store.
+const CARVE_STORES: &[(&str, &str, &str)] = &[
+    ("messages", "HomeDomain", "Library/SMS/sms.db"),
+    ("calls", "HomeDomain", "Library/CallHistoryDB/CallHistory.storedata"),
+    ("contacts", "HomeDomain", "Library/AddressBook/AddressBook.sqlitedb"),
+];
+
+fn run_recover_deleted(cli: &Cli, password: Option<&str>, format: &str, store: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "recover-deleted")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export recovered records"))?;
+    // Resolve --store before opening the backup so a bad value is a clean usage error.
+    let selected: Vec<&(&str, &str, &str)> = match store {
+        "all" => CARVE_STORES.iter().collect(),
+        s => match CARVE_STORES.iter().find(|(name, ..)| *name == s) {
+            Some(entry) => vec![entry],
+            None => return Err(AppError::usage(format!("unknown store `{s}` (use messages, calls, contacts, all)"))),
+        },
+    };
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let mut all: Vec<recover_deleted::DeletedRecord> = Vec::new();
+    let mut per_store: Vec<serde_json::Value> = Vec::new();
+    for (name, domain, rel) in selected {
+        let recovered = carve_store(&backup, domain, rel, name)?;
+        eprintln!("recover-deleted: {name}: {} candidate(s)", recovered.len());
+        per_store.push(serde_json::json!({ "store": name, "recovered": recovered.len() }));
+        all.extend(recovered);
+    }
+    // Chronological view: dated rows first (ascending), then undated; ties by store.
+    all.sort_by(|a, b| match (a.date.as_deref(), b.date.as_deref()) {
+        (Some(x), Some(y)) => x.cmp(y).then_with(|| a.store.cmp(&b.store)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.store.cmp(&b.store),
+    });
+
+    let rendered = match format {
+        Format::Csv => format::deleted_csv(&all),
+        Format::Json => format::deleted_json(&all),
+        Format::Html => format::deleted_html(&all),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("deleted.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} recovered record(s) to {}", all.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "recover-deleted", "count": all.len(),
+        "stores": per_store, "outputs": [out_file.to_string_lossy()], "device": device,
+        "note": "best-effort: recovered deleted rows are partial (limited by SQLite page reuse/VACUUM) and may include false positives"
     }))
 }
 
@@ -1686,6 +1826,22 @@ mod cli_tests {
         assert!(matches!(a.command, Command::Apps { format } if format == "csv"));
         let t = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "timeline", "-f", "json"]).unwrap();
         assert!(matches!(t.command, Command::Timeline { format } if format == "json"));
+    }
+
+    #[test]
+    fn parses_recover_deleted_with_store_default_and_explicit() {
+        let d = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "recover-deleted", "-f", "html"]).unwrap();
+        assert!(matches!(d.command, Command::RecoverDeleted { ref format, ref store } if format == "html" && store == "all"));
+        let m = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "recover-deleted", "-f", "csv", "--store", "messages"]).unwrap();
+        assert!(matches!(m.command, Command::RecoverDeleted { ref store, .. } if store == "messages"));
+    }
+
+    #[test]
+    fn recover_deleted_rejects_unknown_store() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "recover-deleted", "-f", "json", "--store", "photos"]).unwrap();
+        let err = run_recover_deleted(&cli, None, "json", "photos").unwrap_err();
+        assert_eq!(err.kind, "usage");
+        assert_eq!(err.code, 1);
     }
 
     #[test]

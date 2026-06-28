@@ -437,6 +437,36 @@ and **not** part of `recover`. `messages` (conversation text, exported out of
 process) and `apps` (not an event stream) are excluded. Envelope: `ok`,
 `command`, `count` (total events), `outputs`, `device`.
 
+### `recover-deleted` — carve deleted SQLite rows
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> recover-deleted -f <FORMAT> [--store messages|calls|contacts|all]
+```
+
+`FORMAT` is `csv | json | html`; `--store` defaults to `all` (an unknown value is
+a usage error, exit 1). Writes `<OUT>/deleted.<ext>`. Recovers **deleted** rows
+from the backup's SQLite databases by carving freed regions — freelist pages,
+in-page freeblocks, the unallocated gap, and the `-wal` sidecar — with a generic
+schema-less parser (`archive-core::carve`), then attributes each carved record to
+a store via heuristic signatures: `messages` (`sms.db`, anchored by a 36-char
+GUID), `calls` (`CallHistory.storedata`, anchored by a Cocoa-seconds REAL date),
+`contacts` (`AddressBook.sqlitedb`, name texts — softest). Each output row is
+`{ store, source (freelist|freeblock|unallocated|wal), rowid, date (ISO 8601 UTC
+or null), summary }`, sorted chronologically.
+
+Rows still **live** in the database are excluded (a carved candidate whose cell
+rowid — or, for messages, GUID — is still present in the live table is dropped).
+Because `-wal` frames are full page images mixing live and deleted cells, and
+calls/contacts lack a strong content anchor, **`calls` and `contacts` ignore WAL
+candidates entirely** (their deletions still surface from the main file's free
+regions); `messages` use the GUID anchor and do recover from the WAL.
+
+**Best-effort and partial**: recoverability depends on whether SQLite has reused
+the space (VACUUM/auto_vacuum/page reuse and checkpointed WALs destroy remnants),
+and carved rows can include false positives. The envelope carries `count`,
+`stores: [{store, recovered}]`, `outputs`, `device`, and a `note` stating this.
+Read-only; never writes to the backup. Absent databases are skipped.
+
 ### `recover` — one-shot customer package
 
 ```
