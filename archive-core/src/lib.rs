@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use crabapple::error::BackupError as CrabError;
 use crabapple::{Authentication, Backup as RawBackup};
 
+pub mod carve;
+
 /// Errors from opening or reading a backup.
 #[derive(Debug)]
 pub enum BackupError {

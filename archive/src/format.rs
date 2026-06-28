@@ -654,6 +654,38 @@ pub fn timeline_html(items: &[crate::timeline::Event]) -> String {
     TimelineTemplate { events: items }.render().unwrap()
 }
 
+// --- Recovered deleted records --------------------------------------------
+
+pub fn deleted_csv(items: &[crate::recover_deleted::DeletedRecord]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["store", "source", "rowid", "date", "summary"]).unwrap();
+    for d in items {
+        wtr.write_record([
+            d.store.clone(),
+            d.source.clone(),
+            d.rowid.map(|r| r.to_string()).unwrap_or_default(),
+            d.date.clone().unwrap_or_default(),
+            d.summary.clone(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn deleted_json(items: &[crate::recover_deleted::DeletedRecord]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "deleted.html")]
+struct DeletedTemplate<'a> {
+    records: &'a [crate::recover_deleted::DeletedRecord],
+}
+
+pub fn deleted_html(items: &[crate::recover_deleted::DeletedRecord]) -> String {
+    DeletedTemplate { records: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1300,5 +1332,16 @@ mod tests {
         assert!(timeline_html(&events).contains("call"));
         assert!(timeline_csv(&events).contains("timestamp,kind,summary"));
         assert!(timeline_json(&events).contains("\"kind\""));
+
+        let deleted = vec![crate::recover_deleted::DeletedRecord {
+            store: "messages".into(),
+            source: "wal".into(),
+            rowid: Some(12),
+            date: Some("2020-01-06T10:40:00+00:00".into()),
+            summary: "ahoj".into(),
+        }];
+        assert!(deleted_html(&deleted).contains("ahoj"));
+        assert!(deleted_csv(&deleted).contains("store,source,rowid,date,summary"));
+        assert!(deleted_json(&deleted).contains("\"store\""));
     }
 }
