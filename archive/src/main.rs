@@ -6,6 +6,7 @@ mod contacts;
 mod datetime;
 mod device_backup;
 mod format;
+mod messages;
 mod notes;
 mod photos;
 mod recover;
@@ -130,6 +131,13 @@ enum Command {
         #[arg(long)]
         no_files: bool,
     },
+    /// Export iMessage/SMS/RCS conversations (txt, html, pdf) by driving the
+    /// bundled imessage-exporter; writes a transcript tree under <out>/messages.
+    Messages {
+        /// Output format: txt, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Run every extractor into <out>/ and write a customer index.html package.
     Recover {
         /// Skip large media extraction (metadata + HTML only).
@@ -225,6 +233,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Photos { format, no_files } => run_photos(&cli, password.as_deref(), format, *no_files),
         Command::Attachments { format, no_files } => run_attachments(&cli, password.as_deref(), format, *no_files),
         Command::Whatsapp { format, no_files } => run_whatsapp(&cli, password.as_deref(), format, *no_files),
+        Command::Messages { format } => run_messages(&cli, password.as_deref(), format),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
@@ -1051,6 +1060,76 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     }))
 }
 
+// Drive the bundled `imessage-exporter` binary to export conversation
+// transcripts. `archive` does not re-implement message decoding; it orchestrates
+// the mature exporter and translates the result into the agent contract.
+fn run_messages(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    // Validate the format before anything else so a bad value is a clean usage
+    // error (exit 1) rather than a child-process failure.
+    let fmt = messages::normalize_format(format)
+        .ok_or_else(|| AppError::usage(format!("unknown messages format `{format}` (use txt, html, pdf)")))?;
+    let out = cli
+        .out
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--out is required for messages"))?;
+    let backup_dir = cli
+        .backup
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--backup <DIR> is required"))?;
+
+    // Open with archive-core first: this enforces the auth contract (an encrypted
+    // backup without the right password fails here with exit 2), yields device
+    // info for the envelope, and reports encryption — all before we shell out.
+    // Because both layers share crabapple, a password that opens the backup here
+    // also decrypts it in the exporter.
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    let encrypted = backup.is_encrypted();
+
+    // Namespace the exporter's output tree so reusing `-o` for other commands
+    // does not collide with it. The exporter creates this directory itself, but
+    // creating it up front keeps the path well-defined for the envelope.
+    let export_dir = out.join("messages");
+    std::fs::create_dir_all(&export_dir).map_err(|e| AppError::other(e.to_string()))?;
+
+    let exporter = messages::resolve_exporter();
+    let args = messages::messages_args(backup_dir, &export_dir, fmt, encrypted, password);
+
+    eprintln!("Exporting messages ({fmt}) to {} …", export_dir.display());
+    // Forward the exporter's stdout progress to OUR stderr so the agent contract
+    // (exactly one JSON object on stdout) holds; its stderr inherits to ours.
+    // Draining the single piped stream then waiting cannot deadlock.
+    let mut child = std::process::Command::new(&exporter)
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            AppError::other(format!(
+                "could not run `{}` ({e}); build the workspace (cargo build --release) \
+                 or set {} to the imessage-exporter binary",
+                exporter.to_string_lossy(),
+                messages::EXPORTER_ENV
+            ))
+        })?;
+    if let Some(child_out) = child.stdout.take() {
+        let mut reader = std::io::BufReader::new(child_out);
+        let _ = std::io::copy(&mut reader, &mut std::io::stderr());
+    }
+    let status = child
+        .wait()
+        .map_err(|e| AppError::other(format!("running {}: {e}", messages::EXPORTER_TOOL)))?;
+    if !status.success() {
+        return Err(AppError::other(format!("{} failed ({status})", messages::EXPORTER_TOOL)));
+    }
+
+    eprintln!("Messages exported to {}", export_dir.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "messages",
+        "format": fmt, "output": export_dir.to_string_lossy(),
+        "device": device
+    }))
+}
+
 fn run_backup(cli: &Cli, password: Option<&str>, full: bool) -> Result<serde_json::Value, AppError> {
     use device_backup::{backup_args, parse_udids, tool_available, BACKUP_TOOL, DEVICE_TOOL};
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required for backup"))?;
@@ -1176,6 +1255,10 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("calendar", true, "HomeDomain", "Library/Calendar/Calendar.sqlitedb"),
     ("notes", true, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
     ("photos", true, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
+    // `messages` is intentionally not listed here: it is exported out-of-process
+    // by the `messages` command, not by `recover` (which runs the in-process
+    // extractors). The presence of message data is already visible via the
+    // `attachments` row below — both read the same `sms.db`.
     ("attachments", true, "HomeDomain", "Library/SMS/sms.db"),
     ("whatsapp", true, "AppDomainGroup-group.net.whatsapp.WhatsApp.shared", "ChatStorage.sqlite"),
 ];
@@ -1244,6 +1327,33 @@ mod cli_tests {
             Command::Contacts { format } => assert_eq!(format, "vcf"),
             _ => panic!("expected Contacts"),
         }
+    }
+
+    #[test]
+    fn parses_messages_invocation() {
+        let cli = Cli::try_parse_from([
+            "archive", "--backup", "/b", "-o", "/out", "messages", "-f", "html",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Messages { format } => assert_eq!(format, "html"),
+            _ => panic!("expected Messages"),
+        }
+    }
+
+    #[test]
+    fn messages_rejects_unsupported_format() {
+        // Format is validated before the backup is opened, so an unsupported
+        // value is a usage error (exit 1) without touching `--backup`.
+        let cli =
+            Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "messages", "-f", "csv"])
+                .unwrap();
+        let err = match run_messages(&cli, None, "csv") {
+            Err(e) => e,
+            Ok(_) => panic!("expected a usage error for an unsupported format"),
+        };
+        assert_eq!(err.kind, "usage");
+        assert_eq!(err.code, 1);
     }
 
     #[test]

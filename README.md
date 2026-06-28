@@ -11,8 +11,9 @@ portable formats:
 
 - **`archive`** — a full iOS-backup **recovery toolset**: contacts, calls,
   voicemail, voice memos, Safari, calendar, notes, photos & videos, message
-  attachments, and WhatsApp — plus a one-shot `recover` package, on-device
-  `backup` capture, and a backup `integrity` check (agent-first JSON output)
+  attachments, WhatsApp, and iMessage/SMS/RCS transcripts — plus a one-shot
+  `recover` package, on-device `backup` capture, and a backup `integrity` check
+  (agent-first JSON output)
 - **`imessage-exporter`** — iMessage / SMS / RCS conversations and attachments
 
 ```bash
@@ -33,7 +34,8 @@ types also extract the actual files (photos, videos, audio, attachments).
 archive --backup ~/Backup/<UDID> inspect
 archive --backup ~/Backup/<UDID> integrity
 
-# One-shot: recover everything into out/ with a customer-ready index.html
+# One-shot: recover every in-process extractor into out/ with a customer-ready
+# index.html (conversation transcripts are a separate `messages` command)
 archive --backup ~/Backup/<UDID> -o out recover        # --no-files for metadata only
 
 # Or capture a fresh backup from a USB-connected iPhone first (libimobiledevice)
@@ -51,7 +53,12 @@ archive --backup ~/Backup/<UDID> -o out notes           -f html  # body decoded 
 archive --backup ~/Backup/<UDID> -o out photos          -f html  # gallery: albums, hidden, Live/burst, GPS
 archive --backup ~/Backup/<UDID> -o out attachments     -f html  # Messages media gallery
 archive --backup ~/Backup/<UDID> -o out whatsapp        -f html  # transcript + media
+archive --backup ~/Backup/<UDID> -o out messages        -f html  # iMessage/SMS/RCS transcript (txt|html|pdf)
 ```
+
+The `messages` command drives the `imessage-exporter` binary (built in the same
+workspace, found next to `archive` or on `PATH`, or via
+`ARCHIVE_IMESSAGE_EXPORTER`) and writes the transcript under `<out>/messages`.
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 The canonical, machine-readable contract (every command's flags, envelope, and

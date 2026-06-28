@@ -48,9 +48,17 @@ archive --backup <backup-dir> -o <out> attachments -f html
 
 # WhatsApp messages + media (--no-files for transcript only)
 archive --backup <backup-dir> -o <out> whatsapp -f html
+
+# iMessage/SMS/RCS conversation transcript (drives the bundled imessage-exporter)
+archive --backup <backup-dir> -o <out> messages -f html   # txt | html | pdf
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
+
+`messages` drives the `imessage-exporter` binary built alongside `archive`. It
+is found next to the `archive` executable or on `PATH`; set
+`ARCHIVE_IMESSAGE_EXPORTER` to point at it explicitly. The transcript tree is
+written under `<out>/messages`.
 
 ## Status
 
@@ -63,8 +71,9 @@ Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 - [x] notes — csv, json, html (body decoded from gzip+protobuf, snippet fallback)
 - [x] photos — csv, json, html gallery + file extraction; albums, hidden, Live/burst, edited, GPS, original name/title
 - [x] attachments — csv, json, html gallery + Messages attachment file extraction
-- [x] recover — one-shot: all extractors + customer index.html (device sheet + links)
+- [x] recover — one-shot: all in-process extractors + customer index.html (device sheet + links; excludes `messages`)
 - [x] backup — create a fresh backup from a connected iPhone (libimobiledevice)
 - [x] integrity — verify backup completeness (manifest file presence + size)
 - [x] whatsapp — csv, json, html transcript + media extraction
-- [ ] pdf output · iMessage text export
+- [x] messages — iMessage/SMS/RCS transcript (txt, html, pdf) via the bundled imessage-exporter
+- [ ] pdf output for the in-process extractors
