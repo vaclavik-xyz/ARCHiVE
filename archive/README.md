@@ -69,6 +69,9 @@ archive --backup <backup-dir> -o <out> timeline -f html
 
 # Recover DELETED rows by carving freed SQLite pages/WAL (best-effort)
 archive --backup <backup-dir> -o <out> recover-deleted -f html   # --store messages|calls|contacts|all
+
+# Recover saved Wi-Fi passwords from the keychain (ENCRYPTED backups only)
+archive --backup <backup-dir> --password <pw> -o <out> wifi -f html
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -105,4 +108,5 @@ written under `<out>/messages`.
 - [x] apps — csv, json, html: installed third-party app bundle ids (manifest-derived)
 - [x] timeline — csv, json, html: every in-process extractor merged into one chronological stream
 - [x] recover-deleted — csv, json, html: carve DELETED rows (messages/calls/contacts) from freed SQLite pages (+ WAL for messages) (best-effort)
+- [x] wifi — csv, json, html: recover saved Wi-Fi passwords from the keychain (encrypted backups only; passwords in plaintext)
 - [x] pdf output — `-f pdf` on every HTML-bearing command, rendered from the HTML via a headless browser
