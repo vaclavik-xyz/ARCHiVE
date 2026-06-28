@@ -73,6 +73,11 @@ archive --backup <backup-dir> -o <out> recover-deleted -f html   # --store messa
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 
+The in-process HTML commands also accept `-f pdf`: their HTML is rendered to PDF
+with a headless Chrome/Chromium/Edge (auto-detected, or pass `--chrome-path`; a
+missing browser is a usage error). `messages -f pdf` goes through the bundled
+imessage-exporter instead (its own PDF engine); the `recover` package stays HTML.
+
 `messages` drives the `imessage-exporter` binary built alongside `archive`. It
 is found next to the `archive` executable or on `PATH`; set
 `ARCHIVE_IMESSAGE_EXPORTER` to point at it explicitly. The transcript tree is
@@ -100,4 +105,4 @@ written under `<out>/messages`.
 - [x] apps — csv, json, html: installed third-party app bundle ids (manifest-derived)
 - [x] timeline — csv, json, html: every in-process extractor merged into one chronological stream
 - [x] recover-deleted — csv, json, html: carve DELETED rows (messages/calls/contacts) from freed SQLite pages (+ WAL for messages) (best-effort)
-- [ ] pdf output for the in-process extractors
+- [x] pdf output — `-f pdf` on every HTML-bearing command, rendered from the HTML via a headless browser

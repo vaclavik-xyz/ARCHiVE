@@ -19,9 +19,23 @@ archive --backup <DIR> [--password <PW>] [-o <OUT>] <COMMAND> [ARGS]
   unencrypted backups. Headless runs never prompt.
 - `-o, --out <OUT>`: output directory. Required for export commands; ignored by
   `inspect`.
+- `--chrome-path <PATH>` (optional): headless browser for `-f pdf` (see below).
 
-`--password` and `--out` are global flags — they may appear before **or** after
-the subcommand name, which is agent-friendly for programmatic invocation.
+`--password`, `--out`, and `--chrome-path` are global flags — they may appear
+before **or** after the subcommand name, which is agent-friendly for programmatic
+invocation.
+
+**PDF output:** the **in-process** export commands that list `html` (contacts,
+calls, voicemail, voice-memos, safari-history/bookmarks, calendar, reminders,
+mail, notes, photos, attachments, whatsapp, timeline, recover-deleted, health,
+apps) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
+headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
+with `--chrome-path`; a missing browser is a usage error, exit 1), with the JSON
+envelope unchanged (`outputs` points at the `.pdf`). `messages -f pdf` is produced
+**separately** by the bundled imessage-exporter using its own PDF engine (Quartz
+on macOS, a headless browser elsewhere; `--chrome-path` is forwarded), and keeps
+the messages envelope (`output` directory). The `recover` one-shot package has no
+`-f pdf` and stays HTML.
 
 ## Commands
 

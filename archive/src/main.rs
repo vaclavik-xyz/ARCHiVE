@@ -10,6 +10,7 @@ mod health;
 mod mail;
 mod messages;
 mod notes;
+mod pdf;
 mod photos;
 mod recover;
 mod recover_deleted;
@@ -43,6 +44,9 @@ struct Cli {
     /// Output directory (required for export commands; unused by `inspect`).
     #[arg(long, short = 'o', global = true)]
     out: Option<PathBuf>,
+    /// Path to a headless Chrome/Chromium/Edge for `-f pdf` (auto-detected if omitted).
+    #[arg(long, global = true)]
+    chrome_path: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -313,7 +317,7 @@ fn load_contacts(
 
 fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = Format::from_cli(format)
-        .ok_or_else(|| AppError::usage(format!("unknown contacts format `{format}` (use csv, json, vcf, html)")))?;
+        .ok_or_else(|| AppError::usage(format!("unknown contacts format `{format}` (use csv, json, vcf, html, pdf)")))?;
 
     let out = cli
         .out
@@ -336,10 +340,10 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
         Format::Csv => format::contacts_csv(&people),
         Format::Json => format::contacts_json(&people),
         Format::Vcf => format::contacts_vcard(&people),
-        Format::Html => format::contacts_html(&people),
+        Format::Html | Format::Pdf => format::contacts_html(&people),
     };
     let out_file = out.join(format!("contacts.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     // Human progress to stderr; the machine-readable result goes to stdout.
     eprintln!("Wrote {} contact(s) to {}", people.len(), out_file.display());
 
@@ -353,9 +357,9 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
 /// calls). Returns a usage `AppError` (exit 1) on a bad or unsupported format.
 fn calls_format(format: &str) -> Result<Format, AppError> {
     let f = Format::from_cli(format)
-        .ok_or_else(|| AppError::usage(format!("unknown calls format `{format}` (use csv, json, html)")))?;
+        .ok_or_else(|| AppError::usage(format!("unknown calls format `{format}` (use csv, json, html, pdf)")))?;
     if f == Format::Vcf {
-        return Err(AppError::usage("vcf is not a valid format for calls (use csv, json, html)"));
+        return Err(AppError::usage("vcf is not a valid format for calls (use csv, json, html, pdf)"));
     }
     Ok(f)
 }
@@ -396,11 +400,11 @@ fn run_calls(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
     let rendered = match format {
         Format::Csv => format::calls_csv(&calls),
         Format::Json => format::calls_json(&calls),
-        Format::Html => format::calls_html(&calls),
+        Format::Html | Format::Pdf => format::calls_html(&calls),
         Format::Vcf => unreachable!("calls_format rejects vcf"),
     };
     let out_file = out.join(format!("calls.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} call(s) to {}", calls.len(), out_file.display());
 
     Ok(serde_json::json!({
@@ -412,9 +416,9 @@ fn run_calls(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
 /// Validate a `voicemail` format string: csv/json/html only.
 fn voicemail_format(format: &str) -> Result<Format, AppError> {
     let f = Format::from_cli(format)
-        .ok_or_else(|| AppError::usage(format!("unknown voicemail format `{format}` (use csv, json, html)")))?;
+        .ok_or_else(|| AppError::usage(format!("unknown voicemail format `{format}` (use csv, json, html, pdf)")))?;
     if f == Format::Vcf {
-        return Err(AppError::usage("vcf is not a valid format for voicemail (use csv, json, html)"));
+        return Err(AppError::usage("vcf is not a valid format for voicemail (use csv, json, html, pdf)"));
     }
     Ok(f)
 }
@@ -504,11 +508,11 @@ fn run_voicemail(
     let rendered = match format {
         Format::Csv => format::voicemail_csv(&items),
         Format::Json => format::voicemail_json(&items),
-        Format::Html => format::voicemail_html(&items),
+        Format::Html | Format::Pdf => format::voicemail_html(&items),
         Format::Vcf => unreachable!("voicemail_format rejects vcf"),
     };
     let out_file = out.join(format!("voicemail.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} voicemail(s) to {}", items.len(), out_file.display());
 
     let mut envelope = serde_json::json!({
@@ -535,9 +539,9 @@ fn run_voicemail(
 /// Validate a `voice-memos` format string: csv/json/html only.
 fn voice_memos_format(format: &str) -> Result<Format, AppError> {
     let f = Format::from_cli(format)
-        .ok_or_else(|| AppError::usage(format!("unknown voice-memos format `{format}` (use csv, json, html)")))?;
+        .ok_or_else(|| AppError::usage(format!("unknown voice-memos format `{format}` (use csv, json, html, pdf)")))?;
     if f == Format::Vcf {
-        return Err(AppError::usage("vcf is not a valid format for voice-memos (use csv, json, html)"));
+        return Err(AppError::usage("vcf is not a valid format for voice-memos (use csv, json, html, pdf)"));
     }
     Ok(f)
 }
@@ -633,11 +637,11 @@ fn run_voice_memos(
     let rendered = match format {
         Format::Csv => format::voice_memos_csv(&items),
         Format::Json => format::voice_memos_json(&items),
-        Format::Html => format::voice_memos_html(&items),
+        Format::Html | Format::Pdf => format::voice_memos_html(&items),
         Format::Vcf => unreachable!("voice_memos_format rejects vcf"),
     };
     let out_file = out.join(format!("voice-memos.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} voice memo(s) to {}", items.len(), out_file.display());
 
     let mut envelope = serde_json::json!({
@@ -659,11 +663,44 @@ fn run_voice_memos(
 /// Validate a csv/json/html export format (rejecting vcf) for `command`.
 fn export_format(format: &str, command: &str) -> Result<Format, AppError> {
     let f = Format::from_cli(format)
-        .ok_or_else(|| AppError::usage(format!("unknown {command} format `{format}` (use csv, json, html)")))?;
+        .ok_or_else(|| AppError::usage(format!("unknown {command} format `{format}` (use csv, json, html, pdf)")))?;
     if f == Format::Vcf {
-        return Err(AppError::usage(format!("vcf is not a valid format for {command} (use csv, json, html)")));
+        return Err(AppError::usage(format!("vcf is not a valid format for {command} (use csv, json, html, pdf)")));
     }
     Ok(f)
+}
+
+// Write `rendered` to `out_file`. For PDF, `rendered` is the HTML the `Html`
+// variant produces: it is written to a temp file *inside the output dir* (so any
+// relative media siblings resolve under a `file://` root), printed to the `.pdf`
+// via a headless browser, then removed. A missing browser is a usage error.
+fn write_or_pdf(
+    out_file: &std::path::Path,
+    rendered: &str,
+    format: Format,
+    chrome: Option<&std::path::Path>,
+) -> Result<(), AppError> {
+    if format != Format::Pdf {
+        return std::fs::write(out_file, rendered).map_err(|e| AppError::other(e.to_string()));
+    }
+    let parent = out_file.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let stem = out_file
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "output".into());
+    let tmp_html = parent.join(format!(".{stem}.pdf.html"));
+    std::fs::write(&tmp_html, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    let outcome = match pdf::resolve_browser(chrome) {
+        Some(browser) => {
+            eprintln!("Rendering PDF with {} …", browser.display());
+            pdf::html_to_pdf(&browser, &tmp_html, out_file).map_err(|e| AppError::other(e.to_string()))
+        }
+        None => Err(AppError::usage(
+            "no headless browser found (install Chrome/Chromium/Edge, or pass --chrome-path <PATH>)",
+        )),
+    };
+    let _ = std::fs::remove_file(&tmp_html);
+    outcome
 }
 
 /// Fetch + parse a single SQLite store into memory via a secure auto-cleaned temp
@@ -789,11 +826,11 @@ fn run_safari_history(cli: &Cli, password: Option<&str>, format: &str) -> Result
     let rendered = match format {
         Format::Csv => format::safari_history_csv(&items),
         Format::Json => format::safari_history_json(&items),
-        Format::Html => format::safari_history_html(&items),
+        Format::Html | Format::Pdf => format::safari_history_html(&items),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("safari-history.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} history visit(s) to {}", items.len(), out_file.display());
     Ok(serde_json::json!({
         "ok": true, "command": "safari-history", "count": items.len(),
@@ -816,11 +853,11 @@ fn run_safari_bookmarks(cli: &Cli, password: Option<&str>, format: &str) -> Resu
     let rendered = match format {
         Format::Csv => format::safari_bookmarks_csv(&items),
         Format::Json => format::safari_bookmarks_json(&items),
-        Format::Html => format::safari_bookmarks_html(&items),
+        Format::Html | Format::Pdf => format::safari_bookmarks_html(&items),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("safari-bookmarks.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} bookmark(s) to {}", items.len(), out_file.display());
     Ok(serde_json::json!({
         "ok": true, "command": "safari-bookmarks", "count": items.len(),
@@ -843,11 +880,11 @@ fn run_calendar(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     let rendered = match format {
         Format::Csv => format::calendar_csv(&items),
         Format::Json => format::calendar_json(&items),
-        Format::Html => format::calendar_html(&items),
+        Format::Html | Format::Pdf => format::calendar_html(&items),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("calendar.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} event(s) to {}", items.len(), out_file.display());
     Ok(serde_json::json!({
         "ok": true, "command": "calendar", "count": items.len(),
@@ -870,11 +907,11 @@ fn run_reminders(cli: &Cli, password: Option<&str>, format: &str) -> Result<serd
     let rendered = match format {
         Format::Csv => format::reminders_csv(&items),
         Format::Json => format::reminders_json(&items),
-        Format::Html => format::reminders_html(&items),
+        Format::Html | Format::Pdf => format::reminders_html(&items),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("reminders.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} reminder(s) to {}", items.len(), out_file.display());
     Ok(serde_json::json!({
         "ok": true, "command": "reminders", "count": items.len(),
@@ -898,11 +935,11 @@ fn run_mail(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_jso
     let rendered = match format {
         Format::Csv => format::mail_csv(&items),
         Format::Json => format::mail_json(&items),
-        Format::Html => format::mail_html(&items),
+        Format::Html | Format::Pdf => format::mail_html(&items),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("mail.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} mail message(s) to {}", items.len(), out_file.display());
     Ok(serde_json::json!({
         "ok": true, "command": "mail", "count": items.len(),
@@ -923,11 +960,11 @@ fn run_apps(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_jso
     let rendered = match format {
         Format::Csv => format::apps_csv(&apps),
         Format::Json => format::apps_json(&apps),
-        Format::Html => format::apps_html(&apps),
+        Format::Html | Format::Pdf => format::apps_html(&apps),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("apps.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} installed app(s) to {}", apps.len(), out_file.display());
     Ok(serde_json::json!({
         "ok": true, "command": "apps", "count": apps.len(),
@@ -1050,11 +1087,11 @@ fn run_recover_deleted(cli: &Cli, password: Option<&str>, format: &str, store: &
     let rendered = match format {
         Format::Csv => format::deleted_csv(&all),
         Format::Json => format::deleted_json(&all),
-        Format::Html => format::deleted_html(&all),
+        Format::Html | Format::Pdf => format::deleted_html(&all),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("deleted.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} recovered record(s) to {}", all.len(), out_file.display());
     Ok(serde_json::json!({
         "ok": true, "command": "recover-deleted", "count": all.len(),
@@ -1117,11 +1154,11 @@ fn run_timeline(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     let rendered = match format {
         Format::Csv => format::timeline_csv(&events),
         Format::Json => format::timeline_json(&events),
-        Format::Html => format::timeline_html(&events),
+        Format::Html | Format::Pdf => format::timeline_html(&events),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("timeline.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} timeline event(s) to {}", events.len(), out_file.display());
     Ok(serde_json::json!({
         "ok": true, "command": "timeline", "count": events.len(),
@@ -1165,9 +1202,9 @@ fn run_health(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_j
             std::fs::write(&f, format::health_json(&data)).map_err(|e| AppError::other(e.to_string()))?;
             vec![f]
         }
-        Format::Html => {
-            let f = out.join("health.html");
-            std::fs::write(&f, format::health_html(&data)).map_err(|e| AppError::other(e.to_string()))?;
+        Format::Html | Format::Pdf => {
+            let f = out.join(format!("health.{}", format.extension()));
+            write_or_pdf(&f, &format::health_html(&data), format, cli.chrome_path.as_deref())?;
             vec![f]
         }
         Format::Vcf => unreachable!("export_format rejects vcf"),
@@ -1202,11 +1239,11 @@ fn run_notes(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
     let rendered = match format {
         Format::Csv => format::notes_csv(&items),
         Format::Json => format::notes_json(&items),
-        Format::Html => format::notes_html(&items),
+        Format::Html | Format::Pdf => format::notes_html(&items),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("notes.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} note(s) to {}", items.len(), out_file.display());
     Ok(serde_json::json!({
         "ok": true, "command": "notes", "count": items.len(),
@@ -1236,11 +1273,11 @@ fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -
     let rendered = match format {
         Format::Csv => format::photos_csv(&items),
         Format::Json => format::photos_json(&items),
-        Format::Html => format::photos_html(&items),
+        Format::Html | Format::Pdf => format::photos_html(&items),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("photos.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} asset(s) to {}", items.len(), out_file.display());
 
     let mut envelope = serde_json::json!({
@@ -1278,11 +1315,11 @@ fn run_attachments(cli: &Cli, password: Option<&str>, format: &str, no_files: bo
     let rendered = match format {
         Format::Csv => format::attachments_csv(&items),
         Format::Json => format::attachments_json(&items),
-        Format::Html => format::attachments_html(&items),
+        Format::Html | Format::Pdf => format::attachments_html(&items),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("attachments.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} attachment(s) to {}", items.len(), out_file.display());
 
     let mut envelope = serde_json::json!({
@@ -1382,11 +1419,11 @@ fn run_whatsapp(cli: &Cli, password: Option<&str>, format: &str, no_files: bool)
     let rendered = match format {
         Format::Csv => format::whatsapp_csv(&items),
         Format::Json => format::whatsapp_json(&items),
-        Format::Html => format::whatsapp_html(&items),
+        Format::Html | Format::Pdf => format::whatsapp_html(&items),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("whatsapp.{}", format.extension()));
-    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} WhatsApp message(s) to {}", items.len(), out_file.display());
 
     let mut envelope = serde_json::json!({
@@ -1545,7 +1582,7 @@ fn run_messages(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     std::fs::create_dir_all(&export_dir).map_err(|e| AppError::other(e.to_string()))?;
 
     let exporter = messages::resolve_exporter();
-    let args = messages::messages_args(backup_dir, &export_dir, fmt, encrypted, password);
+    let args = messages::messages_args(backup_dir, &export_dir, fmt, encrypted, password, cli.chrome_path.as_deref());
 
     eprintln!("Exporting messages ({fmt}) to {} …", export_dir.display());
     // Forward the exporter's stdout progress to OUR stderr so the agent contract
@@ -1842,6 +1879,18 @@ mod cli_tests {
         let err = run_recover_deleted(&cli, None, "json", "photos").unwrap_err();
         assert_eq!(err.kind, "usage");
         assert_eq!(err.code, 1);
+    }
+
+    #[test]
+    fn write_or_pdf_writes_plain_for_non_pdf_formats() {
+        // The non-PDF path is a plain file write (no browser); the PDF path is
+        // exercised manually (it needs a headless browser, absent in CI).
+        let dir = std::env::temp_dir().join(format!("be-wop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("x.csv");
+        write_or_pdf(&f, "a,b\n1,2\n", Format::Csv, None).unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "a,b\n1,2\n");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

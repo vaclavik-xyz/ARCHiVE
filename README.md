@@ -28,8 +28,11 @@ cargo build --release   # binaries: target/release/{archive, imessage-exporter}
 
 An **agent-first** extractor: every command prints exactly one JSON object to
 stdout, human progress goes to stderr, and exit codes are stable. Export formats
-are `csv` / `json` / `vcf` / `html` depending on the data type; media-bearing
-types also extract the actual files (photos, videos, audio, attachments).
+are `csv` / `json` / `vcf` / `html` depending on the data type; the per-type
+export commands also render **`pdf`** via a headless Chrome/Chromium/Edge (the
+`messages` transcript renders PDF through the bundled exporter instead; the
+`recover` package stays HTML). Media-bearing types also extract the actual files
+(photos, videos, audio, attachments).
 
 ```bash
 # Triage a backup (read-only): what's in it, and is it complete?
