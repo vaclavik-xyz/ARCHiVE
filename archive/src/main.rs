@@ -1160,11 +1160,14 @@ fn run_attachments(cli: &Cli, password: Option<&str>, format: &str, no_files: bo
 
 /// Turn a `load_*` result into an `Option`, logging (not aborting) on error so
 /// one unreadable store never aborts the whole recovery.
+// Best-effort store load shared by `recover` and `timeline`: an error is logged
+// to stderr (command-neutral, since both callers use it) and yields `None` so the
+// run continues; `Ok(None)` (store absent) also yields `None`.
 fn opt_or_log<T>(r: Result<Option<T>, AppError>, what: &str) -> Option<T> {
     match r {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("recover: skipping {what}: {}", e.message);
+            eprintln!("skipping {what}: {}", e.message);
             None
         }
     }
