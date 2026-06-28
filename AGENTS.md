@@ -426,14 +426,16 @@ bundle-id strings. Manifest-derived, not a data store: **not** listed by
 archive --backup <DIR> [--password <PW>] -o <OUT> recover [--no-files]
 ```
 
-Runs **every in-process extractor** in one shot into `<OUT>/`, writing one HTML
-file per data type plus the media folders, plus a customer-facing
+Runs **every in-process data-store extractor** in one shot into `<OUT>/`, writing
+one HTML file per data type plus the media folders, plus a customer-facing
 `<OUT>/index.html` landing page (device sheet — name, model, serial, iOS, UDID —
 and a table linking each export with counts). The backup is opened once.
 `--no-files` skips the large media extraction (metadata + HTML only). A store
 absent from the backup is skipped; one unreadable store is logged and skipped, not
-fatal. iMessage/SMS/RCS **conversation transcripts are not included** — run the
-standalone `messages` command for those.
+fatal. Two things are **not** in the package: iMessage/SMS/RCS conversation
+transcripts (run the standalone `messages` command) and the installed-app
+inventory (run `apps`) — the first is a subprocess export, the second is
+manifest-derived rather than a data store.
 
 stdout envelope:
 
