@@ -127,7 +127,7 @@ fn decrypt_item(blob: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Option<Vec<u
     let wrapped = blob.get(12..12usize.checked_add(wrap_len)?)?;
     let ct = blob.get(12 + wrap_len..)?;
     let item_key = aes_kw_unwrap(class_key, wrapped)?;
-    apple_ctr_decrypt(&item_key, ct)
+    apple_gcm_decrypt(&item_key, ct)
 }
 
 /// RFC 3394 unwrap of a 32-byte AES-256 per-item key. The unwrap validates the
@@ -149,23 +149,33 @@ fn aes_kw_unwrap(class_key: &[u8], wrapped: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// Decrypt Apple keychain GCM ciphertext (`edata` = ciphertext ‖ 16-byte tag)
-/// with the 32-byte item key. Apple uses a blank GCM IV (J0 = all zeros), which
-/// reduces to AES-256-CTR with the counter block starting at 1 (32-bit big-endian
-/// increment of the last four bytes). The tag is not verified — the per-item key
-/// was already integrity-checked by the RFC 3394 unwrap. Never panics.
-fn apple_ctr_decrypt(key32: &[u8], edata: &[u8]) -> Option<Vec<u8>> {
-    let ct = edata.get(..edata.len().checked_sub(GCM_TAG_LEN)?)?;
+/// with the 32-byte item key. Apple uses a blank GCM IV (J0 = all zeros), so the
+/// keystream reduces to AES-256-CTR with the counter block starting at 1. The
+/// AES-GCM tag **is** verified before decrypting; a tag mismatch (corruption or
+/// tampering) yields `None`. Never panics.
+fn apple_gcm_decrypt(key32: &[u8], edata: &[u8]) -> Option<Vec<u8>> {
+    let split = edata.len().checked_sub(GCM_TAG_LEN)?;
+    let ct = edata.get(..split)?;
+    let tag = edata.get(split..)?;
     let cipher = Aes256::new_from_slice(key32).ok()?;
+    if blank_iv_gcm_tag(&cipher, ct).as_slice() != tag {
+        return None;
+    }
+    Some(ctr_apply(&cipher, ct))
+}
+
+/// AES-256-CTR keystream XOR with the counter block starting at 1 (32-bit
+/// big-endian increment of the last four bytes). Symmetric: encrypt == decrypt.
+fn ctr_apply(cipher: &Aes256, data: &[u8]) -> Vec<u8> {
     let mut counter = [0u8; 16];
     counter[15] = 1;
-    let mut out = ct.to_vec();
+    let mut out = data.to_vec();
     for chunk in out.chunks_mut(16) {
         let mut block = aes::cipher::array::Array::from(counter);
         cipher.encrypt_block(&mut block);
         for (b, k) in chunk.iter_mut().zip(block.0.iter()) {
             *b ^= *k;
         }
-        // 32-bit big-endian increment of the last four counter bytes.
         for i in (12..16).rev() {
             counter[i] = counter[i].wrapping_add(1);
             if counter[i] != 0 {
@@ -173,7 +183,28 @@ fn apple_ctr_decrypt(key32: &[u8], edata: &[u8]) -> Option<Vec<u8>> {
             }
         }
     }
-    Some(out)
+    out
+}
+
+/// The AES-256-GCM tag over `ct` (no AAD) under Apple's blank IV. With J0 =
+/// `0^128`, the hash subkey `H = E(0)` and the tag mask `E(J0) = E(0)` coincide,
+/// so the tag is `GHASH_H(ct) XOR H`.
+fn blank_iv_gcm_tag(cipher: &Aes256, ct: &[u8]) -> [u8; 16] {
+    use ghash::GHash;
+    use ghash::universal_hash::UniversalHash;
+    let mut h = aes::cipher::array::Array::from([0u8; 16]);
+    cipher.encrypt_block(&mut h);
+    let mut ghash = GHash::new(&h);
+    ghash.update_padded(ct);
+    let mut len_block = [0u8; 16];
+    len_block[8..].copy_from_slice(&(ct.len() as u64).wrapping_mul(8).to_be_bytes());
+    ghash.update(&[len_block.into()]);
+    let s = ghash.finalize();
+    let mut tag = [0u8; 16];
+    for (t, (sb, hb)) in tag.iter_mut().zip(s.iter().zip(h.0.iter())) {
+        *t = sb ^ hb;
+    }
+    tag
 }
 
 /// Minimal, bounds-checked ASN.1 DER reader for the decrypted keychain item: a
@@ -268,22 +299,19 @@ mod tests {
         out.extend(body);
         out
     }
-    fn ctr_xor(key32: &[u8], data: &[u8]) -> Vec<u8> {
-        // apple_ctr_decrypt strips a 16-byte tag then CTR-xors the rest, so feed
-        // it `data ‖ 16 dummy bytes` to obtain the CTR transform of `data`.
-        let mut padded = data.to_vec();
-        padded.extend([0u8; 16]);
-        apple_ctr_decrypt(key32, &padded).unwrap()
-    }
     fn kw_wrap(kek: &[u8], key: &[u8]) -> Vec<u8> {
         let k = KwAes256::new_from_slice(kek).unwrap();
         let mut out = vec![0u8; key.len() + 8];
         k.wrap_key(key, &mut out).unwrap();
         out
     }
+    /// Build a genp item the same way iOS does: CTR-encrypt the DER, append the
+    /// real blank-IV GCM tag, prepend the version/class/wraplen + wrapped key.
     fn make_item(class_id: u32, class_key: &[u8], item_key: &[u8], attrs: &[(&str, &str)]) -> Value {
         let der = build_der(attrs);
-        let ct = ctr_xor(item_key, &der);
+        let cipher = Aes256::new_from_slice(item_key).unwrap();
+        let ct = ctr_apply(&cipher, &der);
+        let tag = blank_iv_gcm_tag(&cipher, &ct);
         let wrapped = kw_wrap(class_key, item_key);
         let mut blob = Vec::new();
         blob.extend(3u32.to_le_bytes());
@@ -291,7 +319,18 @@ mod tests {
         blob.extend((wrapped.len() as u32).to_le_bytes());
         blob.extend(&wrapped);
         blob.extend(&ct);
-        blob.extend([0u8; 16]); // dummy tag (not verified)
+        blob.extend(tag);
+        let mut d = Dictionary::new();
+        d.insert("v_Data".into(), Value::Data(blob));
+        Value::Dictionary(d)
+    }
+    /// Like [`make_item`] but flips one ciphertext byte so the GCM tag no longer
+    /// verifies (the wrapped key is still valid).
+    fn make_tampered_item(class_id: u32, class_key: &[u8], item_key: &[u8], attrs: &[(&str, &str)]) -> Value {
+        let item = make_item(class_id, class_key, item_key, attrs);
+        let mut blob = item.as_dictionary().unwrap().get("v_Data").unwrap().as_data().unwrap().to_vec();
+        // Byte just past the 12-byte header + 40-byte wrapped key = first ct byte.
+        blob[52] ^= 0xff;
         let mut d = Dictionary::new();
         d.insert("v_Data".into(), Value::Data(blob));
         Value::Dictionary(d)
@@ -358,6 +397,16 @@ mod tests {
         let item = make_item(CLASS, &CK, &IK, &[("svce", "AirPort"), ("acct", "Net"), ("agrp", "apple"), ("v_Data", "pw")]);
         // class key for CLASS not provided.
         let keys: HashMap<u32, Vec<u8>> = HashMap::new();
+        assert!(extract_wifi(&keychain_plist(vec![item]), &keys).is_empty());
+    }
+
+    #[test]
+    fn tampered_ciphertext_fails_tag_and_skips() {
+        let item = make_tampered_item(CLASS, &CK, &IK, &[("svce", "AirPort"), ("acct", "Net"), ("agrp", "apple"), ("v_Data", "pw")]);
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        // The wrapped key still unwraps, but the flipped ciphertext fails the GCM
+        // tag, so the item is skipped rather than parsed into garbage.
         assert!(extract_wifi(&keychain_plist(vec![item]), &keys).is_empty());
     }
 
