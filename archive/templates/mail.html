@@ -7,7 +7,7 @@ th{background:#f5f5f5}</style></head><body>
 <table>
 <tr><th>Datum</th><th>Od</th><th>Komu</th><th>Předmět</th><th>Úryvek</th></tr>
 {% for m in messages %}
-<tr><td>{% if let Some(d) = m.date %}{{ d }}{% endif %}</td>
+<tr><td>{% if let Some(d) = m.date.as_ref() %}{{ d }}{% endif %}</td>
 <td>{{ m.from }}</td><td>{{ m.to }}</td><td>{{ m.subject }}</td><td>{{ m.snippet }}</td></tr>
 {% endfor %}
 </table>

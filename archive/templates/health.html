@@ -9,7 +9,7 @@ th{background:#f5f5f5}</style></head><body>
 <table>
 <tr><th>Aktivita</th><th>Začátek</th><th>Konec</th><th>Trvání (s)</th><th>Vzdálenost (m)</th><th>Energie (kcal)</th></tr>
 {% for w in data.workouts %}
-<tr><td>{% if let Some(a) = w.activity_type %}{{ a }}{% else %}{% if let Some(id) = w.activity_type_id %}#{{ id }}{% endif %}{% endif %}</td>
+<tr><td>{% if let Some(a) = w.activity_type.as_ref() %}{{ a }}{% else %}{% if let Some(id) = w.activity_type_id %}#{{ id }}{% endif %}{% endif %}</td>
 <td>{{ w.start }}</td><td>{{ w.end }}</td>
 <td>{% if let Some(d) = w.duration_seconds %}{{ d }}{% endif %}</td>
 <td>{% if let Some(d) = w.total_distance %}{{ d }}{% endif %}</td>

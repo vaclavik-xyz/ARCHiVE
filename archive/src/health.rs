@@ -193,23 +193,27 @@ fn parse_workouts(conn: &Connection) -> rusqlite::Result<Vec<Workout>> {
     };
 
     // `workout_activities` (iOS 16+). One owner can have several activity rows;
-    // pick the primary/earliest deterministically with MIN(...) GROUP BY owner.
-    let (a_join, a_activity, a_duration, a_start, a_end) = if has_acts {
-        (
+    // collapse to one per owner with aggregates. Every aggregate column is
+    // version-dependent, so each is emitted as `NULL` inside the subquery when
+    // its column is absent (a drifted table with the join key but missing data
+    // columns still yields partial rows instead of a query error). The join is
+    // skipped entirely when the `owner_id` key itself is absent.
+    let (a_join, a_activity, a_duration, a_start, a_end) = if has_acts && a.contains("owner_id") {
+        let agg_start = if a.contains("start_date") { "MIN(start_date)" } else { "NULL" };
+        let agg_end = if a.contains("end_date") { "MAX(end_date)" } else { "NULL" };
+        let agg_duration = if a.contains("duration") { "SUM(duration)" } else { "NULL" };
+        let agg_activity = if a.contains("activity_type") { "MIN(activity_type)" } else { "NULL" };
+        let join = format!(
             " LEFT JOIN (SELECT owner_id, \
-               MIN(ROWID) AS _r, \
-               MIN(start_date) AS a_start, \
-               MAX(end_date) AS a_end, \
-               SUM(duration) AS a_duration, \
-               MIN(activity_type) AS a_activity \
-             FROM workout_activities GROUP BY owner_id) wa ON wa.owner_id = w.data_id",
-            if a.contains("activity_type") { "wa.a_activity" } else { "NULL" },
-            if a.contains("duration") { "wa.a_duration" } else { "NULL" },
-            if a.contains("start_date") { "wa.a_start" } else { "NULL" },
-            if a.contains("end_date") { "wa.a_end" } else { "NULL" },
-        )
+               {agg_start} AS a_start, \
+               {agg_end} AS a_end, \
+               {agg_duration} AS a_duration, \
+               {agg_activity} AS a_activity \
+             FROM workout_activities GROUP BY owner_id) wa ON wa.owner_id = w.data_id"
+        );
+        (join, "wa.a_activity", "wa.a_duration", "wa.a_start", "wa.a_end")
     } else {
-        ("", "NULL", "NULL", "NULL", "NULL")
+        (String::new(), "NULL", "NULL", "NULL", "NULL")
     };
 
     // Order by whichever start is available (legacy workouts, then samples, then
@@ -561,6 +565,37 @@ mod tests {
         assert_eq!(w.total_distance, Some(1234.5));
         assert_eq!(w.total_energy_burned, None);
         assert!(data.quantity_summary.is_empty()); // no samples/quantity_samples
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn tolerates_workout_activities_missing_columns() {
+        // `workout_activities` EXISTS but lacks `duration` and `activity_type`
+        // (schema drift). The subquery must emit those aggregates as NULL rather
+        // than reference absent columns, so parsing still succeeds with partial
+        // data (dates present, duration/activity None) instead of erroring.
+        let dir = std::env::temp_dir().join(format!("be-health-drift-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("healthdb_secure.sqlite");
+        let _ = std::fs::remove_file(&db);
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE workouts (data_id INTEGER PRIMARY KEY, total_distance REAL);
+             INSERT INTO workouts (data_id, total_distance) VALUES (1, 500.0);
+             CREATE TABLE workout_activities (owner_id INTEGER, start_date REAL, end_date REAL);
+             INSERT INTO workout_activities (owner_id, start_date, end_date) VALUES (1, 600000000.0, 600001800.0);",
+        )
+        .unwrap();
+        drop(conn);
+
+        let data = parse(&db).unwrap();
+        assert_eq!(data.workouts.len(), 1);
+        let w = &data.workouts[0];
+        assert!(!w.start.is_empty()); // dates from workout_activities
+        assert!(!w.end.is_empty());
+        assert_eq!(w.duration_seconds, None); // column absent → NULL aggregate
+        assert_eq!(w.activity_type_id, None);
+        assert_eq!(w.total_distance, Some(500.0));
         std::fs::remove_dir_all(&dir).ok();
     }
 

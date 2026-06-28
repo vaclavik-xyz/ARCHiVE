@@ -8,11 +8,11 @@ th{background:#f5f5f5}</style></head><body>
 <tr><th>Seznam</th><th>Název</th><th>Poznámky</th><th>Termín</th><th>Hotovo</th><th>Dokončeno</th><th>Priorita</th><th>Vytvořeno</th><th>Vlajka</th></tr>
 {% for r in reminders %}
 <tr><td>{{ r.list }}</td><td>{{ r.title }}</td><td>{{ r.notes }}</td>
-<td>{% if let Some(d) = r.due %}{{ d }}{% endif %}</td>
+<td>{% if let Some(d) = r.due.as_ref() %}{{ d }}{% endif %}</td>
 <td>{{ r.completed }}</td>
-<td>{% if let Some(d) = r.completed_date %}{{ d }}{% endif %}</td>
+<td>{% if let Some(d) = r.completed_date.as_ref() %}{{ d }}{% endif %}</td>
 <td>{{ r.priority }}</td>
-<td>{% if let Some(d) = r.created %}{{ d }}{% endif %}</td>
+<td>{% if let Some(d) = r.created.as_ref() %}{{ d }}{% endif %}</td>
 <td>{{ r.flagged }}</td></tr>
 {% endfor %}
 </table>
