@@ -142,27 +142,25 @@ pub fn extract_wifi(
 
 /// Whether a `genp` attribute dict denotes an AirPort/Wi-Fi entry.
 ///
-/// Apple stores saved Wi-Fi PSKs as generic passwords whose service (`svce`) is
-/// the canonical `AirPort`, and enterprise/EAP Wi-Fi under Apple network
-/// services. We match only **Apple** markers — the exact `AirPort` service, or an
-/// `airport`/`wifi`/`eap` token *inside the `com.apple.` namespace* — on the
-/// authoritative `svce`/`agrp` attributes. This deliberately excludes third-party
-/// secrets whose service/access-group merely contains `wifi` (e.g.
-/// `com.example.wifi-sync`) and the user-facing `labl`/`desc` free text, both of
-/// which could otherwise leak unrelated passwords into the export.
+/// Apple stores saved Wi-Fi PSKs as generic passwords in its own keychain access
+/// group with the canonical `AirPort` service (enterprise/EAP Wi-Fi under
+/// `com.apple.network.eap*`). The **access group** (`agrp`) is the trust anchor:
+/// iOS enforces keychain-access-group entitlements, so a third-party app cannot
+/// claim Apple's group — whereas the service (`svce`) is an app-supplied string
+/// and forgeable. We therefore require an Apple-owned `agrp` *and* a Wi-Fi service
+/// marker. This excludes third-party secrets even when they spoof a
+/// `com.apple.…eap…` service, and ignores the user-facing `labl`/`desc` text.
 fn is_wifi_item(attrs: &plist::Dictionary) -> bool {
     let attr = |k: &str| attrs.get(k).and_then(Value::as_string).map(str::to_ascii_lowercase);
     let svce = attr("svce").unwrap_or_default();
     let agrp = attr("agrp").unwrap_or_default();
-    // Canonical Wi-Fi PSK service.
-    if svce == "airport" {
-        return true;
+
+    // Apple-owned access group (entitlement-enforced) — the trust anchor.
+    if agrp != "apple" && !agrp.starts_with("com.apple") {
+        return false;
     }
-    // Apple-namespaced Wi-Fi/EAP services only (not arbitrary third-party ids).
-    let apple_wifi = |s: &str| {
-        s.starts_with("com.apple.") && (s.contains("airport") || s.contains("wifi") || s.contains("eap"))
-    };
-    apple_wifi(&svce) || apple_wifi(&agrp)
+    // A Wi-Fi service marker within that trusted group.
+    svce == "airport" || svce.contains("airport") || svce.contains("wifi") || svce.contains("eap")
 }
 
 /// Recover the plaintext secret for one keychain item.
@@ -562,10 +560,12 @@ mod tests {
 
     #[test]
     fn apple_eap_wifi_service_matched() {
-        // Apple-namespaced EAP/Wi-Fi enterprise services ARE matched.
+        // Apple-namespaced EAP/Wi-Fi enterprise services in an Apple access group
+        // ARE matched.
         let keys: HashMap<u32, Vec<u8>> = HashMap::new();
         let mut d = Dictionary::new();
         d.insert("svce".into(), Value::String("com.apple.network.eap.user.identity".into()));
+        d.insert("agrp".into(), Value::String("apple".into()));
         d.insert("acct".into(), Value::String("EnterpriseNet".into()));
         d.insert("v_Data".into(), Value::String("eap-secret".into()));
         let plist = build_keychain_plist(vec![d]);
@@ -573,6 +573,22 @@ mod tests {
         let got = extract_wifi(&plist, &keys);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].ssid, "EnterpriseNet");
+    }
+
+    #[test]
+    fn apple_looking_service_with_third_party_agrp_ignored() {
+        // The service string is app-supplied and forgeable; without an
+        // Apple-owned (entitlement-enforced) access group a com.apple.*-looking
+        // service must NOT be exported.
+        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
+        let mut d = Dictionary::new();
+        d.insert("svce".into(), Value::String("com.apple.network.eap.user.identity".into()));
+        d.insert("agrp".into(), Value::String("com.thirdparty.app".into()));
+        d.insert("acct".into(), Value::String("user".into()));
+        d.insert("v_Data".into(), Value::String("nope".into()));
+        let plist = build_keychain_plist(vec![d]);
+
+        assert!(extract_wifi(&plist, &keys).is_empty());
     }
 
     #[test]
