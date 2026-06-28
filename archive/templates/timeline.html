@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Časová osa</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top}
+th{background:#f5f5f5}
+td.kind{white-space:nowrap}code{background:#f0f0f0;padding:1px 5px;border-radius:3px}</style></head><body>
+<h1>Časová osa ({{ events.len() }})</h1>
+<table>
+<tr><th>Čas</th><th>Typ</th><th>Událost</th></tr>
+{% for e in events %}
+<tr><td>{{ e.timestamp }}</td><td class="kind"><code>{{ e.kind }}</code></td><td>{{ e.summary }}</td></tr>
+{% endfor %}
+</table>
+</body></html>
