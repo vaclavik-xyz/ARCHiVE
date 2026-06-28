@@ -55,19 +55,19 @@ struct Cli {
 enum Command {
     /// Export contacts.
     Contacts {
-        /// Output format: csv, json, vcf, html.
+        /// Output format: csv, json, vcf, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
     },
     /// Export call history.
     Calls {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
     },
     /// Export voicemail metadata (optionally extract audio with --audio).
     Voicemail {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
         /// Also extract each voicemail's audio into <out>/voicemail_audio/.
@@ -79,7 +79,7 @@ enum Command {
     },
     /// Export Voice Memos metadata and audio (audio on by default; --no-audio to skip).
     VoiceMemos {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
         /// Skip audio extraction (metadata only).
@@ -91,31 +91,31 @@ enum Command {
     },
     /// Export Safari browsing history.
     SafariHistory {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
     },
     /// Export Safari bookmarks.
     SafariBookmarks {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
     },
     /// Export calendar events.
     Calendar {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
     },
     /// Export Apple Notes (title, folder, dates, body text).
     Notes {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
     },
     /// Export Camera Roll metadata and files (files on by default; --no-files to skip).
     Photos {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
         /// Skip file extraction (metadata catalog only).
@@ -124,7 +124,7 @@ enum Command {
     },
     /// Export Messages attachment metadata and files (files on by default; --no-files to skip).
     Attachments {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
         /// Skip file extraction (metadata catalog only).
@@ -133,7 +133,7 @@ enum Command {
     },
     /// Export WhatsApp messages and media (files on by default; --no-files to skip).
     Whatsapp {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
         /// Skip media extraction (transcript only).
@@ -149,38 +149,38 @@ enum Command {
     },
     /// Export Apple Health: workouts and per-type quantity summaries.
     Health {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
     },
     /// Export Apple Reminders (lists, items, due/completion, priority).
     Reminders {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
     },
     /// Export Apple Mail messages (local/POP3 `.emlx`; often absent on iOS).
     Mail {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
     },
     /// List installed third-party apps (bundle ids) from the backup manifest.
     Apps {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
     },
     /// Merge every in-process extractor into one chronological timeline.
     Timeline {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
     },
     /// Recover DELETED rows from backup SQLite databases by carving freed
     /// pages/freeblocks/WAL (best-effort). `--store`: messages, calls, contacts, all.
     RecoverDeleted {
-        /// Output format: csv, json, html.
+        /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
         /// Which store(s) to carve: messages | calls | contacts | all.
