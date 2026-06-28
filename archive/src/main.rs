@@ -189,7 +189,7 @@ enum Command {
     },
     /// Recover saved Wi-Fi passwords from the keychain (encrypted backups only).
     Wifi {
-        /// Output format: csv, json, html, pdf.
+        /// Output format: csv, json, html (no pdf — avoids a plaintext sidecar).
         #[arg(long, short = 'f')]
         format: String,
     },
@@ -1112,6 +1112,14 @@ fn run_recover_deleted(cli: &Cli, password: Option<&str>, format: &str, store: &
 // plaintext and are never logged to stderr — only a count is printed.
 fn run_wifi(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "wifi")?;
+    // PDF is intentionally not offered for this sensitive export: the shared PDF
+    // path writes a temporary plaintext HTML sidecar next to the output before
+    // rendering, which we will not do for plaintext passwords.
+    if format == Format::Pdf {
+        return Err(AppError::usage(
+            "pdf is not available for wifi (it would write a temporary plaintext HTML file); use csv, json, or html",
+        ));
+    }
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export Wi-Fi credentials"))?;
     let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
@@ -1127,11 +1135,11 @@ fn run_wifi(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_jso
     let rendered = match format {
         Format::Csv => format::wifi_csv(&creds),
         Format::Json => format::wifi_json(&creds),
-        Format::Html | Format::Pdf => format::wifi_html(&creds),
-        Format::Vcf => unreachable!("export_format rejects vcf"),
+        Format::Html => format::wifi_html(&creds),
+        Format::Vcf | Format::Pdf => unreachable!("vcf rejected by export_format; pdf rejected above"),
     };
     let out_file = out.join(format!("wifi.{}", format.extension()));
-    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
     // Count only — never log the recovered passwords.
     eprintln!("Recovered {} Wi-Fi network(s) to {}", creds.len(), out_file.display());
     Ok(serde_json::json!({
@@ -1906,6 +1914,14 @@ mod cli_tests {
         assert!(matches!(t.command, Command::Timeline { format } if format == "json"));
         let w = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "wifi", "-f", "html"]).unwrap();
         assert!(matches!(w.command, Command::Wifi { format } if format == "html"));
+    }
+
+    #[test]
+    fn wifi_rejects_pdf_to_avoid_plaintext_sidecar() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "wifi", "-f", "pdf"]).unwrap();
+        let err = run_wifi(&cli, None, "pdf").unwrap_err();
+        assert_eq!(err.kind, "usage");
+        assert_eq!(err.code, 1);
     }
 
     #[test]

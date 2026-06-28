@@ -142,23 +142,27 @@ pub fn extract_wifi(
 
 /// Whether a `genp` attribute dict denotes an AirPort/Wi-Fi entry.
 ///
-/// Apple stores saved Wi-Fi PSKs as generic passwords whose service (`svce`) or
-/// access group (`agrp`) names AirPort. We match only those two **authoritative**
-/// attributes (case-insensitive substring), so we catch `AirPort` /
-/// `com.apple.network.eap`-style services without hardcoding one exact string —
-/// but we deliberately ignore the user-facing `labl`/`desc` free text, which
-/// could carry a Wi-Fi-looking label on an unrelated secret and leak it.
+/// Apple stores saved Wi-Fi PSKs as generic passwords whose service (`svce`) is
+/// the canonical `AirPort`, and enterprise/EAP Wi-Fi under Apple network
+/// services. We match only **Apple** markers — the exact `AirPort` service, or an
+/// `airport`/`wifi`/`eap` token *inside the `com.apple.` namespace* — on the
+/// authoritative `svce`/`agrp` attributes. This deliberately excludes third-party
+/// secrets whose service/access-group merely contains `wifi` (e.g.
+/// `com.example.wifi-sync`) and the user-facing `labl`/`desc` free text, both of
+/// which could otherwise leak unrelated passwords into the export.
 fn is_wifi_item(attrs: &plist::Dictionary) -> bool {
-    const NEEDLES: [&str; 2] = ["airport", "wifi"];
-    for key in ["svce", "agrp"] {
-        if let Some(val) = attrs.get(key).and_then(Value::as_string) {
-            let lower = val.to_ascii_lowercase();
-            if NEEDLES.iter().any(|n| lower.contains(n)) {
-                return true;
-            }
-        }
+    let attr = |k: &str| attrs.get(k).and_then(Value::as_string).map(str::to_ascii_lowercase);
+    let svce = attr("svce").unwrap_or_default();
+    let agrp = attr("agrp").unwrap_or_default();
+    // Canonical Wi-Fi PSK service.
+    if svce == "airport" {
+        return true;
     }
-    false
+    // Apple-namespaced Wi-Fi/EAP services only (not arbitrary third-party ids).
+    let apple_wifi = |s: &str| {
+        s.starts_with("com.apple.") && (s.contains("airport") || s.contains("wifi") || s.contains("eap"))
+    };
+    apple_wifi(&svce) || apple_wifi(&agrp)
 }
 
 /// Recover the plaintext secret for one keychain item.
@@ -537,6 +541,38 @@ mod tests {
         let plist = build_keychain_plist(vec![d]);
 
         assert!(extract_wifi(&plist, &keys).is_empty());
+    }
+
+    #[test]
+    fn third_party_wifi_named_service_ignored() {
+        // A third-party generic password whose service/access-group merely
+        // contains "wifi"/"airport" OUTSIDE the com.apple namespace must NOT be
+        // exported.
+        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
+        for (svce, agrp) in [("com.example.wifi-sync", "com.example"), ("myapp", "com.example.airport-tool")] {
+            let mut d = Dictionary::new();
+            d.insert("svce".into(), Value::String(svce.into()));
+            d.insert("agrp".into(), Value::String(agrp.into()));
+            d.insert("acct".into(), Value::String("user".into()));
+            d.insert("v_Data".into(), Value::String("nope".into()));
+            let plist = build_keychain_plist(vec![d]);
+            assert!(extract_wifi(&plist, &keys).is_empty(), "{svce}/{agrp} must be ignored");
+        }
+    }
+
+    #[test]
+    fn apple_eap_wifi_service_matched() {
+        // Apple-namespaced EAP/Wi-Fi enterprise services ARE matched.
+        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
+        let mut d = Dictionary::new();
+        d.insert("svce".into(), Value::String("com.apple.network.eap.user.identity".into()));
+        d.insert("acct".into(), Value::String("EnterpriseNet".into()));
+        d.insert("v_Data".into(), Value::String("eap-secret".into()));
+        let plist = build_keychain_plist(vec![d]);
+
+        let got = extract_wifi(&plist, &keys);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].ssid, "EnterpriseNet");
     }
 
     #[test]
