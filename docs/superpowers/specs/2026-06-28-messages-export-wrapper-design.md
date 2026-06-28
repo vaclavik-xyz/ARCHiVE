@@ -99,10 +99,13 @@ location rather than embedding message bodies.
 
 ## inspect
 
-Add a `messages` row to `inspect` (`HomeDomain`/`Library/SMS/sms.db`,
-`supported: true`, `count: null` — extracted via the external tool, not parsed
-in-process), so the new capability is discoverable. `present` is true whenever
-`sms.db` exists (same detection as `attachments`).
+**Final decision (revised during implementation):** `messages` is **not** added
+to `inspect`'s `KNOWN_STORES`. Advertising it as a supported store implied
+`recover` would cover it (recover "runs every supported extractor"), but `recover`
+runs only the in-process extractors and excludes `messages`. To keep `inspect`
+and `recover` consistent, the row was dropped. Message-data presence is still
+discoverable via the `attachments` store, which reads the same `sms.db`. (The
+original plan to add a `messages` row was reverted on review.)
 
 ## Out of scope (possible follow-ups)
 
