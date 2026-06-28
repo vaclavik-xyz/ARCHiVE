@@ -353,8 +353,9 @@ stdout envelope:
 ```
 
 The envelope points at the output directory rather than embedding message bodies
-(consistent with `backup`/`recover`). `inspect` lists `messages` as a supported
-store with `count: null` (extracted out-of-process; `present` tracks `sms.db`).
+(consistent with `backup`/`recover`). `messages` is **not** part of the `recover`
+one-shot package and is **not** listed by `inspect` (presence of message data is
+already visible via the `attachments` store, which reads the same `sms.db`).
 
 ### `recover` — one-shot customer package
 

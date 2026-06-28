@@ -1255,9 +1255,10 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("calendar", true, "HomeDomain", "Library/Calendar/Calendar.sqlitedb"),
     ("notes", true, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
     ("photos", true, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
-    // Conversation text is extracted out-of-process via `imessage-exporter`, so
-    // `count` stays null; `present` tracks the same sms.db as `attachments`.
-    ("messages", true, "HomeDomain", "Library/SMS/sms.db"),
+    // `messages` is intentionally not listed here: it is exported out-of-process
+    // by the `messages` command, not by `recover` (which runs the in-process
+    // extractors). The presence of message data is already visible via the
+    // `attachments` row below — both read the same `sms.db`.
     ("attachments", true, "HomeDomain", "Library/SMS/sms.db"),
     ("whatsapp", true, "AppDomainGroup-group.net.whatsapp.WhatsApp.shared", "ChatStorage.sqlite"),
 ];
