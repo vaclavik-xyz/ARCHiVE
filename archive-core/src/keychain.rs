@@ -142,14 +142,15 @@ pub fn extract_wifi(
 
 /// Whether a `genp` attribute dict denotes an AirPort/Wi-Fi entry.
 ///
-/// Apple stores saved Wi-Fi PSKs as generic passwords whose access group is
-/// `apple` and whose service (`svce`) or access group (`agrp`) names AirPort.
-/// We match loosely (case-insensitive substring on a few attributes) so we catch
-/// `AirPort`, `com.apple.network.eap`, and similar without hardcoding one exact
-/// string; non-Wi-Fi generic passwords are excluded.
+/// Apple stores saved Wi-Fi PSKs as generic passwords whose service (`svce`) or
+/// access group (`agrp`) names AirPort. We match only those two **authoritative**
+/// attributes (case-insensitive substring), so we catch `AirPort` /
+/// `com.apple.network.eap`-style services without hardcoding one exact string —
+/// but we deliberately ignore the user-facing `labl`/`desc` free text, which
+/// could carry a Wi-Fi-looking label on an unrelated secret and leak it.
 fn is_wifi_item(attrs: &plist::Dictionary) -> bool {
     const NEEDLES: [&str; 2] = ["airport", "wifi"];
-    for key in ["svce", "agrp", "labl", "desc"] {
+    for key in ["svce", "agrp"] {
         if let Some(val) = attrs.get(key).and_then(Value::as_string) {
             let lower = val.to_ascii_lowercase();
             if NEEDLES.iter().any(|n| lower.contains(n)) {
@@ -179,26 +180,22 @@ fn recover_secret(
     // Otherwise it must be a Data blob.
     let blob = v_data.as_data()?;
 
-    // Case B: the Data is itself plaintext UTF-8 (some dumps store the PSK as raw
-    // bytes that are *not* a protected blob). We only accept this when the bytes
-    // do not look like a protected blob, to avoid mis-reading ciphertext as text.
-    if !looks_like_protected_blob(blob)
-        && let Ok(s) = std::str::from_utf8(blob) {
-            return Some(s.to_string());
-        }
+    // Case B: a protected blob → decrypt. Tried FIRST (before the plaintext
+    // fallback) so a long plaintext PSK is never mistaken for a blob and dropped:
+    // a WPA passphrase is up to 63 bytes — longer than a minimal protected blob —
+    // and on a real blob decryption succeeds, while on plaintext the leading bytes
+    // are not a valid class id so decryption simply returns None.
+    if let Some(secret) = decrypt_protected_blob(blob, class_keys) {
+        return Some(secret);
+    }
 
-    // Case C: protected blob → decrypt.
-    decrypt_protected_blob(blob, class_keys)
-}
-
-/// Heuristic: does this Data look like a protected blob (class id + wrapped key
-/// + GCM payload) rather than a raw plaintext PSK?
-///
-/// A protected blob must be at least the class id, a minimal wrapped key, a
-/// nonce, and a tag. Anything shorter is certainly not a protected blob (and is
-/// a candidate plaintext PSK, which is at most 63 bytes for WPA).
-fn looks_like_protected_blob(blob: &[u8]) -> bool {
-    blob.len() >= CLASS_ID_LEN + KW_MIN_LEN + GCM_NONCE_LEN + GCM_TAG_LEN
+    // Case C fallback: the Data is a raw plaintext PSK (not a protected blob, or
+    // an unsupported layout). Accept only non-empty valid UTF-8 of plausible
+    // length, so binary ciphertext is never surfaced as garbage text.
+    match std::str::from_utf8(blob) {
+        Ok(s) if (1..=128).contains(&s.chars().count()) => Some(s.to_string()),
+        _ => None,
+    }
 }
 
 /// Decrypt a protected item blob into its plaintext secret.
@@ -504,6 +501,39 @@ mod tests {
         d.insert("svce".into(), Value::String("com.apple.account".into()));
         d.insert("acct".into(), Value::String("someuser".into()));
         d.insert("v_Data".into(), Value::Data(blob));
+        let plist = build_keychain_plist(vec![d]);
+
+        assert!(extract_wifi(&plist, &keys).is_empty());
+    }
+
+    #[test]
+    fn long_plaintext_psk_recovered() {
+        // A 60-char plaintext WPA passphrase stored as raw Data is LONGER than a
+        // minimal protected blob; decrypt-first (which finds no class id) then the
+        // plaintext fallback must still recover it (regression: the old length
+        // heuristic dropped plaintext PSKs over ~47 bytes).
+        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
+        let psk = "a".repeat(60);
+        let item = airport_item("LongNet", Value::Data(psk.clone().into_bytes()));
+        let plist = build_keychain_plist(vec![item]);
+
+        let got = extract_wifi(&plist, &keys);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].password, psk);
+    }
+
+    #[test]
+    fn non_wifi_item_with_wifi_label_ignored() {
+        // A generic password for an unrelated service must NOT be exported even
+        // when its user-facing label mentions Wi-Fi (we key off svce/agrp, never
+        // the free-text labl/desc).
+        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
+        let mut d = Dictionary::new();
+        d.insert("svce".into(), Value::String("com.example.secret".into()));
+        d.insert("agrp".into(), Value::String("com.example".into()));
+        d.insert("labl".into(), Value::String("My WiFi password".into()));
+        d.insert("acct".into(), Value::String("user".into()));
+        d.insert("v_Data".into(), Value::String("should-not-leak".into()));
         let plist = build_keychain_plist(vec![d]);
 
         assert!(extract_wifi(&plist, &keys).is_empty());
