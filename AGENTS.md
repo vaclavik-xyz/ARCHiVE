@@ -25,12 +25,17 @@ archive --backup <DIR> [--password <PW>] [-o <OUT>] <COMMAND> [ARGS]
 before **or** after the subcommand name, which is agent-friendly for programmatic
 invocation.
 
-**PDF output:** every command that lists `html` as a format also accepts
-**`pdf`** (writes `<OUT>/<name>.pdf`). The HTML it would render is printed to PDF
-by a headless Chrome/Chromium/Edge, auto-detected on `PATH`/standard locations or
-set with `--chrome-path`. A missing browser is a usage error (exit 1). The JSON
-envelope is unchanged; `outputs` points at the `.pdf`. (The `recover` one-shot
-package stays HTML.)
+**PDF output:** the **in-process** export commands that list `html` (contacts,
+calls, voicemail, voice-memos, safari-history/bookmarks, calendar, reminders,
+mail, notes, photos, attachments, whatsapp, timeline, recover-deleted, health,
+apps) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
+headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
+with `--chrome-path`; a missing browser is a usage error, exit 1), with the JSON
+envelope unchanged (`outputs` points at the `.pdf`). `messages -f pdf` is produced
+**separately** by the bundled imessage-exporter using its own PDF engine (Quartz
+on macOS, a headless browser elsewhere; `--chrome-path` is forwarded), and keeps
+the messages envelope (`output` directory). The `recover` one-shot package has no
+`-f pdf` and stays HTML.
 
 ## Commands
 

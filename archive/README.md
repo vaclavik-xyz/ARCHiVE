@@ -73,9 +73,10 @@ archive --backup <backup-dir> -o <out> recover-deleted -f html   # --store messa
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 
-Any HTML-bearing command also accepts `-f pdf`: the HTML is rendered to PDF with a
-headless Chrome/Chromium/Edge (auto-detected, or pass `--chrome-path`). A missing
-browser is a usage error.
+The in-process HTML commands also accept `-f pdf`: their HTML is rendered to PDF
+with a headless Chrome/Chromium/Edge (auto-detected, or pass `--chrome-path`; a
+missing browser is a usage error). `messages -f pdf` goes through the bundled
+imessage-exporter instead (its own PDF engine); the `recover` package stays HTML.
 
 `messages` drives the `imessage-exporter` binary built alongside `archive`. It
 is found next to the `archive` executable or on `PATH`; set
