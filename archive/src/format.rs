@@ -11,6 +11,8 @@ pub enum Format {
     Json,
     Vcf,
     Html,
+    /// PDF rendered from the same HTML the `Html` variant produces.
+    Pdf,
 }
 
 impl Format {
@@ -20,6 +22,7 @@ impl Format {
             "json" => Some(Format::Json),
             "vcf" | "vcard" => Some(Format::Vcf),
             "html" => Some(Format::Html),
+            "pdf" => Some(Format::Pdf),
             _ => None,
         }
     }
@@ -30,6 +33,7 @@ impl Format {
             Format::Json => "json",
             Format::Vcf => "vcf",
             Format::Html => "html",
+            Format::Pdf => "pdf",
         }
     }
 }
@@ -709,8 +713,10 @@ mod tests {
         assert_eq!(Format::from_cli("VCF"), Some(Format::Vcf));
         assert_eq!(Format::from_cli("json"), Some(Format::Json));
         assert_eq!(Format::from_cli("html"), Some(Format::Html));
+        assert_eq!(Format::from_cli("PDF"), Some(Format::Pdf));
         assert_eq!(Format::from_cli("vcard"), Some(Format::Vcf)); // lowercase alias
         assert_eq!(Format::from_cli("nope"), None);
+        assert_eq!(Format::Pdf.extension(), "pdf");
     }
 
     #[test]
