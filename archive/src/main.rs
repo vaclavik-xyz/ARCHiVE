@@ -1582,7 +1582,7 @@ fn run_messages(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     std::fs::create_dir_all(&export_dir).map_err(|e| AppError::other(e.to_string()))?;
 
     let exporter = messages::resolve_exporter();
-    let args = messages::messages_args(backup_dir, &export_dir, fmt, encrypted, password);
+    let args = messages::messages_args(backup_dir, &export_dir, fmt, encrypted, password, cli.chrome_path.as_deref());
 
     eprintln!("Exporting messages ({fmt}) to {} …", export_dir.display());
     // Forward the exporter's stdout progress to OUR stderr so the agent contract

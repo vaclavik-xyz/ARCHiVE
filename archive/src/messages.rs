@@ -27,17 +27,19 @@ pub fn normalize_format(format: &str) -> Option<&'static str> {
     }
 }
 
-/// Argv for `imessage-exporter -a iOS -p <backup> -f <format> -o <out> [-x <pw>]`.
-/// `-a iOS` pins the source as an iOS backup directory (so the password is
-/// accepted and the path is treated as a backup root). The password is forwarded
-/// only for an encrypted backup; on an unencrypted one it is unnecessary and is
-/// kept out of the process table.
+/// Argv for `imessage-exporter -a iOS -p <backup> -f <format> -o <out> [-x <pw>]
+/// [--chrome-path <c>]`. `-a iOS` pins the source as an iOS backup directory (so
+/// the password is accepted and the path is treated as a backup root). The
+/// password is forwarded only for an encrypted backup; on an unencrypted one it
+/// is unnecessary and is kept out of the process table. `--chrome-path` is
+/// forwarded only for `pdf` (the exporter rejects it for other formats).
 pub fn messages_args(
     backup: &Path,
     out: &Path,
     format: &str,
     encrypted: bool,
     password: Option<&str>,
+    chrome_path: Option<&Path>,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
         "-a".into(),
@@ -52,6 +54,10 @@ pub fn messages_args(
     if let (true, Some(pw)) = (encrypted, password) {
         args.push("-x".into());
         args.push(pw.into());
+    }
+    if let (true, Some(c)) = (format == "pdf", chrome_path) {
+        args.push("--chrome-path".into());
+        args.push(c.as_os_str().to_owned());
     }
     args
 }
@@ -116,6 +122,7 @@ mod tests {
             "html",
             false,
             Some("secret"),
+            None,
         ));
         assert_eq!(args, vec!["-a", "iOS", "-p", "/b", "-f", "html", "-o", "/out"]);
         assert!(!args.iter().any(|a| a == "secret"));
@@ -129,6 +136,7 @@ mod tests {
             "pdf",
             true,
             Some("secret"),
+            None,
         ));
         assert_eq!(
             args,
@@ -144,8 +152,36 @@ mod tests {
             "txt",
             true,
             None,
+            None,
         ));
         assert_eq!(args, vec!["-a", "iOS", "-p", "/b", "-f", "txt", "-o", "/out"]);
+    }
+
+    #[test]
+    fn messages_args_forwards_chrome_path_only_for_pdf() {
+        // --chrome-path is forwarded for pdf...
+        let pdf = as_strings(&messages_args(
+            Path::new("/b"),
+            Path::new("/out"),
+            "pdf",
+            false,
+            None,
+            Some(Path::new("/opt/chrome")),
+        ));
+        assert_eq!(
+            pdf,
+            vec!["-a", "iOS", "-p", "/b", "-f", "pdf", "-o", "/out", "--chrome-path", "/opt/chrome"]
+        );
+        // ...but not for non-pdf formats (the exporter rejects it there).
+        let html = as_strings(&messages_args(
+            Path::new("/b"),
+            Path::new("/out"),
+            "html",
+            false,
+            None,
+            Some(Path::new("/opt/chrome")),
+        ));
+        assert!(!html.iter().any(|a| a == "--chrome-path"));
     }
 
     #[test]
