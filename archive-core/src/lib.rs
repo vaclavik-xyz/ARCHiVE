@@ -143,6 +143,12 @@ impl Backup {
         &self.info
     }
 
+    /// Whether the backup is encrypted. Callers use this to decide whether a
+    /// password must be forwarded to downstream tooling.
+    pub fn is_encrypted(&self) -> bool {
+        self.raw.is_encrypted()
+    }
+
     /// Whether the backup contains a file at `domain` + `relative_path`, without
     /// decrypting it.
     pub fn has(&self, domain: &str, relative_path: &str) -> Result<bool, BackupError> {
