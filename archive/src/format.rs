@@ -690,6 +690,31 @@ pub fn deleted_html(items: &[crate::recover_deleted::DeletedRecord]) -> String {
     DeletedTemplate { records: items }.render().unwrap()
 }
 
+// --- Wi-Fi credentials ----------------------------------------------------
+
+pub fn wifi_csv(items: &[archive_core::keychain::WifiCredential]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["ssid", "password"]).unwrap();
+    for w in items {
+        wtr.write_record([w.ssid.clone(), w.password.clone()]).unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn wifi_json(items: &[archive_core::keychain::WifiCredential]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "wifi.html")]
+struct WifiTemplate<'a> {
+    networks: &'a [archive_core::keychain::WifiCredential],
+}
+
+pub fn wifi_html(items: &[archive_core::keychain::WifiCredential]) -> String {
+    WifiTemplate { networks: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1349,5 +1374,13 @@ mod tests {
         assert!(deleted_html(&deleted).contains("ahoj"));
         assert!(deleted_csv(&deleted).contains("store,source,rowid,date,summary"));
         assert!(deleted_json(&deleted).contains("\"store\""));
+
+        let wifi = vec![archive_core::keychain::WifiCredential {
+            ssid: "HomeNet".into(),
+            password: "s3cr3t-pass".into(),
+        }];
+        assert!(wifi_html(&wifi).contains("HomeNet") && wifi_html(&wifi).contains("s3cr3t-pass"));
+        assert!(wifi_csv(&wifi).contains("ssid,password"));
+        assert!(wifi_json(&wifi).contains("\"ssid\""));
     }
 }

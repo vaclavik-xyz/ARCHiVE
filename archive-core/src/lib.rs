@@ -7,6 +7,7 @@ use crabapple::error::BackupError as CrabError;
 use crabapple::{Authentication, Backup as RawBackup};
 
 pub mod carve;
+pub mod keychain;
 
 /// Errors from opening or reading a backup.
 #[derive(Debug)]
@@ -149,6 +150,43 @@ impl Backup {
     /// password must be forwarded to downstream tooling.
     pub fn is_encrypted(&self) -> bool {
         self.raw.is_encrypted()
+    }
+
+    /// Recover saved **Wi-Fi passwords** from the backup keychain.
+    ///
+    /// Returns an empty list when the backup has no keychain — only **encrypted**
+    /// backups include `KeychainDomain/keychain-backup.plist`. The keychain file
+    /// is decrypted at the file level by crabapple; the per-item secrets inside
+    /// are then unwrapped against crabapple's already-unlocked protection-class
+    /// keys and AES-GCM-decrypted by [`keychain::extract_wifi`].
+    ///
+    /// Sensitive: the returned `password` fields are plaintext PSKs. Callers must
+    /// not log them.
+    pub fn wifi_credentials(&self) -> Result<Vec<keychain::WifiCredential>, BackupError> {
+        let entries = self
+            .raw
+            .entries()
+            .map_err(|why| BackupError::Open(why.to_string()))?;
+        let Some(entry) = entries
+            .iter()
+            .find(|e| e.domain == "KeychainDomain" && e.relative_path == "keychain-backup.plist")
+        else {
+            return Ok(Vec::new());
+        };
+        let plist_bytes = self
+            .raw
+            .decrypt_entry(entry)
+            .map_err(|why| BackupError::Open(why.to_string()))?;
+        // Class keys arrive already unwrapped from crabapple's manifest keybag.
+        let class_keys: std::collections::HashMap<u32, Vec<u8>> = self
+            .raw
+            .manifest
+            .keys()
+            .map_err(|why| BackupError::Open(why.to_string()))?
+            .iter()
+            .map(|(id, pck)| (*id, pck.key.as_ref().to_vec()))
+            .collect();
+        Ok(keychain::extract_wifi(&plist_bytes, &class_keys))
     }
 
     /// Whether the backup contains a file at `domain` + `relative_path`, without
