@@ -146,15 +146,16 @@ fn messages_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
 
 /// Whether a carved calls/contacts candidate should be rejected. Unlike messages
 /// (which carry a GUID anchor usable for live-exclusion), these stores have no
-/// strong content key, so beyond dropping rows whose rowid is still live we also
-/// drop rowid-less candidates carved from WAL frames: a WAL frame is a full page
-/// image, and a genuinely deleted row survives there with cell framing (a rowid),
-/// whereas a rowid-less raw-scan hit is almost always a duplicate of a live row.
+/// strong content key, so we cannot reliably separate deleted rows from the live
+/// rows that WAL frames inevitably contain: a WAL frame is a full page image, and
+/// the carver's raw slide can even misframe live bytes into a rowid-bearing
+/// candidate, so neither "rowid is live" nor "has a rowid" is a sufficient test.
+/// We therefore drop **every** WAL-sourced candidate for these two stores —
+/// genuinely deleted calls/contacts still surface from the main file's free
+/// regions (freelist/freeblock/unallocated), which are not contaminated by live
+/// cells. We also drop rows whose rowid is still live.
 fn excluded_call_or_contact(r: &CarvedRecord, live: &LiveKeys) -> bool {
-    if r.rowid.is_some_and(|id| live.rowids.contains(&id)) {
-        return true;
-    }
-    r.source == CarveSource::Wal && r.rowid.is_none()
+    r.source == CarveSource::Wal || r.rowid.is_some_and(|id| live.rowids.contains(&id))
 }
 
 /// CallHistory `ZCALLRECORD` (Core Data): anchored by a REAL in a plausible
@@ -355,28 +356,18 @@ mod tests {
     }
 
     #[test]
-    fn calls_and_contacts_drop_rowidless_wal_candidates() {
-        // A rowid-less WAL raw-scan hit (a live-row duplicate from a full page
-        // image) is dropped for calls and contacts...
-        let call = vec![rec_n(
-            None,
-            CarveSource::Wal,
-            vec![CarvedValue::Real(600_000_000.0), CarvedValue::Real(30.0), CarvedValue::Text("+420111222333".into())],
-        )];
-        assert!(recover("calls", &call, &LiveKeys::default()).is_empty());
-        let contact = vec![rec_n(
-            None,
-            CarveSource::Wal,
-            vec![CarvedValue::Text("Eva".into()), CarvedValue::Text("Dvořák".into())],
-        )];
-        assert!(recover("contacts", &contact, &LiveKeys::default()).is_empty());
-        // ...but a framed (rowid present) WAL call that is not live is kept.
-        let framed = vec![rec_n(
-            Some(123),
-            CarveSource::Wal,
-            vec![CarvedValue::Real(600_000_000.0), CarvedValue::Real(30.0), CarvedValue::Text("+420111222333".into())],
-        )];
-        assert_eq!(recover("calls", &framed, &LiveKeys::default()).len(), 1);
+    fn calls_and_contacts_drop_all_wal_candidates() {
+        // calls/contacts have no content anchor, so EVERY WAL candidate is
+        // dropped — rowid-less raw-scan and rowid-bearing (possibly misframed)
+        // alike — since WAL frames mix live and deleted cells indistinguishably.
+        let nums = || vec![CarvedValue::Real(600_000_000.0), CarvedValue::Real(30.0), CarvedValue::Text("+420111222333".into())];
+        let wal = vec![rec_n(None, CarveSource::Wal, nums()), rec_n(Some(123), CarveSource::Wal, nums())];
+        assert!(recover("calls", &wal, &LiveKeys::default()).is_empty());
+        let wal_contact = vec![rec_n(None, CarveSource::Wal, vec![CarvedValue::Text("Eva".into()), CarvedValue::Text("Dvořák".into())])];
+        assert!(recover("contacts", &wal_contact, &LiveKeys::default()).is_empty());
+        // ...but a deleted call from the main file's free regions IS recovered.
+        let freelist = vec![rec_n(Some(50), CarveSource::Freelist, nums())];
+        assert_eq!(recover("calls", &freelist, &LiveKeys::default()).len(), 1);
     }
 
     #[test]

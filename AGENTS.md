@@ -455,9 +455,11 @@ GUID), `calls` (`CallHistory.storedata`, anchored by a Cocoa-seconds REAL date),
 or null), summary }`, sorted chronologically.
 
 Rows still **live** in the database are excluded (a carved candidate whose cell
-rowid — or, for messages, GUID — is still present in the live table is dropped),
-so the live rows that WAL page images inevitably contain are not misreported as
-deleted.
+rowid — or, for messages, GUID — is still present in the live table is dropped).
+Because `-wal` frames are full page images mixing live and deleted cells, and
+calls/contacts lack a strong content anchor, **`calls` and `contacts` ignore WAL
+candidates entirely** (their deletions still surface from the main file's free
+regions); `messages` use the GUID anchor and do recover from the WAL.
 
 **Best-effort and partial**: recoverability depends on whether SQLite has reused
 the space (VACUUM/auto_vacuum/page reuse and checkpointed WALs destroy remnants),
