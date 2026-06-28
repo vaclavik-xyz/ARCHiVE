@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Zdraví</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;margin-bottom:24px}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}</style></head><body>
+<h1>Zdraví</h1>
+
+<h2>Tréninky ({{ data.workouts.len() }})</h2>
+<table>
+<tr><th>Aktivita</th><th>Začátek</th><th>Konec</th><th>Trvání (s)</th><th>Vzdálenost (m)</th><th>Energie (kcal)</th></tr>
+{% for w in data.workouts %}
+<tr><td>{% if let Some(a) = w.activity_type.as_ref() %}{{ a }}{% else %}{% if let Some(id) = w.activity_type_id %}#{{ id }}{% endif %}{% endif %}</td>
+<td>{{ w.start }}</td><td>{{ w.end }}</td>
+<td>{% if let Some(d) = w.duration_seconds %}{{ d }}{% endif %}</td>
+<td>{% if let Some(d) = w.total_distance %}{{ d }}{% endif %}</td>
+<td>{% if let Some(e) = w.total_energy_burned %}{{ e }}{% endif %}</td></tr>
+{% endfor %}
+</table>
+
+<h2>Souhrn veličin ({{ data.quantity_summary.len() }})</h2>
+<table>
+<tr><th>Typ</th><th>Počet</th><th>Součet</th><th>Min</th><th>Průměr</th><th>Max</th><th>Od</th><th>Do</th></tr>
+{% for q in data.quantity_summary %}
+<tr><td>{{ q.name }}</td><td>{{ q.count }}</td>
+<td>{% if let Some(s) = q.sum %}{{ s }}{% endif %}</td>
+<td>{% if let Some(m) = q.min %}{{ m }}{% endif %}</td>
+<td>{% if let Some(a) = q.avg %}{{ a }}{% endif %}</td>
+<td>{% if let Some(m) = q.max %}{{ m }}{% endif %}</td>
+<td>{{ q.first }}</td><td>{{ q.last }}</td></tr>
+{% endfor %}
+</table>
+</body></html>

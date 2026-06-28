@@ -6,10 +6,13 @@ mod contacts;
 mod datetime;
 mod device_backup;
 mod format;
+mod health;
+mod mail;
 mod messages;
 mod notes;
 mod photos;
 mod recover;
+mod reminders;
 mod safari;
 mod sqlite_util;
 mod voice_memos;
@@ -138,6 +141,30 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Export Apple Health: workouts and per-type quantity summaries.
+    Health {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// Export Apple Reminders (lists, items, due/completion, priority).
+    Reminders {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// Export Apple Mail messages (local/POP3 `.emlx`; often absent on iOS).
+    Mail {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// List installed third-party apps (bundle ids) from the backup manifest.
+    Apps {
+        /// Output format: csv, json, html.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Run every extractor into <out>/ and write a customer index.html package.
     Recover {
         /// Skip large media extraction (metadata + HTML only).
@@ -234,6 +261,10 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Attachments { format, no_files } => run_attachments(&cli, password.as_deref(), format, *no_files),
         Command::Whatsapp { format, no_files } => run_whatsapp(&cli, password.as_deref(), format, *no_files),
         Command::Messages { format } => run_messages(&cli, password.as_deref(), format),
+        Command::Health { format } => run_health(&cli, password.as_deref(), format),
+        Command::Reminders { format } => run_reminders(&cli, password.as_deref(), format),
+        Command::Mail { format } => run_mail(&cli, password.as_deref(), format),
+        Command::Apps { format } => run_apps(&cli, password.as_deref(), format),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
@@ -667,6 +698,62 @@ fn load_whatsapp(backup: &archive_core::Backup) -> Result<Option<Vec<whatsapp::W
     )
 }
 
+// Health's `parse` returns a `HealthData` struct (workouts + quantity summary),
+// not a `Vec`, so it cannot use `load_store`; fetch the secure DB and parse it.
+fn load_health(backup: &archive_core::Backup) -> Result<Option<health::HealthData>, AppError> {
+    let (domain, rel) = health::DB_LOCATIONS[0];
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let tmp = scratch.path().join("healthdb_secure.sqlite");
+    let Some(db) = backup.fetch(domain, rel, &tmp).map_err(|e| AppError::other(e.to_string()))? else {
+        return Ok(None);
+    };
+    Ok(Some(health::parse(&db).map_err(|e| AppError::other(e.to_string()))?))
+}
+
+// Reminders lives in a Core Data store whose filename carries a dynamic UUID, so
+// the path is discovered from the manifest (not a fixed location).
+fn load_reminders(backup: &archive_core::Backup) -> Result<Option<Vec<reminders::Reminder>>, AppError> {
+    let paths = backup.list(reminders::DOMAIN, "").map_err(|e| AppError::other(e.to_string()))?;
+    let Some(rel) = paths.into_iter().find(|p| reminders::is_store_path(p)) else {
+        return Ok(None);
+    };
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let tmp = scratch.path().join("reminders.sqlite");
+    let Some(db) = backup.fetch(reminders::DOMAIN, &rel, &tmp).map_err(|e| AppError::other(e.to_string()))? else {
+        return Ok(None);
+    };
+    Ok(Some(reminders::parse(&db).map_err(|e| AppError::other(e.to_string()))?))
+}
+
+// Mail is file-based (`.emlx`), not a single DB: enumerate every `.emlx` under
+// MailDomain, decrypt each, and parse it. `Ok(None)` when no `.emlx` exists (the
+// common case on iOS, which backs up mail only for local/POP3 mailboxes).
+fn load_mail(backup: &archive_core::Backup) -> Result<Option<Vec<mail::MailMessage>>, AppError> {
+    let paths = backup.list(mail::MAIL_DOMAIN, "").map_err(|e| AppError::other(e.to_string()))?;
+    let emlx: Vec<String> = paths.into_iter().filter(|p| p.to_lowercase().ends_with(".emlx")).collect();
+    if emlx.is_empty() {
+        return Ok(None);
+    }
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let mut messages = Vec::new();
+    for (i, rel) in emlx.iter().enumerate() {
+        let tmp = scratch.path().join(format!("m{i}.emlx"));
+        if let Some(p) = backup.fetch(mail::MAIL_DOMAIN, rel, &tmp).map_err(|e| AppError::other(e.to_string()))? {
+            let bytes = std::fs::read(&p).map_err(|e| AppError::other(e.to_string()))?;
+            if let Some(m) = mail::parse_emlx(&bytes) {
+                messages.push(m);
+            }
+        }
+    }
+    // `.emlx` files existed but none yielded a message (corrupt/unsupported):
+    // treat as "no mail" so the caller emits the clear absent-store note rather
+    // than writing a zero-row file.
+    if messages.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(messages))
+}
+
 fn run_safari_history(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "safari-history")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export Safari history"))?;
@@ -745,6 +832,144 @@ fn run_calendar(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     Ok(serde_json::json!({
         "ok": true, "command": "calendar", "count": items.len(),
         "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+fn run_reminders(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "reminders")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export reminders"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(items) = load_reminders(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "reminders", "count": 0, "outputs": [],
+            "note": "this backup has no reminders", "device": device
+        }));
+    };
+    let rendered = match format {
+        Format::Csv => format::reminders_csv(&items),
+        Format::Json => format::reminders_json(&items),
+        Format::Html => format::reminders_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("reminders.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} reminder(s) to {}", items.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "reminders", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+fn run_mail(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "mail")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export mail"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(items) = load_mail(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "mail", "count": 0, "outputs": [],
+            "note": "this backup has no mail (iOS backs up mail only for local/POP3 mailboxes)",
+            "device": device
+        }));
+    };
+    let rendered = match format {
+        Format::Csv => format::mail_csv(&items),
+        Format::Json => format::mail_json(&items),
+        Format::Html => format::mail_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("mail.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} mail message(s) to {}", items.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "mail", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+// Installed apps come from the backup manifest (per-app domains), not a data
+// store, so this command is standalone: it is not in `KNOWN_STORES` (inspect)
+// and not part of the `recover` package.
+fn run_apps(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "apps")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export apps"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let apps = backup.app_bundle_ids().map_err(|e| AppError::other(e.to_string()))?;
+    let rendered = match format {
+        Format::Csv => format::apps_csv(&apps),
+        Format::Json => format::apps_json(&apps),
+        Format::Html => format::apps_html(&apps),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("apps.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!("Wrote {} installed app(s) to {}", apps.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "apps", "count": apps.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+fn run_health(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "health")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export health"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(data) = load_health(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "health", "count": 0, "workouts": 0, "quantity_types": 0,
+            "outputs": [], "note": "this backup has no Health database", "device": device
+        }));
+    };
+    if data.workouts.is_empty() && data.quantity_summary.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "health", "count": 0, "workouts": 0, "quantity_types": 0,
+            "outputs": [], "note": "Health database present but no workouts or known quantity samples",
+            "device": device
+        }));
+    }
+    // CSV splits the two heterogeneous tables into separate files; json/html keep
+    // the whole HealthData in one document.
+    let outputs: Vec<std::path::PathBuf> = match format {
+        Format::Csv => {
+            let wf = out.join("health-workouts.csv");
+            let qf = out.join("health-quantity.csv");
+            std::fs::write(&wf, format::health_workouts_csv(&data.workouts))
+                .map_err(|e| AppError::other(e.to_string()))?;
+            std::fs::write(&qf, format::health_quantity_csv(&data.quantity_summary))
+                .map_err(|e| AppError::other(e.to_string()))?;
+            vec![wf, qf]
+        }
+        Format::Json => {
+            let f = out.join("health.json");
+            std::fs::write(&f, format::health_json(&data)).map_err(|e| AppError::other(e.to_string()))?;
+            vec![f]
+        }
+        Format::Html => {
+            let f = out.join("health.html");
+            std::fs::write(&f, format::health_html(&data)).map_err(|e| AppError::other(e.to_string()))?;
+            vec![f]
+        }
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    eprintln!(
+        "Wrote {} workout(s) and {} quantity type(s) to {}",
+        data.workouts.len(),
+        data.quantity_summary.len(),
+        out.display()
+    );
+    let outputs: Vec<String> = outputs.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    Ok(serde_json::json!({
+        "ok": true, "command": "health",
+        "count": data.workouts.len() + data.quantity_summary.len(),
+        "workouts": data.workouts.len(), "quantity_types": data.quantity_summary.len(),
+        "outputs": outputs, "device": device
     }))
 }
 
@@ -1044,6 +1269,16 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         };
         rec.add("whatsapp", "WhatsApp", "whatsapp.html", format::whatsapp_html(&items), items.len(), media)?;
     }
+    if let Some(data) = opt_or_log(load_health(&backup), "health") {
+        let count = data.workouts.len() + data.quantity_summary.len();
+        rec.add("health", "Zdraví", "health.html", format::health_html(&data), count, None)?;
+    }
+    if let Some(items) = opt_or_log(load_reminders(&backup), "reminders") {
+        rec.add("reminders", "Připomínky", "reminders.html", format::reminders_html(&items), items.len(), None)?;
+    }
+    if let Some(items) = opt_or_log(load_mail(&backup), "mail") {
+        rec.add("mail", "Mail", "mail.html", format::mail_html(&items), items.len(), None)?;
+    }
 
     let generated = chrono::Utc::now().to_rfc3339();
     let index_html = recover::render_index(device, &generated, &rec.sections);
@@ -1261,6 +1496,12 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     // `attachments` row below — both read the same `sms.db`.
     ("attachments", true, "HomeDomain", "Library/SMS/sms.db"),
     ("whatsapp", true, "AppDomainGroup-group.net.whatsapp.WhatsApp.shared", "ChatStorage.sqlite"),
+    ("health", true, "HealthDomain", "Health/healthdb_secure.sqlite"),
+    // Reminders and Mail live at dynamic paths (UUID store / .emlx files), so
+    // their presence is detected specially in `run_inspect` (the path here is a
+    // placeholder and is not used for `has`).
+    ("reminders", true, reminders::DOMAIN, ""),
+    ("mail", true, mail::MAIL_DOMAIN, ""),
 ];
 
 fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, AppError> {
@@ -1280,6 +1521,18 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 }
             }
             any
+        } else if name == "reminders" {
+            backup
+                .list(reminders::DOMAIN, "")
+                .map_err(|e| AppError::other(e.to_string()))?
+                .iter()
+                .any(|p| reminders::is_store_path(p))
+        } else if name == "mail" {
+            backup
+                .list(mail::MAIL_DOMAIN, "")
+                .map_err(|e| AppError::other(e.to_string()))?
+                .iter()
+                .any(|p| p.to_lowercase().ends_with(".emlx"))
         } else {
             backup
                 .has(domain, path)
@@ -1302,6 +1555,9 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "photos" => load_photos(&backup).ok().flatten().map(|v| v.len()),
                 "attachments" => load_attachments(&backup).ok().flatten().map(|v| v.len()),
                 "whatsapp" => load_whatsapp(&backup).ok().flatten().map(|v| v.len()),
+                "health" => load_health(&backup).ok().flatten().map(|h| h.workouts.len() + h.quantity_summary.len()),
+                "reminders" => load_reminders(&backup).ok().flatten().map(|v| v.len()),
+                "mail" => load_mail(&backup).ok().flatten().map(|v| v.len()),
                 _ => None,
             }
         } else {
@@ -1339,6 +1595,29 @@ mod cli_tests {
             Command::Messages { format } => assert_eq!(format, "html"),
             _ => panic!("expected Messages"),
         }
+    }
+
+    #[test]
+    fn parses_health_reminders_mail_invocations() {
+        let h = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "health", "-f", "json"]).unwrap();
+        assert!(matches!(h.command, Command::Health { format } if format == "json"));
+        let r = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "reminders", "-f", "csv"]).unwrap();
+        assert!(matches!(r.command, Command::Reminders { format } if format == "csv"));
+        let m = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "mail", "-f", "html"]).unwrap();
+        assert!(matches!(m.command, Command::Mail { format } if format == "html"));
+        let a = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "apps", "-f", "csv"]).unwrap();
+        assert!(matches!(a.command, Command::Apps { format } if format == "csv"));
+    }
+
+    #[test]
+    fn known_stores_lists_new_batch() {
+        for name in ["health", "reminders", "mail"] {
+            let s = KNOWN_STORES.iter().find(|(n, ..)| *n == name).unwrap();
+            assert!(s.1, "{name} must be supported");
+        }
+        // `apps` is manifest-derived, not a data store: it must NOT be advertised
+        // by inspect (keeps inspect/recover store coverage consistent).
+        assert!(KNOWN_STORES.iter().all(|(n, ..)| *n != "apps"), "apps must not be a store");
     }
 
     #[test]

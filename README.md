@@ -11,9 +11,9 @@ portable formats:
 
 - **`archive`** — a full iOS-backup **recovery toolset**: contacts, calls,
   voicemail, voice memos, Safari, calendar, notes, photos & videos, message
-  attachments, WhatsApp, and iMessage/SMS/RCS transcripts — plus a one-shot
-  `recover` package, on-device `backup` capture, and a backup `integrity` check
-  (agent-first JSON output)
+  attachments, WhatsApp, iMessage/SMS/RCS transcripts, Health, Reminders, Mail,
+  and an installed-app inventory — plus a one-shot `recover` package, on-device
+  `backup` capture, and a backup `integrity` check (agent-first JSON output)
 - **`imessage-exporter`** — iMessage / SMS / RCS conversations and attachments
 
 ```bash
@@ -34,8 +34,9 @@ types also extract the actual files (photos, videos, audio, attachments).
 archive --backup ~/Backup/<UDID> inspect
 archive --backup ~/Backup/<UDID> integrity
 
-# One-shot: recover every in-process extractor into out/ with a customer-ready
-# index.html (conversation transcripts are a separate `messages` command)
+# One-shot: recover every in-process data-store extractor into out/ with a
+# customer-ready index.html (the `messages` transcript and `apps` inventory are
+# separate commands)
 archive --backup ~/Backup/<UDID> -o out recover        # --no-files for metadata only
 
 # Or capture a fresh backup from a USB-connected iPhone first (libimobiledevice)
@@ -54,6 +55,10 @@ archive --backup ~/Backup/<UDID> -o out photos          -f html  # gallery: albu
 archive --backup ~/Backup/<UDID> -o out attachments     -f html  # Messages media gallery
 archive --backup ~/Backup/<UDID> -o out whatsapp        -f html  # transcript + media
 archive --backup ~/Backup/<UDID> -o out messages        -f html  # iMessage/SMS/RCS transcript (txt|html|pdf)
+archive --backup ~/Backup/<UDID> -o out health          -f html  # workouts + quantity summaries
+archive --backup ~/Backup/<UDID> -o out reminders       -f html  # lists, items, due/completion
+archive --backup ~/Backup/<UDID> -o out mail            -f html  # local/POP3 .emlx (often empty on iOS)
+archive --backup ~/Backup/<UDID> -o out apps            -f json  # installed app bundle ids
 ```
 
 The `messages` command drives the `imessage-exporter` binary (built in the same
