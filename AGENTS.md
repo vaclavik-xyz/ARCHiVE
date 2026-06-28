@@ -19,9 +19,18 @@ archive --backup <DIR> [--password <PW>] [-o <OUT>] <COMMAND> [ARGS]
   unencrypted backups. Headless runs never prompt.
 - `-o, --out <OUT>`: output directory. Required for export commands; ignored by
   `inspect`.
+- `--chrome-path <PATH>` (optional): headless browser for `-f pdf` (see below).
 
-`--password` and `--out` are global flags — they may appear before **or** after
-the subcommand name, which is agent-friendly for programmatic invocation.
+`--password`, `--out`, and `--chrome-path` are global flags — they may appear
+before **or** after the subcommand name, which is agent-friendly for programmatic
+invocation.
+
+**PDF output:** every command that lists `html` as a format also accepts
+**`pdf`** (writes `<OUT>/<name>.pdf`). The HTML it would render is printed to PDF
+by a headless Chrome/Chromium/Edge, auto-detected on `PATH`/standard locations or
+set with `--chrome-path`. A missing browser is a usage error (exit 1). The JSON
+envelope is unchanged; `outputs` points at the `.pdf`. (The `recover` one-shot
+package stays HTML.)
 
 ## Commands
 
