@@ -8,6 +8,12 @@ license = "GPL-3.0-or-later"
 crabapple = "=0.4.7"
 tempfile = "=3.27.0"
 serde = { version = "=1.0.228", features = ["derive"] }
+# Keychain (Wi-Fi) decryption: RFC3394 unwrap of per-item keys against crabapple's
+# class keys, then AES-256-GCM. Versions aligned with crabapple 0.4.7's RustCrypto
+# generation (aes 0.9). `plist` parses the decrypted keychain-backup.plist.
+aes-gcm = "=0.11.0"
+aes-kw = "=0.3.1"
+plist = "=1.9.0"
 
 [dev-dependencies]
 rusqlite = { version = "=0.40.0", features = ["bundled"] }

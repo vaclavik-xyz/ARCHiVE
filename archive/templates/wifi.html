@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Wi-Fi hesla</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}code{background:#f0f0f0;padding:1px 5px;border-radius:3px}
+.warn{background:#ffebee;border:1px solid #ef9a9a;padding:8px 12px;border-radius:6px;margin-bottom:16px}</style></head><body>
+<h1>Wi-Fi hesla ({{ networks.len() }})</h1>
+<p class="warn">🔒 Citlivé. Hesla jsou v otevřené podobě. Předávej jen vlastníkovi zařízení a bezpečným kanálem.</p>
+<table>
+<tr><th>Síť (SSID)</th><th>Heslo</th></tr>
+{% for w in networks %}
+<tr><td>{{ w.ssid }}</td><td><code>{{ w.password }}</code></td></tr>
+{% endfor %}
+</table>
+</body></html>

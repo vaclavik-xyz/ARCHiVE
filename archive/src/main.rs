@@ -187,6 +187,12 @@ enum Command {
         #[arg(long, default_value = "all")]
         store: String,
     },
+    /// Recover saved Wi-Fi passwords from the keychain (encrypted backups only).
+    Wifi {
+        /// Output format: csv, json, html (no pdf — avoids a plaintext sidecar).
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Run every extractor into <out>/ and write a customer index.html package.
     Recover {
         /// Skip large media extraction (metadata + HTML only).
@@ -289,6 +295,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Apps { format } => run_apps(&cli, password.as_deref(), format),
         Command::Timeline { format } => run_timeline(&cli, password.as_deref(), format),
         Command::RecoverDeleted { format, store } => run_recover_deleted(&cli, password.as_deref(), format, store),
+        Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
@@ -1100,6 +1107,48 @@ fn run_recover_deleted(cli: &Cli, password: Option<&str>, format: &str, store: &
     }))
 }
 
+// Recover saved Wi-Fi passwords from the keychain. Encrypted backups only (an
+// unencrypted backup does not include the keychain). Sensitive: the passwords are
+// plaintext and are never logged to stderr — only a count is printed.
+fn run_wifi(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "wifi")?;
+    // PDF is intentionally not offered for this sensitive export: the shared PDF
+    // path writes a temporary plaintext HTML sidecar next to the output before
+    // rendering, which we will not do for plaintext passwords.
+    if format == Format::Pdf {
+        return Err(AppError::usage(
+            "pdf is not available for wifi (it would write a temporary plaintext HTML file); use csv, json, or html",
+        ));
+    }
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export Wi-Fi credentials"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let creds = backup.wifi_credentials().map_err(|e| AppError::other(e.to_string()))?;
+    if creds.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "wifi", "count": 0, "outputs": [],
+            "note": "no Wi-Fi credentials recovered (the keychain is included only in ENCRYPTED backups; this backup may be unencrypted, have no saved networks, or use an unsupported keychain format)",
+            "device": device
+        }));
+    }
+    let rendered = match format {
+        Format::Csv => format::wifi_csv(&creds),
+        Format::Json => format::wifi_json(&creds),
+        Format::Html => format::wifi_html(&creds),
+        Format::Vcf | Format::Pdf => unreachable!("vcf rejected by export_format; pdf rejected above"),
+    };
+    let out_file = out.join(format!("wifi.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    // Count only — never log the recovered passwords.
+    eprintln!("Recovered {} Wi-Fi network(s) to {}", creds.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "wifi", "count": creds.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device,
+        "note": "recovered Wi-Fi passwords are plaintext — handle and transmit securely"
+    }))
+}
+
 // Merge every in-process extractor into one chronological timeline. Like
 // `recover`, each store is best-effort (absent/unreadable is logged and skipped).
 // A view over the other extractors, not a data store: standalone (not in
@@ -1863,6 +1912,16 @@ mod cli_tests {
         assert!(matches!(a.command, Command::Apps { format } if format == "csv"));
         let t = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "timeline", "-f", "json"]).unwrap();
         assert!(matches!(t.command, Command::Timeline { format } if format == "json"));
+        let w = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "wifi", "-f", "html"]).unwrap();
+        assert!(matches!(w.command, Command::Wifi { format } if format == "html"));
+    }
+
+    #[test]
+    fn wifi_rejects_pdf_to_avoid_plaintext_sidecar() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "wifi", "-f", "pdf"]).unwrap();
+        let err = run_wifi(&cli, None, "pdf").unwrap_err();
+        assert_eq!(err.kind, "usage");
+        assert_eq!(err.code, 1);
     }
 
     #[test]

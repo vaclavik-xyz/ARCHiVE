@@ -481,6 +481,27 @@ and carved rows can include false positives. The envelope carries `count`,
 `stores: [{store, recovered}]`, `outputs`, `device`, and a `note` stating this.
 Read-only; never writes to the backup. Absent databases are skipped.
 
+### `wifi` — recover saved Wi-Fi passwords
+
+```
+archive --backup <DIR> --password <PW> -o <OUT> wifi -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html` (**no `pdf`** — it is intentionally rejected with
+exit 1, because the shared PDF path writes a temporary plaintext HTML sidecar).
+Writes `<OUT>/wifi.<ext>`. Recovers saved Wi-Fi PSKs from the backup keychain
+(`KeychainDomain/keychain-backup.plist`), which is present **only in ENCRYPTED
+backups** — on an unencrypted backup, one with no saved networks, or an
+unsupported keychain layout it returns `count: 0` with a note. Each row is
+`{ ssid, password }` with the password in **plaintext**. Passwords are written
+only to the output file; they are **never logged** to stderr (progress prints a
+count). Decryption: crabapple decrypts the keychain file and
+exposes the protection-class keys; per-item keys are RFC3394-unwrapped and
+AES-256-GCM-decrypted in `archive-core`. v1 is Wi-Fi only (website/app passwords,
+certs, and legacy AES-CBC items are out of scope). Envelope: `count`, `outputs`,
+`device`, and a `note` flagging plaintext secrets. **Sensitive** — handle and
+transmit securely.
+
 ### `recover` — one-shot customer package
 
 ```
