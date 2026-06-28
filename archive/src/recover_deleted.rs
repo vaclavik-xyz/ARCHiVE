@@ -144,6 +144,19 @@ fn messages_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
         .collect()
 }
 
+/// Whether a carved calls/contacts candidate should be rejected. Unlike messages
+/// (which carry a GUID anchor usable for live-exclusion), these stores have no
+/// strong content key, so beyond dropping rows whose rowid is still live we also
+/// drop rowid-less candidates carved from WAL frames: a WAL frame is a full page
+/// image, and a genuinely deleted row survives there with cell framing (a rowid),
+/// whereas a rowid-less raw-scan hit is almost always a duplicate of a live row.
+fn excluded_call_or_contact(r: &CarvedRecord, live: &LiveKeys) -> bool {
+    if r.rowid.is_some_and(|id| live.rowids.contains(&id)) {
+        return true;
+    }
+    r.source == CarveSource::Wal && r.rowid.is_none()
+}
+
 /// CallHistory `ZCALLRECORD` (Core Data): anchored by a REAL in a plausible
 /// Cocoa-seconds date range. Duration is a separate small REAL; the address is a
 /// phone-ish text/blob value.
@@ -151,7 +164,7 @@ fn calls_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
     records
         .iter()
         .filter_map(|r| {
-            if r.rowid.is_some_and(|id| live.rowids.contains(&id)) {
+            if excluded_call_or_contact(r, live) {
                 return None;
             }
             // ~2008-12 .. ~2035 in Cocoa (2001-epoch) seconds.
@@ -196,7 +209,7 @@ fn contacts_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
     records
         .iter()
         .filter_map(|r| {
-            if r.rowid.is_some_and(|id| live.rowids.contains(&id)) {
+            if excluded_call_or_contact(r, live) {
                 return None;
             }
             let texts: Vec<&str> = r.values.iter().filter_map(as_text).filter(|t| !t.is_empty()).collect();
@@ -235,7 +248,11 @@ mod tests {
     use super::*;
 
     fn rec(source: CarveSource, values: Vec<CarvedValue>) -> CarvedRecord {
-        CarvedRecord { rowid: Some(7), source, values, truncated: false }
+        rec_n(Some(7), source, values)
+    }
+
+    fn rec_n(rowid: Option<i64>, source: CarveSource, values: Vec<CarvedValue>) -> CarvedRecord {
+        CarvedRecord { rowid, source, values, truncated: false }
     }
 
     #[test]
@@ -335,6 +352,31 @@ mod tests {
         let out = recover("messages", &records, &live);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].summary, "deleted");
+    }
+
+    #[test]
+    fn calls_and_contacts_drop_rowidless_wal_candidates() {
+        // A rowid-less WAL raw-scan hit (a live-row duplicate from a full page
+        // image) is dropped for calls and contacts...
+        let call = vec![rec_n(
+            None,
+            CarveSource::Wal,
+            vec![CarvedValue::Real(600_000_000.0), CarvedValue::Real(30.0), CarvedValue::Text("+420111222333".into())],
+        )];
+        assert!(recover("calls", &call, &LiveKeys::default()).is_empty());
+        let contact = vec![rec_n(
+            None,
+            CarveSource::Wal,
+            vec![CarvedValue::Text("Eva".into()), CarvedValue::Text("Dvořák".into())],
+        )];
+        assert!(recover("contacts", &contact, &LiveKeys::default()).is_empty());
+        // ...but a framed (rowid present) WAL call that is not live is kept.
+        let framed = vec![rec_n(
+            Some(123),
+            CarveSource::Wal,
+            vec![CarvedValue::Real(600_000_000.0), CarvedValue::Real(30.0), CarvedValue::Text("+420111222333".into())],
+        )];
+        assert_eq!(recover("calls", &framed, &LiveKeys::default()).len(), 1);
     }
 
     #[test]
