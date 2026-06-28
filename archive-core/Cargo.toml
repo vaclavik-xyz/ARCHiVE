@@ -9,9 +9,10 @@ crabapple = "=0.4.7"
 tempfile = "=3.27.0"
 serde = { version = "=1.0.228", features = ["derive"] }
 # Keychain (Wi-Fi) decryption: RFC3394 unwrap of per-item keys against crabapple's
-# class keys, then AES-256-GCM. Versions aligned with crabapple 0.4.7's RustCrypto
-# generation (aes 0.9). `plist` parses the decrypted keychain-backup.plist.
-aes-gcm = "=0.11.0"
+# class keys (aes-kw), then AES-256 in CTR mode for Apple's blank-IV GCM (aes).
+# Versions aligned with crabapple 0.4.7's RustCrypto generation (aes 0.9). `plist`
+# parses the decrypted keychain-backup.plist.
+aes = "=0.9.1"
 aes-kw = "=0.3.1"
 plist = "=1.9.0"
 

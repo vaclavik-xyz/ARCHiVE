@@ -2,89 +2,65 @@
 //!
 //! # Where this fits
 //!
-//! iOS keychain recovery from a backup is a *two-layer* decryption problem:
+//! Keychain recovery from a backup is a two-layer decryption problem:
 //!
-//! 1. **File layer** (handled elsewhere, by the controller via `crabapple`):
-//!    locate `KeychainDomain/keychain-backup.plist` in the backup manifest and
-//!    file-decrypt it. That yields the *keychain plist bytes* this module
-//!    consumes. The controller also obtains the per-protection-class keys from
-//!    crabapple's manifest keybag.
+//! 1. **File layer** (the controller, via crabapple): locate
+//!    `KeychainDomain/keychain-backup.plist`, file-decrypt it, and read the
+//!    per-protection-class keys from crabapple's manifest keybag.
+//! 2. **Item layer** (this module): each keychain item's value is independently
+//!    encrypted with a per-item key that is itself AES-key-wrapped under a
+//!    protection-class key. This module decrypts those items and extracts Wi-Fi
+//!    credentials. Interface is decoupled from crabapple: plain plist bytes plus a
+//!    `HashMap<u32, Vec<u8>>` of protection-class id → raw class key.
 //!
-//! 2. **Item layer** (this module): inside the keychain plist, each secret item
-//!    (a saved Wi-Fi password, a generic password, …) carries its own AES-wrapped
-//!    per-item key plus an AEAD-encrypted secret. Unwrapping that per-item key
-//!    with the appropriate *class key* and then decrypting the payload reveals the
-//!    secret.
+//! # Item format (validated against a real iOS 16 encrypted backup)
 //!
-//! This module performs **only the item layer**, and **only for Wi-Fi**
-//! (`genp`/AirPort) items in v1. Its interface is deliberately decoupled from
-//! crabapple: it takes plain keychain plist bytes and a `HashMap<u32, Vec<u8>>`
-//! mapping protection-class id → raw (already-unwrapped) class key. The controller
-//! is responsible for turning crabapple's `ProtectionClassKey { class_id, key }`
-//! values into that map (`key.as_ref().to_vec()` keyed by `class_id`).
-//!
-//! # Protected blob layout
-//!
-//! A protected item value (`v_Data`) is laid out as:
+//! Each `genp` item is a plist dict whose **`v_Data`** is the protected blob:
 //!
 //! ```text
-//! ┌────────────┬────────────────────────┬──────────────────────────────────┐
-//! │ class id   │ RFC 3394 wrapped key    │ AES-256-GCM blob                 │
-//! │ 4 bytes LE │ (per-item key, wrapped) │ nonce(12) ‖ ciphertext ‖ tag(16) │
-//! └────────────┴────────────────────────┴──────────────────────────────────┘
+//! ┌───────────┬───────────┬──────────────┬──────────────────┬───────────────────────┐
+//! │ version   │ class id  │ wrapped len  │ RFC3394 wrapped   │ Apple-GCM ciphertext  │
+//! │ u32 LE =3 │ u32 LE    │ u32 LE (=40) │ per-item key      │ ciphertext ‖ tag(16)  │
+//! └───────────┴───────────┴──────────────┴──────────────────┴───────────────────────┘
 //! ```
 //!
-//! The first 4 bytes are a little-endian `u32` protection-class id (same framing
-//! crabapple uses for file keys). The wrapped per-item key follows; for a 32-byte
-//! AES-256 key the RFC 3394 wrap is 40 bytes (`0x28`). Everything after is the
-//! AES-256-GCM payload: a 12-byte nonce, the ciphertext, then a 16-byte tag.
+//! The wrapped key is RFC 3394-unwrapped with `class_keys[class id]` (which also
+//! integrity-checks the key). Apple encrypts the payload with AES-256-GCM using a
+//! **blank IV** (J0 = all-zeros), which is exactly AES-256-CTR with the counter
+//! block starting at 1 (32-bit big-endian increment of the last four bytes). The
+//! GCM tag is not verified — the RFC 3394 unwrap already proves the key.
 //!
-//! Robustness rules (this module *never* errors on a single bad item — it skips):
+//! The decrypted plaintext is an **ASN.1 DER** `SET OF SEQUENCE { UTF8String key,
+//! value }` — the item's real attributes. Wi-Fi items have `svce = "AirPort"` and
+//! `agrp = "apple"`; the SSID is `acct` and the password is `v_Data`.
 //!
-//! * If the class key for an item's class id is absent, the item is skipped.
-//! * If the blob is malformed (too short, bad wrap, failed GCM), it is skipped.
-//! * Some keychain-backup dumps surface items already partially decrypted: the
-//!   `v_Data` is plaintext (a UTF-8 PSK) rather than a protected blob. Such values
-//!   are used directly.
-//! * The recovered secret may itself be a UTF-8 string or a nested binary plist
-//!   wrapping the password; both are handled.
+//! Robustness: this module is total and panic-free. A malformed plist yields an
+//! empty `Vec`; any item that cannot be unwrapped/decrypted/parsed is skipped.
+//! "This device only" protection classes (whose keys are not transferable in a
+//! portable backup) fail to unwrap and are skipped — Wi-Fi PSKs use the
+//! transferable `AfterFirstUnlock` class and decrypt fine.
 
 use std::collections::HashMap;
 
-use aes_gcm::{
-    Aes256Gcm, Nonce,
-    aead::{Aead, KeyInit, Payload},
-};
+use aes::Aes256;
+use aes::cipher::{BlockCipherEncrypt, KeyInit};
 use aes_kw::KwAes256;
 use plist::Value;
 use serde::Serialize;
 
-/// The keychain plist's generic-password array — where Wi-Fi PSKs live. v1 mines
-/// only this; the other top-level arrays (`inet`, `cert`, `keys`) are out of
-/// scope.
+/// The keychain plist's generic-password array — where Wi-Fi PSKs live.
 const GENP_KEY: &str = "genp";
 
-/// Number of leading bytes of a protected blob holding the LE `u32` class id.
-const CLASS_ID_LEN: usize = 4;
+/// Only version-3 (AES-GCM) items are supported; older CBC items are skipped.
+const ITEM_VERSION_GCM: u32 = 3;
 
-/// AES-GCM nonce length (96-bit), prepended to the ciphertext in the payload.
-const GCM_NONCE_LEN: usize = 12;
-
-/// AES-GCM authentication tag length (128-bit), appended after the ciphertext.
+/// AES-GCM authentication tag length (trailing bytes of the payload, not verified).
 const GCM_TAG_LEN: usize = 16;
 
-/// RFC 3394 adds one 8-byte semiblock of overhead over the wrapped key, so a
-/// wrapped key is always at least this many bytes. Used only as a lower bound;
-/// the exact wrapped length is discovered by trial unwrap (see [`split_blob`]).
-const KW_MIN_LEN: usize = 16;
-
 /// One recovered Wi-Fi credential: the network name and its plaintext password.
-///
-/// `Serialize` is derived so the controller can emit it directly in the
-/// agent-first one-JSON-object-on-stdout contract without an intermediate DTO.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WifiCredential {
-    /// The Wi-Fi network name (SSID), read from the item's `acct` attribute.
+    /// The Wi-Fi network name (SSID), from the item's decrypted `acct` attribute.
     pub ssid: String,
     /// The recovered pre-shared key / password in plaintext.
     pub password: String,
@@ -92,523 +68,348 @@ pub struct WifiCredential {
 
 /// Extract saved Wi-Fi credentials from decrypted keychain plist bytes.
 ///
-/// `plist_bytes` is the *decrypted* `keychain-backup.plist` (a binary or XML
-/// plist). `class_keys` maps protection-class id → raw class key (already
-/// unwrapped by the caller from crabapple's manifest keybag).
-///
-/// This function is total and panic-free on untrusted input: a malformed plist
-/// yields an empty `Vec`, and any individual item that cannot be parsed,
-/// key-unwrapped, or decrypted is silently skipped. Only `genp` (generic
-/// password) items that look like AirPort/Wi-Fi entries are considered.
-pub fn extract_wifi(
-    plist_bytes: &[u8],
-    class_keys: &HashMap<u32, Vec<u8>>,
-) -> Vec<WifiCredential> {
-    // A malformed/unsupported plist is not an error here — it simply yields no
-    // credentials. `from_reader` needs `Read + Seek`; a `Cursor` over the bytes
-    // satisfies both without copying.
+/// `plist_bytes` is the decrypted `keychain-backup.plist`; `class_keys` maps
+/// protection-class id → raw class key (from crabapple's manifest keybag). Total
+/// and panic-free: any item that cannot be decoded is skipped. Only `genp`
+/// AirPort/Wi-Fi items are returned.
+pub fn extract_wifi(plist_bytes: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Vec<WifiCredential> {
     let Ok(root) = Value::from_reader(std::io::Cursor::new(plist_bytes)) else {
         return Vec::new();
     };
-    let Some(dict) = root.as_dictionary() else {
-        return Vec::new();
-    };
-    let Some(items) = dict.get(GENP_KEY).and_then(Value::as_array) else {
+    let Some(items) = root.as_dictionary().and_then(|d| d.get(GENP_KEY)).and_then(Value::as_array) else {
         return Vec::new();
     };
 
     let mut out = Vec::new();
     for item in items {
-        let Some(attrs) = item.as_dictionary() else {
+        let Some(blob) = item.as_dictionary().and_then(|a| a.get("v_Data")).and_then(Value::as_data) else {
             continue;
         };
-        if !is_wifi_item(attrs) {
-            continue;
-        }
-        // SSID comes from the `acct` attribute; without it we cannot label the
-        // credential, so skip.
-        let Some(ssid) = attrs.get("acct").and_then(Value::as_string) else {
+        let Some(plaintext) = decrypt_item(blob, class_keys) else {
             continue;
         };
-        if let Some(password) = recover_secret(attrs, class_keys) {
-            out.push(WifiCredential {
-                ssid: ssid.to_string(),
-                password,
-            });
+        let attrs = parse_der_attributes(&plaintext);
+        let attr = |k: &str| attrs.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_slice());
+
+        // Wi-Fi marker comes from the DECRYPTED, authoritative attributes.
+        let is_wifi = attr("svce").is_some_and(|v| v.eq_ignore_ascii_case(b"AirPort"))
+            && attr("agrp").is_some_and(|v| v == b"apple");
+        if !is_wifi {
+            continue;
         }
+        let (Some(ssid), Some(pw)) = (
+            attr("acct").and_then(utf8_nonempty),
+            attr("v_Data").and_then(utf8_nonempty),
+        ) else {
+            continue;
+        };
+        out.push(WifiCredential { ssid, password: pw });
     }
     out
 }
 
-/// Whether a `genp` attribute dict denotes an AirPort/Wi-Fi entry.
-///
-/// Apple stores saved Wi-Fi PSKs as generic passwords in its own keychain access
-/// group with the canonical `AirPort` service (enterprise/EAP Wi-Fi under
-/// `com.apple.network.eap*`). The **access group** (`agrp`) is the trust anchor:
-/// iOS enforces keychain-access-group entitlements, so a third-party app cannot
-/// claim Apple's group — whereas the service (`svce`) is an app-supplied string
-/// and forgeable. We therefore require an Apple-owned `agrp` *and* a Wi-Fi service
-/// marker. This excludes third-party secrets even when they spoof a
-/// `com.apple.…eap…` service, and ignores the user-facing `labl`/`desc` text.
-fn is_wifi_item(attrs: &plist::Dictionary) -> bool {
-    let attr = |k: &str| attrs.get(k).and_then(Value::as_string).map(str::to_ascii_lowercase);
-    let svce = attr("svce").unwrap_or_default();
-    let agrp = attr("agrp").unwrap_or_default();
-
-    // Apple-owned access group (entitlement-enforced) — the trust anchor.
-    if agrp != "apple" && !agrp.starts_with("com.apple") {
-        return false;
-    }
-    // A Wi-Fi service marker within that trusted group.
-    svce == "airport" || svce.contains("airport") || svce.contains("wifi") || svce.contains("eap")
+/// Valid, non-empty UTF-8 → owned `String`, else `None`.
+fn utf8_nonempty(v: &[u8]) -> Option<String> {
+    std::str::from_utf8(v).ok().filter(|s| !s.is_empty()).map(str::to_string)
 }
 
-/// Recover the plaintext secret for one keychain item.
-///
-/// Handles both the already-decrypted case (`v_Data` is a plaintext UTF-8 PSK)
-/// and the protected-blob case (decrypt via the class keys). Returns `None` if
-/// there is no usable `v_Data` or decryption fails — the caller skips the item.
-fn recover_secret(
-    attrs: &plist::Dictionary,
-    class_keys: &HashMap<u32, Vec<u8>>,
-) -> Option<String> {
-    let v_data = attrs.get("v_Data")?;
-
-    // Case A: the value is stored as a plist string — already plaintext.
-    if let Some(s) = v_data.as_string() {
-        return Some(s.to_string());
+/// Decrypt one keychain item's protected blob to its DER attribute bytes.
+/// `None` when the version is unsupported, the class key is absent, the key wrap
+/// fails (e.g. a non-transferable ThisDeviceOnly class), or the blob is malformed.
+fn decrypt_item(blob: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Option<Vec<u8>> {
+    let version = u32::from_le_bytes(blob.get(0..4)?.try_into().ok()?);
+    if version != ITEM_VERSION_GCM {
+        return None;
     }
-
-    // Otherwise it must be a Data blob.
-    let blob = v_data.as_data()?;
-
-    // Case B: a protected blob → decrypt. Tried FIRST (before the plaintext
-    // fallback) so a long plaintext PSK is never mistaken for a blob and dropped:
-    // a WPA passphrase is up to 63 bytes — longer than a minimal protected blob —
-    // and on a real blob decryption succeeds, while on plaintext the leading bytes
-    // are not a valid class id so decryption simply returns None.
-    if let Some(secret) = decrypt_protected_blob(blob, class_keys) {
-        return Some(secret);
-    }
-
-    // Case C fallback: the Data is a raw plaintext PSK (not a protected blob, or
-    // an unsupported layout). Accept only non-empty valid UTF-8 of plausible
-    // length, so binary ciphertext is never surfaced as garbage text.
-    match std::str::from_utf8(blob) {
-        Ok(s) if (1..=128).contains(&s.chars().count()) => Some(s.to_string()),
-        _ => None,
-    }
+    let class = u32::from_le_bytes(blob.get(4..8)?.try_into().ok()?);
+    let wrap_len = u32::from_le_bytes(blob.get(8..12)?.try_into().ok()?) as usize;
+    let class_key = class_keys.get(&class)?;
+    let wrapped = blob.get(12..12usize.checked_add(wrap_len)?)?;
+    let ct = blob.get(12 + wrap_len..)?;
+    let item_key = aes_kw_unwrap(class_key, wrapped)?;
+    apple_ctr_decrypt(&item_key, ct)
 }
 
-/// Decrypt a protected item blob into its plaintext secret.
-///
-/// Steps: read the LE `u32` class id, look up its class key, RFC 3394-unwrap the
-/// per-item key, then AES-256-GCM decrypt the payload. Returns `None` on any
-/// failure (missing key, bad wrap, GCM auth failure, non-text result), never
-/// panicking. All slice access is bounds-checked via `.get(..)`.
-fn decrypt_protected_blob(
-    blob: &[u8],
-    class_keys: &HashMap<u32, Vec<u8>>,
-) -> Option<String> {
-    let class_bytes: [u8; CLASS_ID_LEN] = blob.get(..CLASS_ID_LEN)?.try_into().ok()?;
-    let class_id = u32::from_le_bytes(class_bytes);
-
-    let class_key = class_keys.get(&class_id)?;
-    // RFC 3394 / AES-256 key wrap requires a 256-bit KEK.
+/// RFC 3394 unwrap of a 32-byte AES-256 per-item key. The unwrap validates the
+/// integrity check value, so success means the key is correct. `None` on any
+/// failure (wrong KEK length, bad wrap, non-256-bit unwrapped key).
+fn aes_kw_unwrap(class_key: &[u8], wrapped: &[u8]) -> Option<Vec<u8>> {
     if class_key.len() != 32 {
         return None;
     }
-
-    let rest = blob.get(CLASS_ID_LEN..)?;
-    let (item_key, gcm_blob) = split_blob(rest, class_key)?;
-
-    // GCM payload: nonce(12) ‖ ciphertext ‖ tag(16). `aes-gcm`'s `decrypt`
-    // expects ciphertext-with-appended-tag, so we hand it everything after the
-    // nonce; it validates the tag internally.
-    let nonce = gcm_blob.get(..GCM_NONCE_LEN)?;
-    let ct_and_tag = gcm_blob.get(GCM_NONCE_LEN..)?;
-    if ct_and_tag.len() < GCM_TAG_LEN {
+    // A 32-byte key wraps to 40 bytes; require exactly that to keep the item key
+    // AES-256 (and reject absurd lengths up front).
+    if wrapped.len() != 40 {
         return None;
     }
-
-    // `nonce` is exactly GCM_NONCE_LEN bytes (sliced above), so this conversion
-    // into the fixed-size `Nonce` array cannot fail; `.ok()?` keeps us panic-free
-    // regardless of input.
-    let nonce = Nonce::try_from(nonce).ok()?;
-    let cipher = Aes256Gcm::new_from_slice(&item_key).ok()?;
-    let plaintext = cipher
-        .decrypt(
-            &nonce,
-            Payload {
-                msg: ct_and_tag,
-                aad: &[],
-            },
-        )
-        .ok()?;
-
-    decode_secret(&plaintext)
-}
-
-/// Split the post-class-id remainder into `(unwrapped per-item key, gcm blob)`.
-///
-/// The wrapped-key length is not stored inline, so we discover it by trial: try
-/// each plausible RFC 3394 wrapped length (multiples of 8, from the minimum up to
-/// what leaves room for a GCM payload) and accept the first that unwraps to a
-/// valid AES key (16/24/32 bytes) *and* leaves a remainder large enough for a GCM
-/// nonce+tag. The common iOS case is a 40-byte wrap of a 32-byte key, which this
-/// finds on the first viable candidate.
-fn split_blob(rest: &[u8], class_key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
     let kek = KwAes256::new_from_slice(class_key).ok()?;
-    let min_gcm = GCM_NONCE_LEN + GCM_TAG_LEN;
-
-    // Wrapped key is RFC 3394: a multiple of 8 bytes, > 8. Unwrapped length is
-    // (wrapped - 8) and must be a valid AES key size.
-    let mut wrapped_len = KW_MIN_LEN; // 16: smallest wrap (of an 8-byte key) — but we require AES sizes below.
-    while wrapped_len + min_gcm <= rest.len() {
-        if let Some(wrapped) = rest.get(..wrapped_len) {
-            let unwrapped_len = wrapped_len - 8;
-            if matches!(unwrapped_len, 16 | 24 | 32) {
-                let mut buf = vec![0u8; unwrapped_len];
-                if kek.unwrap_key(wrapped, &mut buf).is_ok() {
-                    // Only AES-256 item keys are used for GCM here; require 32.
-                    if unwrapped_len == 32 {
-                        let gcm = rest.get(wrapped_len..)?.to_vec();
-                        return Some((buf, gcm));
-                    }
-                }
-            }
-        }
-        wrapped_len += 8;
-    }
-    None
+    let mut buf = vec![0u8; wrapped.len() - 8];
+    kek.unwrap_key(wrapped, &mut buf).ok()?;
+    Some(buf)
 }
 
-/// Decode a decrypted keychain secret into a password string.
-///
-/// The secret is either raw UTF-8 (the PSK) or a nested binary plist whose
-/// dictionary holds the password under a conventional key (`v_Data` again, or a
-/// `String`/data value). We try plain UTF-8 first, then fall back to parsing a
-/// nested plist and extracting the first plausible string value.
-fn decode_secret(plaintext: &[u8]) -> Option<String> {
-    // A nested binary plist starts with the "bplist00" magic; only then do we
-    // attempt plist parsing (avoids mis-parsing a PSK that happens to be valid
-    // UTF-8 but contains odd bytes).
-    if plaintext.starts_with(b"bplist00")
-        && let Ok(nested) = Value::from_reader(std::io::Cursor::new(plaintext))
-            && let Some(s) = extract_nested_password(&nested) {
-                return Some(s);
+/// Decrypt Apple keychain GCM ciphertext (`edata` = ciphertext ‖ 16-byte tag)
+/// with the 32-byte item key. Apple uses a blank GCM IV (J0 = all zeros), which
+/// reduces to AES-256-CTR with the counter block starting at 1 (32-bit big-endian
+/// increment of the last four bytes). The tag is not verified — the per-item key
+/// was already integrity-checked by the RFC 3394 unwrap. Never panics.
+fn apple_ctr_decrypt(key32: &[u8], edata: &[u8]) -> Option<Vec<u8>> {
+    let ct = edata.get(..edata.len().checked_sub(GCM_TAG_LEN)?)?;
+    let cipher = Aes256::new_from_slice(key32).ok()?;
+    let mut counter = [0u8; 16];
+    counter[15] = 1;
+    let mut out = ct.to_vec();
+    for chunk in out.chunks_mut(16) {
+        let mut block = aes::cipher::array::Array::from(counter);
+        cipher.encrypt_block(&mut block);
+        for (b, k) in chunk.iter_mut().zip(block.0.iter()) {
+            *b ^= *k;
+        }
+        // 32-bit big-endian increment of the last four counter bytes.
+        for i in (12..16).rev() {
+            counter[i] = counter[i].wrapping_add(1);
+            if counter[i] != 0 {
+                break;
             }
-    // Plain UTF-8 PSK.
-    std::str::from_utf8(plaintext).ok().map(str::to_string)
-}
-
-/// Pull a password string out of a nested keychain-secret plist.
-///
-/// Looks for common carriers in order; falls back to the first string value in
-/// the dict. Returns `None` if nothing string-like is found.
-fn extract_nested_password(value: &Value) -> Option<String> {
-    let dict = value.as_dictionary()?;
-    for key in ["v_Data", "password", "Password", "String"] {
-        if let Some(v) = dict.get(key) {
-            if let Some(s) = v.as_string() {
-                return Some(s.to_string());
-            }
-            if let Some(d) = v.as_data()
-                && let Ok(s) = std::str::from_utf8(d) {
-                    return Some(s.to_string());
-                }
         }
     }
-    // Last resort: any string value in the dict.
-    dict.values().find_map(|v| v.as_string().map(str::to_string))
+    Some(out)
+}
+
+/// Minimal, bounds-checked ASN.1 DER reader for the decrypted keychain item: a
+/// `SET OF SEQUENCE { UTF8String key, value }`. Returns each `(key, value-content
+/// bytes)`. Never panics on malformed input.
+fn parse_der_attributes(der: &[u8]) -> Vec<(String, Vec<u8>)> {
+    fn read_len(b: &[u8], i: &mut usize) -> Option<usize> {
+        let first = *b.get(*i)?;
+        *i += 1;
+        if first < 0x80 {
+            return Some(first as usize);
+        }
+        let n = (first & 0x7f) as usize;
+        if n == 0 || n > 4 {
+            return None;
+        }
+        let mut len = 0usize;
+        for _ in 0..n {
+            len = (len << 8) | (*b.get(*i)? as usize);
+            *i += 1;
+        }
+        Some(len)
+    }
+    let mut out = Vec::new();
+    if der.first() != Some(&0x31) {
+        return out;
+    }
+    let mut i = 1;
+    let Some(set_len) = read_len(der, &mut i) else { return out };
+    let end = i.saturating_add(set_len).min(der.len());
+    while i < end {
+        if der.get(i) != Some(&0x30) {
+            break;
+        }
+        i += 1;
+        let Some(seq_len) = read_len(der, &mut i) else { break };
+        let seq_end = i.saturating_add(seq_len).min(der.len());
+        if der.get(i) != Some(&0x0c) {
+            i = seq_end;
+            continue;
+        }
+        i += 1;
+        let Some(klen) = read_len(der, &mut i) else { break };
+        let Some(kbytes) = der.get(i..i.saturating_add(klen)) else { break };
+        let key = String::from_utf8_lossy(kbytes).into_owned();
+        i = i.saturating_add(klen);
+        let value = if i < seq_end {
+            i += 1; // value type tag
+            match read_len(der, &mut i) {
+                Some(vlen) => der.get(i..i.saturating_add(vlen)).unwrap_or(&[]).to_vec(),
+                None => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+        out.push((key, value));
+        i = seq_end;
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aes_gcm::aead::Aead;
     use aes_kw::KwAes256;
     use plist::{Dictionary, Value};
 
-    /// Wrap `item_key` under `class_key` with RFC 3394 (AES-256 KW).
-    fn wrap_item_key(class_key: &[u8; 32], item_key: &[u8; 32]) -> Vec<u8> {
-        let kek = KwAes256::new_from_slice(class_key).unwrap();
-        let mut buf = vec![0u8; item_key.len() + 8];
-        kek.wrap_key(item_key, &mut buf).unwrap();
-        buf
-    }
+    // --- DER + item builders mirroring the real format ---------------------
 
-    /// AES-256-GCM encrypt `msg` with `item_key` and a fixed nonce, returning
-    /// `nonce ‖ ciphertext ‖ tag`.
-    fn gcm_seal(item_key: &[u8; 32], nonce: &[u8; 12], msg: &[u8]) -> Vec<u8> {
-        let cipher = Aes256Gcm::new_from_slice(item_key).unwrap();
-        let ct = cipher
-            .encrypt(
-                &Nonce::try_from(&nonce[..]).unwrap(),
-                Payload { msg, aad: &[] },
-            )
-            .unwrap();
-        let mut out = Vec::with_capacity(12 + ct.len());
-        out.extend_from_slice(nonce);
-        out.extend_from_slice(&ct);
+    fn der_len(n: usize) -> Vec<u8> {
+        assert!(n < 128, "test values stay in short-form DER length");
+        vec![n as u8]
+    }
+    fn der_utf8(s: &str) -> Vec<u8> {
+        let mut t = vec![0x0c];
+        t.extend(der_len(s.len()));
+        t.extend(s.as_bytes());
+        t
+    }
+    fn build_der(attrs: &[(&str, &str)]) -> Vec<u8> {
+        let mut body = Vec::new();
+        for (k, v) in attrs {
+            let mut seq_body = der_utf8(k);
+            seq_body.extend(der_utf8(v));
+            let mut seq = vec![0x30];
+            seq.extend(der_len(seq_body.len()));
+            seq.extend(seq_body);
+            body.extend(seq);
+        }
+        let mut out = vec![0x31];
+        out.extend(der_len(body.len()));
+        out.extend(body);
         out
     }
-
-    /// Assemble a full protected blob: class id (LE) ‖ wrapped key ‖ gcm blob.
-    fn build_protected_blob(
-        class_id: u32,
-        class_key: &[u8; 32],
-        item_key: &[u8; 32],
-        nonce: &[u8; 12],
-        secret: &[u8],
-    ) -> Vec<u8> {
-        let mut blob = Vec::new();
-        blob.extend_from_slice(&class_id.to_le_bytes());
-        blob.extend_from_slice(&wrap_item_key(class_key, item_key));
-        blob.extend_from_slice(&gcm_seal(item_key, nonce, secret));
-        blob
+    fn ctr_xor(key32: &[u8], data: &[u8]) -> Vec<u8> {
+        // apple_ctr_decrypt strips a 16-byte tag then CTR-xors the rest, so feed
+        // it `data ‖ 16 dummy bytes` to obtain the CTR transform of `data`.
+        let mut padded = data.to_vec();
+        padded.extend([0u8; 16]);
+        apple_ctr_decrypt(key32, &padded).unwrap()
     }
-
-    /// Build a binary plist with a `genp` array of the given attribute dicts.
-    fn build_keychain_plist(items: Vec<Dictionary>) -> Vec<u8> {
+    fn kw_wrap(kek: &[u8], key: &[u8]) -> Vec<u8> {
+        let k = KwAes256::new_from_slice(kek).unwrap();
+        let mut out = vec![0u8; key.len() + 8];
+        k.wrap_key(key, &mut out).unwrap();
+        out
+    }
+    fn make_item(class_id: u32, class_key: &[u8], item_key: &[u8], attrs: &[(&str, &str)]) -> Value {
+        let der = build_der(attrs);
+        let ct = ctr_xor(item_key, &der);
+        let wrapped = kw_wrap(class_key, item_key);
+        let mut blob = Vec::new();
+        blob.extend(3u32.to_le_bytes());
+        blob.extend(class_id.to_le_bytes());
+        blob.extend((wrapped.len() as u32).to_le_bytes());
+        blob.extend(&wrapped);
+        blob.extend(&ct);
+        blob.extend([0u8; 16]); // dummy tag (not verified)
+        let mut d = Dictionary::new();
+        d.insert("v_Data".into(), Value::Data(blob));
+        Value::Dictionary(d)
+    }
+    fn keychain_plist(items: Vec<Value>) -> Vec<u8> {
         let mut root = Dictionary::new();
-        let arr: Vec<Value> = items.into_iter().map(Value::Dictionary).collect();
-        root.insert(GENP_KEY.to_string(), Value::Array(arr));
+        root.insert(GENP_KEY.into(), Value::Array(items));
         let mut buf = Vec::new();
         plist::to_writer_binary(&mut buf, &Value::Dictionary(root)).unwrap();
         buf
     }
 
-    fn airport_item(acct: &str, v_data: Value) -> Dictionary {
+    const CK: [u8; 32] = [0x11; 32];
+    const IK: [u8; 32] = [0x22; 32];
+    const CLASS: u32 = 7;
+
+    // --- Tests -------------------------------------------------------------
+
+    #[test]
+    fn round_trip_recovers_wifi_password() {
+        let item = make_item(CLASS, &CK, &IK, &[
+            ("svce", "AirPort"),
+            ("acct", "Internet_C9"),
+            ("agrp", "apple"),
+            ("v_Data", "s3cr3tpass"),
+        ]);
+        let plist = keychain_plist(vec![item]);
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+
+        let got = extract_wifi(&plist, &keys);
+        assert_eq!(got, vec![WifiCredential { ssid: "Internet_C9".into(), password: "s3cr3tpass".into() }]);
+    }
+
+    #[test]
+    fn non_airport_item_ignored() {
+        // A generic password whose decrypted service is not AirPort is skipped.
+        let item = make_item(CLASS, &CK, &IK, &[
+            ("svce", "RPIdentity-SameAccountDevice"),
+            ("acct", "someid"),
+            ("agrp", "com.apple.rapport"),
+            ("v_Data", "not-a-wifi-secret"),
+        ]);
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        assert!(extract_wifi(&keychain_plist(vec![item]), &keys).is_empty());
+    }
+
+    #[test]
+    fn airport_with_non_apple_agrp_ignored() {
+        let item = make_item(CLASS, &CK, &IK, &[
+            ("svce", "AirPort"),
+            ("acct", "Net"),
+            ("agrp", "com.thirdparty"),
+            ("v_Data", "pw"),
+        ]);
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        assert!(extract_wifi(&keychain_plist(vec![item]), &keys).is_empty());
+    }
+
+    #[test]
+    fn missing_class_key_skips_item() {
+        let item = make_item(CLASS, &CK, &IK, &[("svce", "AirPort"), ("acct", "Net"), ("agrp", "apple"), ("v_Data", "pw")]);
+        // class key for CLASS not provided.
+        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
+        assert!(extract_wifi(&keychain_plist(vec![item]), &keys).is_empty());
+    }
+
+    #[test]
+    fn wrong_class_key_fails_unwrap_and_skips() {
+        let item = make_item(CLASS, &CK, &IK, &[("svce", "AirPort"), ("acct", "Net"), ("agrp", "apple"), ("v_Data", "pw")]);
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, [0x99; 32].to_vec()); // wrong KEK → unwrap integrity fails
+        assert!(extract_wifi(&keychain_plist(vec![item]), &keys).is_empty());
+    }
+
+    #[test]
+    fn multiple_networks_recovered() {
+        let items = vec![
+            make_item(CLASS, &CK, &IK, &[("svce", "AirPort"), ("acct", "NetA"), ("agrp", "apple"), ("v_Data", "passA")]),
+            make_item(CLASS, &CK, &IK, &[("svce", "AirPort"), ("acct", "NetB"), ("agrp", "apple"), ("v_Data", "passB")]),
+        ];
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        let got = extract_wifi(&keychain_plist(items), &keys);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].ssid, "NetA");
+        assert_eq!(got[1].password, "passB");
+    }
+
+    #[test]
+    fn malformed_inputs_never_panic() {
+        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
+        assert!(extract_wifi(b"not a plist", &keys).is_empty());
+        assert!(extract_wifi(b"", &keys).is_empty());
+        // genp item with a too-short / garbage v_Data blob.
         let mut d = Dictionary::new();
-        d.insert("svce".into(), Value::String("AirPort".into()));
-        d.insert("agrp".into(), Value::String("apple".into()));
-        d.insert("acct".into(), Value::String(acct.into()));
-        d.insert("v_Data".into(), v_data);
-        d
-    }
-
-    const CLASS_ID: u32 = 6;
-    const CLASS_KEY: [u8; 32] = [0x11; 32];
-    const ITEM_KEY: [u8; 32] = [0x22; 32];
-    const NONCE: [u8; 12] = [0x33; 12];
-
-    #[test]
-    fn round_trip_recovers_ssid_and_password() {
-        let mut keys = HashMap::new();
-        keys.insert(CLASS_ID, CLASS_KEY.to_vec());
-
-        let blob = build_protected_blob(CLASS_ID, &CLASS_KEY, &ITEM_KEY, &NONCE, b"hunter2pass");
-        let item = airport_item("HomeNetwork", Value::Data(blob));
-        let plist = build_keychain_plist(vec![item]);
-
-        let got = extract_wifi(&plist, &keys);
-        assert_eq!(
-            got,
-            vec![WifiCredential {
-                ssid: "HomeNetwork".into(),
-                password: "hunter2pass".into(),
-            }]
-        );
-    }
-
-    #[test]
-    fn round_trip_nested_plist_secret() {
-        // Secret is itself a binary plist carrying the password under "v_Data".
-        let mut inner = Dictionary::new();
-        inner.insert("v_Data".into(), Value::String("nested-psk".into()));
-        let mut secret_bytes = Vec::new();
-        plist::to_writer_binary(&mut secret_bytes, &Value::Dictionary(inner)).unwrap();
-
-        let mut keys = HashMap::new();
-        keys.insert(CLASS_ID, CLASS_KEY.to_vec());
-        let blob = build_protected_blob(CLASS_ID, &CLASS_KEY, &ITEM_KEY, &NONCE, &secret_bytes);
-        let item = airport_item("NestedNet", Value::Data(blob));
-        let plist = build_keychain_plist(vec![item]);
-
-        let got = extract_wifi(&plist, &keys);
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].ssid, "NestedNet");
-        assert_eq!(got[0].password, "nested-psk");
-    }
-
-    #[test]
-    fn missing_class_key_skips_item_without_panic() {
-        // Class key for CLASS_ID is absent → item skipped, no panic, empty result.
-        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
-        let blob = build_protected_blob(CLASS_ID, &CLASS_KEY, &ITEM_KEY, &NONCE, b"secret");
-        let item = airport_item("NoKeyNet", Value::Data(blob));
-        let plist = build_keychain_plist(vec![item]);
-
-        assert!(extract_wifi(&plist, &keys).is_empty());
-    }
-
-    #[test]
-    fn plaintext_v_data_string_used_directly() {
-        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
-        let item = airport_item("PlainNet", Value::String("plaintext-psk".into()));
-        let plist = build_keychain_plist(vec![item]);
-
-        let got = extract_wifi(&plist, &keys);
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].password, "plaintext-psk");
-    }
-
-    #[test]
-    fn plaintext_v_data_short_data_used_directly() {
-        // Raw bytes that are too short to be a protected blob are read as UTF-8.
-        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
-        let item = airport_item("ShortNet", Value::Data(b"rawpsk".to_vec()));
-        let plist = build_keychain_plist(vec![item]);
-
-        let got = extract_wifi(&plist, &keys);
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].password, "rawpsk");
-    }
-
-    #[test]
-    fn malformed_blob_skipped() {
-        // Long enough to look like a protected blob, but garbage → GCM/unwrap
-        // fails → item skipped, no panic.
-        let mut keys = HashMap::new();
-        keys.insert(CLASS_ID, CLASS_KEY.to_vec());
-        let mut junk = CLASS_ID.to_le_bytes().to_vec();
-        junk.extend_from_slice(&[0xAB; 80]);
-        let item = airport_item("JunkNet", Value::Data(junk));
-        let plist = build_keychain_plist(vec![item]);
-
-        assert!(extract_wifi(&plist, &keys).is_empty());
-    }
-
-    #[test]
-    fn wrong_class_key_fails_gcm_and_skips() {
-        // Right class id, but the provided class key is wrong → unwrap yields a
-        // bogus item key → GCM auth fails → skipped.
-        let mut keys = HashMap::new();
-        keys.insert(CLASS_ID, [0x99; 32].to_vec());
-        let blob = build_protected_blob(CLASS_ID, &CLASS_KEY, &ITEM_KEY, &NONCE, b"secret");
-        let item = airport_item("WrongKeyNet", Value::Data(blob));
-        let plist = build_keychain_plist(vec![item]);
-
-        assert!(extract_wifi(&plist, &keys).is_empty());
-    }
-
-    #[test]
-    fn non_wifi_genp_item_ignored() {
-        // A generic password that is not AirPort/Wi-Fi must not be returned.
-        let mut keys = HashMap::new();
-        keys.insert(CLASS_ID, CLASS_KEY.to_vec());
-        let blob = build_protected_blob(CLASS_ID, &CLASS_KEY, &ITEM_KEY, &NONCE, b"secret");
-        let mut d = Dictionary::new();
-        d.insert("svce".into(), Value::String("com.apple.account".into()));
-        d.insert("acct".into(), Value::String("someuser".into()));
-        d.insert("v_Data".into(), Value::Data(blob));
-        let plist = build_keychain_plist(vec![d]);
-
-        assert!(extract_wifi(&plist, &keys).is_empty());
-    }
-
-    #[test]
-    fn long_plaintext_psk_recovered() {
-        // A 60-char plaintext WPA passphrase stored as raw Data is LONGER than a
-        // minimal protected blob; decrypt-first (which finds no class id) then the
-        // plaintext fallback must still recover it (regression: the old length
-        // heuristic dropped plaintext PSKs over ~47 bytes).
-        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
-        let psk = "a".repeat(60);
-        let item = airport_item("LongNet", Value::Data(psk.clone().into_bytes()));
-        let plist = build_keychain_plist(vec![item]);
-
-        let got = extract_wifi(&plist, &keys);
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].password, psk);
-    }
-
-    #[test]
-    fn non_wifi_item_with_wifi_label_ignored() {
-        // A generic password for an unrelated service must NOT be exported even
-        // when its user-facing label mentions Wi-Fi (we key off svce/agrp, never
-        // the free-text labl/desc).
-        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
-        let mut d = Dictionary::new();
-        d.insert("svce".into(), Value::String("com.example.secret".into()));
-        d.insert("agrp".into(), Value::String("com.example".into()));
-        d.insert("labl".into(), Value::String("My WiFi password".into()));
-        d.insert("acct".into(), Value::String("user".into()));
-        d.insert("v_Data".into(), Value::String("should-not-leak".into()));
-        let plist = build_keychain_plist(vec![d]);
-
-        assert!(extract_wifi(&plist, &keys).is_empty());
-    }
-
-    #[test]
-    fn third_party_wifi_named_service_ignored() {
-        // A third-party generic password whose service/access-group merely
-        // contains "wifi"/"airport" OUTSIDE the com.apple namespace must NOT be
-        // exported.
-        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
-        for (svce, agrp) in [("com.example.wifi-sync", "com.example"), ("myapp", "com.example.airport-tool")] {
-            let mut d = Dictionary::new();
-            d.insert("svce".into(), Value::String(svce.into()));
-            d.insert("agrp".into(), Value::String(agrp.into()));
-            d.insert("acct".into(), Value::String("user".into()));
-            d.insert("v_Data".into(), Value::String("nope".into()));
-            let plist = build_keychain_plist(vec![d]);
-            assert!(extract_wifi(&plist, &keys).is_empty(), "{svce}/{agrp} must be ignored");
+        d.insert("v_Data".into(), Value::Data(vec![3, 0, 0, 0, 7]));
+        assert!(extract_wifi(&keychain_plist(vec![Value::Dictionary(d)]), &keys).is_empty());
+        // Fuzz: deterministic pseudo-random bytes as both plist and blob.
+        let mut x = 0x1234_5678u32;
+        let mut junk = Vec::new();
+        for _ in 0..4096 {
+            x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            junk.push((x >> 24) as u8);
         }
+        let _ = extract_wifi(&junk, &keys); // must not panic
     }
 
     #[test]
-    fn apple_eap_wifi_service_matched() {
-        // Apple-namespaced EAP/Wi-Fi enterprise services in an Apple access group
-        // ARE matched.
-        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
-        let mut d = Dictionary::new();
-        d.insert("svce".into(), Value::String("com.apple.network.eap.user.identity".into()));
-        d.insert("agrp".into(), Value::String("apple".into()));
-        d.insert("acct".into(), Value::String("EnterpriseNet".into()));
-        d.insert("v_Data".into(), Value::String("eap-secret".into()));
-        let plist = build_keychain_plist(vec![d]);
-
-        let got = extract_wifi(&plist, &keys);
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].ssid, "EnterpriseNet");
-    }
-
-    #[test]
-    fn apple_looking_service_with_third_party_agrp_ignored() {
-        // The service string is app-supplied and forgeable; without an
-        // Apple-owned (entitlement-enforced) access group a com.apple.*-looking
-        // service must NOT be exported.
-        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
-        let mut d = Dictionary::new();
-        d.insert("svce".into(), Value::String("com.apple.network.eap.user.identity".into()));
-        d.insert("agrp".into(), Value::String("com.thirdparty.app".into()));
-        d.insert("acct".into(), Value::String("user".into()));
-        d.insert("v_Data".into(), Value::String("nope".into()));
-        let plist = build_keychain_plist(vec![d]);
-
-        assert!(extract_wifi(&plist, &keys).is_empty());
-    }
-
-    #[test]
-    fn empty_or_garbage_plist_yields_empty() {
-        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
-        assert!(extract_wifi(b"not a plist at all", &keys).is_empty());
-        assert!(extract_wifi(&[], &keys).is_empty());
-    }
-
-    #[test]
-    fn item_without_acct_skipped() {
-        let mut keys = HashMap::new();
-        keys.insert(CLASS_ID, CLASS_KEY.to_vec());
-        let blob = build_protected_blob(CLASS_ID, &CLASS_KEY, &ITEM_KEY, &NONCE, b"secret");
-        let mut d = Dictionary::new();
-        d.insert("svce".into(), Value::String("AirPort".into()));
-        // no "acct"
-        d.insert("v_Data".into(), Value::Data(blob));
-        let plist = build_keychain_plist(vec![d]);
-
-        assert!(extract_wifi(&plist, &keys).is_empty());
+    fn der_parser_reads_set_of_sequences() {
+        let der = build_der(&[("svce", "AirPort"), ("acct", "MyNet")]);
+        let attrs = parse_der_attributes(&der);
+        assert_eq!(attrs.len(), 2);
+        assert_eq!(attrs[0], ("svce".to_string(), b"AirPort".to_vec()));
+        assert_eq!(attrs[1], ("acct".to_string(), b"MyNet".to_vec()));
+        // Garbage DER yields nothing, no panic.
+        assert!(parse_der_attributes(&[0x31, 0x84, 0xff, 0xff, 0xff, 0xff]).is_empty());
     }
 }
