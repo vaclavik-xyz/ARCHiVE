@@ -1947,7 +1947,9 @@ fn run_search(cli: &Cli, password: Option<&str>, query: &str, format: &str, reda
     let records = collect_search_records(&backup);
     let contacts = opt_or_log(load_contacts(&backup), "contacts").unwrap_or_default();
     let mut hits = search::search(&records, &contacts, query);
-    // Matching ran on the raw text; redaction masks identifiers only in the output.
+    // Matching ran on the raw text; redaction masks identifiers only in the output —
+    // including the echoed query itself, so a redacted report leaks nothing.
+    let display_query = if redact { redact::redact_pii(query) } else { query.to_string() };
     if redact {
         for h in &mut hits {
             h.snippet = redact::redact_pii(&h.snippet);
@@ -1957,15 +1959,15 @@ fn run_search(cli: &Cli, password: Option<&str>, query: &str, format: &str, reda
     let rendered = match format {
         Format::Csv => format::search_csv(&hits),
         Format::Json => format::search_json(&hits),
-        Format::Html | Format::Pdf => format::search_html(&hits, query),
+        Format::Html | Format::Pdf => format::search_html(&hits, &display_query),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("search.{}", format.extension()));
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
-    eprintln!("search: {} match(es) for {query:?}", hits.len());
+    eprintln!("search: {} match(es) for {display_query:?}", hits.len());
 
     Ok(serde_json::json!({
-        "ok": true, "command": "search", "query": query, "matches": hits.len(), "redacted": redact,
+        "ok": true, "command": "search", "query": display_query, "matches": hits.len(), "redacted": redact,
         "outputs": [out_file.to_string_lossy()], "device": device
     }))
 }

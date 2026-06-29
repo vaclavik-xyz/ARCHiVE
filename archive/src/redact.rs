@@ -97,4 +97,12 @@ mod tests {
         let out = redact_pii("Jan +420123456789 jan@firma.cz");
         assert_eq!(out, "Jan +••••••••••89 j••@firma.cz");
     }
+
+    #[test]
+    fn redacts_a_bare_query_value() {
+        // search --redact masks the echoed query too, so a bare identifier query
+        // does not leak into the report title or the JSON envelope.
+        assert_eq!(redact_pii("+420776452878"), "+••••••••••78");
+        assert_eq!(redact_pii("jan@firma.cz"), "j••@firma.cz");
+    }
 }
