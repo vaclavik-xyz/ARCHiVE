@@ -432,17 +432,25 @@ pub fn recover(store: &str, records: &[CarvedRecord], live: &LiveKeys) -> Vec<De
     // with the truncated one — i.e. the truncated value is a genuine prefix)
     // exists. The prefix guard avoids collapsing two distinct rows that merely
     // share a reused rowid.
-    let complete: Vec<(i64, String)> = deduped
+    let complete: Vec<(i64, String, Option<String>)> = deduped
         .iter()
         .filter(|r| !r.truncated)
-        .filter_map(|r| r.rowid.map(|id| (id, r.summary.clone())))
+        .filter_map(|r| r.rowid.map(|id| (id, r.summary.clone(), r.date.clone())))
         .collect();
     deduped.retain(|r| {
         if !r.truncated {
             return true;
         }
         match r.rowid {
-            Some(id) => !complete.iter().any(|(cid, csum)| *cid == id && csum.starts_with(&r.summary)),
+            // Drop only when a complete copy of the same row clearly subsumes
+            // this one: same rowid, summary prefix, AND a compatible date — the
+            // partial either kept the row's date (equal) or lost it to truncation
+            // (None). A different date means a distinct row that reused the rowid.
+            Some(id) => !complete.iter().any(|(cid, csum, cdate)| {
+                *cid == id
+                    && csum.starts_with(&r.summary)
+                    && (r.date.is_none() || r.date.as_deref() == cdate.as_deref())
+            }),
             None => true,
         }
     });
@@ -714,6 +722,18 @@ mod tests {
         let out = recover("messages", &[lonely], &LiveKeys::default());
         assert_eq!(out.len(), 1);
         assert!(out[0].truncated);
+    }
+
+    #[test]
+    fn dedup_keeps_distinct_same_rowid_rows_with_different_dates() {
+        // A reused rowid holds two real messages whose summaries prefix-match
+        // ("OK" vs "OK thanks") but whose dates differ → both must be kept.
+        let g1 = "11111111-1111-1111-1111-111111111111";
+        let g2 = "22222222-2222-2222-2222-222222222222";
+        let short = CarvedRecord { rowid: Some(5), source: CarveSource::Freelist, values: vec![CarvedValue::Text(g1.into()), CarvedValue::Int(600_000_000_000_000_000), CarvedValue::Text("OK".into())], truncated: true };
+        let long = CarvedRecord { rowid: Some(5), source: CarveSource::Freeblock, values: vec![CarvedValue::Text(g2.into()), CarvedValue::Int(660_000_000_000_000_000), CarvedValue::Text("OK thanks".into())], truncated: false };
+        let out = recover("messages", &[short, long], &LiveKeys::default());
+        assert_eq!(out.len(), 2);
     }
 
     #[test]
