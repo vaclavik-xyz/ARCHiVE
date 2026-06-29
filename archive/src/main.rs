@@ -35,6 +35,8 @@ mod voicemail_audio;
 mod whatsapp;
 #[cfg(test)]
 mod test_fixtures;
+#[cfg(test)]
+mod cross_version_tests;
 
 use std::path::PathBuf;
 
