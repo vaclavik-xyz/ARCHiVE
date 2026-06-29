@@ -668,10 +668,11 @@ pub fn device_usage_html(items: &[crate::device_usage::AppUsage]) -> String {
 
 pub fn app_databases_csv(items: &[crate::app_databases::AppDatabase]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
-    wtr.write_record(["app", "path", "bytes", "readable", "tables"]).unwrap();
+    wtr.write_record(["app", "domain", "path", "bytes", "readable", "tables"]).unwrap();
     for d in items {
         wtr.write_record([
             d.app.clone(),
+            d.domain.clone(),
             d.path.clone(),
             d.bytes.to_string(),
             d.readable.to_string(),

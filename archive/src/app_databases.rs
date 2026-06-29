@@ -22,8 +22,11 @@ use serde::Serialize;
 /// One database-like file found in an app's backup domain.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AppDatabase {
-    /// Owning app bundle id (e.g. `com.viber`).
+    /// Owning app/group label (e.g. `com.viber`, or
+    /// `group.net.whatsapp.WhatsApp.shared`).
     pub app: String,
+    /// Full backup domain the file lives in (`AppDomain-…` / `AppDomainGroup-…`).
+    pub domain: String,
     /// Path of the file within the app domain.
     pub path: String,
     /// File size in bytes (of the decrypted file).
@@ -32,6 +35,19 @@ pub struct AppDatabase {
     pub readable: bool,
     /// Number of tables when `readable`; `None` otherwise.
     pub tables: Option<i64>,
+}
+
+/// If `domain` is a third-party app or app-group container, return a short label
+/// (the bundle id or group id). `None` for system / first-party (`com.apple.*`)
+/// and non-app domains, so the report stays focused on third-party data.
+pub fn third_party_label(domain: &str) -> Option<String> {
+    let id = domain
+        .strip_prefix("AppDomain-")
+        .or_else(|| domain.strip_prefix("AppDomainGroup-"))?;
+    if id.is_empty() || id.starts_with("com.apple.") || id.starts_with("group.com.apple.") {
+        return None;
+    }
+    Some(id.to_string())
 }
 
 /// File-name suffixes worth probing as databases (lower-cased comparison).
@@ -71,6 +87,20 @@ mod tests {
         assert!(is_db_like("x.sqlitedb"));
         assert!(!is_db_like("Documents/photo.jpg"));
         assert!(!is_db_like("Library/prefs.plist"));
+    }
+
+    #[test]
+    fn third_party_label_covers_app_and_group_domains() {
+        assert_eq!(third_party_label("AppDomain-com.viber"), Some("com.viber".to_string()));
+        assert_eq!(
+            third_party_label("AppDomainGroup-group.net.whatsapp.WhatsApp.shared"),
+            Some("group.net.whatsapp.WhatsApp.shared".to_string())
+        );
+        // System / first-party domains are excluded.
+        assert_eq!(third_party_label("AppDomain-com.apple.mobilesafari"), None);
+        assert_eq!(third_party_label("AppDomainGroup-group.com.apple.notes"), None);
+        assert_eq!(third_party_label("HomeDomain"), None);
+        assert_eq!(third_party_label("CameraRollDomain"), None);
     }
 
     #[test]

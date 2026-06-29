@@ -1714,21 +1714,25 @@ fn run_app_databases(cli: &Cli, password: Option<&str>, format: &str) -> Result<
     let device = device_json(backup.device_info());
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
 
-    let ids = backup.app_bundle_ids().map_err(|e| AppError::other(e.to_string()))?;
+    // Scan every third-party app **and app-group** container — the real store
+    // often lives in an `AppDomainGroup-*` shared container (e.g. WhatsApp's
+    // ChatStorage.sqlite), not the per-app `AppDomain-<bundle>`.
+    let domains = backup.domains().map_err(|e| AppError::other(e.to_string()))?;
     let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
     let mut rows: Vec<app_databases::AppDatabase> = Vec::new();
-    for id in &ids {
-        let dom = format!("AppDomain-{id}");
-        let files = backup.list(&dom, "").map_err(|e| AppError::other(e.to_string()))?;
+    for dom in &domains {
+        let Some(label) = app_databases::third_party_label(dom) else { continue };
+        let files = backup.list(dom, "").map_err(|e| AppError::other(e.to_string()))?;
         for f in files.iter().filter(|f| app_databases::is_db_like(f)) {
             let tmp = scratch.path().join("probe.db");
-            match backup.fetch(&dom, f, &tmp) {
+            match backup.fetch(dom, f, &tmp) {
                 Ok(Some(p)) => {
                     let bytes = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
                     let readable = app_databases::is_sqlite(&file_head(&p, 16));
                     let tables = if readable { app_databases::count_tables(&p) } else { None };
                     rows.push(app_databases::AppDatabase {
-                        app: id.clone(),
+                        app: label.clone(),
+                        domain: dom.clone(),
                         path: f.clone(),
                         bytes,
                         readable,
