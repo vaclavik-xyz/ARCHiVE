@@ -265,7 +265,7 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
         /// Which store(s) to carve: messages | calls | contacts | notes |
-        /// calendar | safari | all.
+        /// calendar | safari | photos | all.
         #[arg(long, default_value = "all")]
         store: String,
     },
@@ -1414,6 +1414,7 @@ fn live_keys(db_path: &std::path::Path, store: &str) -> recover_deleted::LiveKey
         "notes" => rowid_live_keys(&conn, "SELECT Z_PK FROM ZICCLOUDSYNCINGOBJECT", &mut keys.rowids),
         "calendar" => rowid_live_keys(&conn, "SELECT ROWID FROM CalendarItem", &mut keys.rowids),
         "safari" => safari_live_keys(&conn, &mut keys),
+        "photos" => rowid_live_keys(&conn, "SELECT Z_PK FROM ZASSET", &mut keys.rowids),
         _ => Ok(()),
     };
     keys
@@ -1461,6 +1462,7 @@ const CARVE_STORES: &[(&str, &str, &str)] = &[
     ("notes", "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
     ("calendar", "HomeDomain", "Library/Calendar/Calendar.sqlitedb"),
     ("safari", "AppDomain-com.apple.mobilesafari", "Library/Safari/History.db"),
+    ("photos", "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
 ];
 
 fn run_recover_deleted(cli: &Cli, password: Option<&str>, format: &str, store: &str) -> Result<serde_json::Value, AppError> {
@@ -1471,7 +1473,7 @@ fn run_recover_deleted(cli: &Cli, password: Option<&str>, format: &str, store: &
         "all" => CARVE_STORES.iter().collect(),
         s => match CARVE_STORES.iter().find(|(name, ..)| *name == s) {
             Some(entry) => vec![entry],
-            None => return Err(AppError::usage(format!("unknown store `{s}` (use messages, calls, contacts, notes, calendar, safari, all)"))),
+            None => return Err(AppError::usage(format!("unknown store `{s}` (use messages, calls, contacts, notes, calendar, safari, photos, all)"))),
         },
     };
     let backup = open_backup(cli, password)?;
@@ -2815,8 +2817,8 @@ mod cli_tests {
 
     #[test]
     fn recover_deleted_rejects_unknown_store() {
-        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "recover-deleted", "-f", "json", "--store", "photos"]).unwrap();
-        let err = run_recover_deleted(&cli, None, "json", "photos").unwrap_err();
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "recover-deleted", "-f", "json", "--store", "bogus"]).unwrap();
+        let err = run_recover_deleted(&cli, None, "json", "bogus").unwrap_err();
         assert_eq!(err.kind, "usage");
         assert_eq!(err.code, 1);
     }
