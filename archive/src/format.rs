@@ -435,7 +435,7 @@ pub fn photos_csv(items: &[crate::photos::Photo]) -> String {
         "filename", "kind", "created", "favorite", "trashed", "width", "height",
         "latitude", "longitude", "duration_seconds", "file",
         "hidden", "edited", "live_photo", "modified", "added",
-        "original_filename", "title", "burst_id", "albums",
+        "original_filename", "title", "burst_id", "albums", "trashed_date",
     ])
     .unwrap();
     for p in items {
@@ -460,6 +460,7 @@ pub fn photos_csv(items: &[crate::photos::Photo]) -> String {
             p.title.clone(),
             p.burst_id.clone().unwrap_or_default(),
             p.albums.join("; "),
+            p.trashed_date.clone(),
         ])
         .unwrap();
     }
@@ -478,6 +479,46 @@ struct PhotosTemplate<'a> {
 
 pub fn photos_html(items: &[crate::photos::Photo]) -> String {
     PhotosTemplate { photos: items }.render().unwrap()
+}
+
+pub fn photos_deleted_csv(items: &[crate::photos_deleted::DeletedAsset]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record([
+        "filename", "kind", "created", "trashed_date", "purge_after",
+        "width", "height", "duration_seconds", "albums", "file",
+    ])
+    .unwrap();
+    for d in items {
+        let p = &d.photo;
+        wtr.write_record([
+            p.filename.clone(),
+            p.kind.clone(),
+            p.created.clone(),
+            p.trashed_date.clone(),
+            d.purge_after.clone(),
+            p.width.to_string(),
+            p.height.to_string(),
+            opt_num(p.duration_seconds),
+            p.albums.join("; "),
+            p.file.clone().unwrap_or_default(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn photos_deleted_json(items: &[crate::photos_deleted::DeletedAsset]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "photos-recently-deleted.html")]
+struct PhotosDeletedTemplate<'a> {
+    assets: &'a [crate::photos_deleted::DeletedAsset],
+}
+
+pub fn photos_deleted_html(items: &[crate::photos_deleted::DeletedAsset]) -> String {
+    PhotosDeletedTemplate { assets: items }.render().unwrap()
 }
 
 pub fn attachments_csv(items: &[crate::attachments::Attachment]) -> String {
@@ -1138,6 +1179,7 @@ mod tests {
             favorite: true,
             hidden: false,
             trashed: false,
+            trashed_date: String::new(),
             edited: true,
             live_photo: true,
             kind_subtype: Some(2),
@@ -1165,7 +1207,7 @@ mod tests {
         assert!(csv.contains("IMG_0001.HEIC,image,2020-01-06T10:40:00+00:00,true,false,4032,3024,50.087,14.42,,photos/1_IMG_0001.HEIC"));
         // Enriched columns appended.
         let header = csv.lines().next().unwrap();
-        assert!(header.ends_with("hidden,edited,live_photo,modified,added,original_filename,title,burst_id,albums"));
+        assert!(header.ends_with("hidden,edited,live_photo,modified,added,original_filename,title,burst_id,albums,trashed_date"));
         assert!(csv.contains("IMG_E0001.HEIC,Západ,,Dovolená; Rodina")); // original,title,burst(empty),albums
         let back: serde_json::Value = serde_json::from_str(&photos_json(&p)).unwrap();
         assert_eq!(back[0]["latitude"], 50.087);
@@ -1204,6 +1246,16 @@ mod tests {
         let html = photos_html(&[p]);
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
+    }
+
+    #[test]
+    fn photos_csv_includes_trashed_date() {
+        let mut p = sample_photo();
+        p.trashed = true;
+        p.trashed_date = "2020-01-06T10:45:00+00:00".into();
+        let csv = photos_csv(&[p]);
+        assert!(csv.lines().next().unwrap().ends_with(",albums,trashed_date"));
+        assert!(csv.contains("2020-01-06T10:45:00+00:00"));
     }
 
     fn sample_attachment() -> crate::attachments::Attachment {

@@ -14,6 +14,7 @@ mod messages;
 mod notes;
 mod pdf;
 mod photos;
+mod photos_deleted;
 mod recover;
 mod recover_deleted;
 mod reminders;
@@ -131,6 +132,16 @@ enum Command {
     },
     /// Export Camera Roll metadata and files (files on by default; --no-files to skip).
     Photos {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+        /// Skip file extraction (metadata catalog only).
+        #[arg(long)]
+        no_files: bool,
+    },
+    /// Recover "Recently Deleted" photos/videos still inside the 30-day purge
+    /// window (files on by default; --no-files to skip).
+    PhotosRecentlyDeleted {
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
@@ -318,6 +329,9 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Calendar { format } => run_calendar(&cli, password.as_deref(), format),
         Command::Notes { format } => run_notes(&cli, password.as_deref(), format),
         Command::Photos { format, no_files } => run_photos(&cli, password.as_deref(), format, *no_files),
+        Command::PhotosRecentlyDeleted { format, no_files } => {
+            run_photos_recently_deleted(&cli, password.as_deref(), format, *no_files)
+        }
         Command::Attachments { format, no_files } => run_attachments(&cli, password.as_deref(), format, *no_files),
         Command::Whatsapp { format, no_files } => run_whatsapp(&cli, password.as_deref(), format, *no_files),
         Command::Messages { format } => run_messages(&cli, password.as_deref(), format),
@@ -1406,6 +1420,7 @@ fn run_timeline(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     }
     if let Some(v) = opt_or_log(load_photos(&backup), "photos") {
         events.extend(timeline::from_photos(&v));
+        events.extend(timeline::from_deleted(&v));
     }
     if let Some(v) = opt_or_log(load_attachments(&backup), "attachments") {
         events.extend(timeline::from_attachments(&v));
@@ -1555,6 +1570,71 @@ fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -
 
     let mut envelope = serde_json::json!({
         "ok": true, "command": "photos", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    });
+    if let Some(s) = summary {
+        eprintln!("Extracted {} file(s) ({} missing) to {}/{}", s.extracted, s.missing, out.display(), s.dir);
+        envelope["files"] = serde_json::json!({
+            "dir": s.dir, "extracted": s.extracted, "missing": s.missing
+        });
+    }
+    Ok(envelope)
+}
+
+fn run_photos_recently_deleted(
+    cli: &Cli,
+    password: Option<&str>,
+    format: &str,
+    no_files: bool,
+) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "photos-recently-deleted")?;
+    let out = cli
+        .out
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--out is required to export recently-deleted photos"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let all = match load_photos(&backup)? {
+        Some(v) => v,
+        None => {
+            return Ok(serde_json::json!({
+                "ok": true, "command": "photos-recently-deleted", "count": 0, "outputs": [],
+                "note": "this backup has no photos", "device": device
+            }));
+        }
+    };
+    let mut trashed = photos_deleted::filter_trashed(all);
+    if trashed.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "photos-recently-deleted", "count": 0, "outputs": [],
+            "note": "this backup has no recently-deleted photos", "device": device
+        }));
+    }
+
+    let summary = if no_files {
+        None
+    } else {
+        Some(
+            photos::extract_into(&backup, &mut trashed, out, photos_deleted::DELETED_DIR)
+                .map_err(|e| AppError::other(e.to_string()))?,
+        )
+    };
+    let items = photos_deleted::into_deleted(trashed);
+
+    let rendered = match format {
+        Format::Csv => format::photos_deleted_csv(&items),
+        Format::Json => format::photos_deleted_json(&items),
+        Format::Html | Format::Pdf => format::photos_deleted_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("photos-recently-deleted.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("Wrote {} recently-deleted asset(s) to {}", items.len(), out_file.display());
+
+    let mut envelope = serde_json::json!({
+        "ok": true, "command": "photos-recently-deleted", "count": items.len(),
         "outputs": [out_file.to_string_lossy()], "device": device
     });
     if let Some(s) = summary {
@@ -1779,6 +1859,35 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
             )
         };
         rec.add("photos", "Fotky a videa", "photos.html", format::photos_html(&items), items.len(), media)?;
+
+        // Recently Deleted: a dedicated recovery view (own folder + estimated
+        // purge dates). `items` is consumed here as the photos section is done.
+        let mut trashed = photos_deleted::filter_trashed(items);
+        // These were just extracted into photos/; reset `file` so this section's
+        // links and media counts reflect only the recently-deleted/ extraction.
+        for t in &mut trashed {
+            t.file = None;
+        }
+        if !trashed.is_empty() {
+            let media = if no_files {
+                None
+            } else {
+                media_or_log(
+                    photos::extract_into(&backup, &mut trashed, out, photos_deleted::DELETED_DIR)
+                        .map(|s| (s.dir, s.extracted, s.missing)),
+                    "photos-recently-deleted",
+                )
+            };
+            let deleted = photos_deleted::into_deleted(trashed);
+            rec.add(
+                "photos-recently-deleted",
+                "Smazané fotky (obnovitelné)",
+                "photos-recently-deleted.html",
+                format::photos_deleted_html(&deleted),
+                deleted.len(),
+                media,
+            )?;
+        }
     }
     if let Some(mut items) = opt_or_log(load_attachments(&backup), "attachments") {
         let media = if no_files {
@@ -2028,6 +2137,8 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("calendar", true, "HomeDomain", "Library/Calendar/Calendar.sqlitedb"),
     ("notes", true, "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
     ("photos", true, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
+    // Shares Photos.sqlite with `photos`; the count is the trashed-asset subset.
+    ("photos-recently-deleted", true, "CameraRollDomain", "Media/PhotoData/Photos.sqlite"),
     // `messages` is intentionally not listed here: it is exported out-of-process
     // by the `messages` command, not by `recover` (which runs the in-process
     // extractors). The presence of message data is already visible via the
@@ -2102,6 +2213,9 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "calendar" => load_calendar(&backup).ok().flatten().map(|v| v.len()),
                 "notes" => load_notes(&backup).ok().flatten().map(|v| v.len()),
                 "photos" => load_photos(&backup).ok().flatten().map(|v| v.len()),
+                "photos-recently-deleted" => {
+                    load_photos(&backup).ok().flatten().map(|v| v.iter().filter(|p| p.trashed).count())
+                }
                 "attachments" => load_attachments(&backup).ok().flatten().map(|v| v.len()),
                 "whatsapp" => load_whatsapp(&backup).ok().flatten().map(|v| v.len()),
                 "health" => load_health(&backup).ok().flatten().map(|h| h.workouts.len() + h.quantity_summary.len()),
@@ -2226,7 +2340,7 @@ mod cli_tests {
         let counted = [
             "contacts", "calls", "accounts", "known-networks", "voicemail", "voice-memos",
             "safari-history", "safari-bookmarks", "calendar", "notes", "photos",
-            "attachments", "whatsapp", "health", "reminders", "mail",
+            "photos-recently-deleted", "attachments", "whatsapp", "health", "reminders", "mail",
         ];
         for (name, supported, ..) in KNOWN_STORES {
             if *supported {
@@ -2506,6 +2620,20 @@ mod cli_tests {
         }
         let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "photos").unwrap();
         assert!(s.1, "photos must now be supported");
+    }
+
+    #[test]
+    fn parses_photos_recently_deleted_invocation() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "photos-recently-deleted", "-f", "json", "--no-files"]).unwrap();
+        match cli.command {
+            Command::PhotosRecentlyDeleted { format, no_files } => {
+                assert_eq!(format, "json");
+                assert!(no_files);
+            }
+            _ => panic!("expected PhotosRecentlyDeleted"),
+        }
+        let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "photos-recently-deleted").unwrap();
+        assert!(s.1, "photos-recently-deleted must be supported");
     }
 
     #[test]

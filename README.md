@@ -15,8 +15,9 @@ portable formats:
   an installed-app inventory, a configured-accounts inventory, a saved Wi-Fi
   network list (`known-networks`), and a unified chronological `timeline` — plus a
   one-shot `recover` package, deleted-record recovery (`recover-deleted`, SQLite
-  carving), saved Wi-Fi passwords (`wifi`) and website/app passwords
-  (`passwords`) from the keychain, on-device `backup`
+  carving), Recently Deleted photo/video recovery
+  (`photos-recently-deleted`), saved Wi-Fi passwords (`wifi`) and website/app
+  passwords (`passwords`) from the keychain, on-device `backup`
   capture, and a backup `integrity` check (agent-first JSON output)
 - **`imessage-exporter`** — iMessage / SMS / RCS conversations and attachments
 
@@ -61,6 +62,7 @@ archive --backup ~/Backup/<UDID> -o out safari-bookmarks -f json
 archive --backup ~/Backup/<UDID> -o out calendar        -f html
 archive --backup ~/Backup/<UDID> -o out notes           -f html  # body decoded from gzip+protobuf
 archive --backup ~/Backup/<UDID> -o out photos          -f html  # gallery: albums, hidden, Live/burst, GPS
+archive --backup ~/Backup/<UDID> -o out photos-recently-deleted -f html  # recover trashed photos still in the 30-day window
 archive --backup ~/Backup/<UDID> -o out attachments     -f html  # Messages media gallery
 archive --backup ~/Backup/<UDID> -o out whatsapp        -f html  # transcript + media
 archive --backup ~/Backup/<UDID> -o out messages        -f html  # iMessage/SMS/RCS transcript (txt|html|pdf)

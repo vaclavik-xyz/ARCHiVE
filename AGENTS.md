@@ -27,8 +27,8 @@ invocation.
 
 **PDF output:** the **in-process** export commands that list `html` (contacts,
 calls, accounts, known-networks, voicemail, voice-memos, safari-history/bookmarks,
-calendar, reminders, mail, notes, photos, attachments, whatsapp, timeline,
-recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
+calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
+whatsapp, timeline, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
 with `--chrome-path`; a missing browser is a usage error, exit 1), with the JSON
 envelope unchanged (`outputs` points at the `.pdf`). `messages -f pdf` is produced
@@ -275,7 +275,8 @@ are present regardless).
 Each asset: `filename`, `kind` (`image`/`video`/`unknown`), `created` /
 `modified` / `added` (ISO 8601 UTC; empty when unset), `favorite`, `hidden` (in
 the Hidden album — still recovered, just flagged), `trashed` (in Recently
-Deleted), `edited` (has adjustments), `live_photo` (best-effort) with raw
+Deleted), `trashed_date` (ISO 8601 UTC when binned; empty otherwise),
+`edited` (has adjustments), `live_photo` (best-effort) with raw
 `kind_subtype`, `width`/`height`, `latitude`/`longitude` (`null` when no GPS fix),
 `duration_seconds` (videos; `null` otherwise), `burst_id` (`ZAVALANCHEUUID`; same
 id ⇒ same burst; `null` when not a burst), `original_filename`, `title` (caption),
@@ -298,6 +299,39 @@ stdout envelope (the `files` object is present only when extraction ran):
 ```
 
 No photos store → `count: 0`, `outputs: []`, plus a `note`.
+
+### `photos-recently-deleted` — recover trashed Camera Roll assets
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> photos-recently-deleted -f <FORMAT> [--no-files]
+```
+
+`FORMAT` is one of `csv | json | html | pdf`. Writes
+`<OUT>/photos-recently-deleted.<ext>` and, by default, recovers the files into
+`<OUT>/recently-deleted/` (`--no-files` for a metadata-only catalog). Reads the
+same `Photos.sqlite` as `photos` but keeps only assets still in the Recently
+Deleted album (`ZTRASHEDSTATE`). iOS purges those after ~30 days, so a backup
+taken inside that window still holds the original files.
+
+Each item carries every `photos` field (flattened) plus `purge_after`: the
+estimated permanent-deletion time (`trashed_date` + 30 days, ISO 8601 UTC; empty
+when the trashed date is unknown). The JSON is an array of those flattened
+objects.
+
+stdout envelope (the `files` object is present only when extraction ran):
+
+```json
+{
+  "ok": true, "command": "photos-recently-deleted", "count": 7,
+  "outputs": ["<OUT>/photos-recently-deleted.json"],
+  "files": { "dir": "recently-deleted", "extracted": 7, "missing": 0 },
+  "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
+}
+```
+
+No photos store → `count: 0` + `note: this backup has no photos`; a photos store
+with nothing trashed → `count: 0` + `note: this backup has no recently-deleted
+photos`.
 
 ### `attachments` — export Messages attachment files
 
@@ -548,7 +582,8 @@ one HTML file per data type plus the media folders, plus a customer-facing
 and a table linking each export with counts). The backup is opened once.
 `--no-files` skips the large media extraction (metadata + HTML only). A store
 absent from the backup is skipped; one unreadable store is logged and skipped, not
-fatal. Two things are **not** in the package: iMessage/SMS/RCS conversation
+fatal. The `photos-recently-deleted` section (recovered into `recently-deleted/`)
+is added only when the Camera Roll has trashed assets still in the purge window. Two things are **not** in the package: iMessage/SMS/RCS conversation
 transcripts (run the standalone `messages` command) and the installed-app
 inventory (run `apps`) — the first is a subprocess export, the second is
 manifest-derived rather than a data store.
@@ -563,7 +598,9 @@ stdout envelope:
   "sections": [
     { "type": "contacts", "file": "contacts.html", "count": 1234 },
     { "type": "photos", "file": "photos.html", "count": 1240,
-      "files": { "dir": "photos", "extracted": 1238, "missing": 2 } }
+      "files": { "dir": "photos", "extracted": 1238, "missing": 2 } },
+    { "type": "photos-recently-deleted", "file": "photos-recently-deleted.html", "count": 7,
+      "files": { "dir": "recently-deleted", "extracted": 7, "missing": 0 } }
   ],
   "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
 }
