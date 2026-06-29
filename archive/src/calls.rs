@@ -32,6 +32,10 @@ pub struct Call {
     pub location: Option<String>,
     /// Optional ISO 3166-1 alpha-2 country code (uppercased).
     pub country: Option<String>,
+    /// Address-book name resolved from `number`; empty when no contact matched
+    /// (or contacts were unavailable). Populated by [`crate::enrich`].
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub contact_name: String,
 }
 
 fn decode_address(bytes: Option<Vec<u8>>) -> String {
@@ -112,6 +116,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Call>> {
             call_type,
             location: location.filter(|s| !s.is_empty()),
             country: country.filter(|s| !s.is_empty()).map(|s| s.to_uppercase()),
+            contact_name: String::new(),
         })
     })?;
     rows.collect()

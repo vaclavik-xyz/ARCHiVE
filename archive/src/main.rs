@@ -6,6 +6,7 @@ mod calls;
 mod contacts;
 mod datetime;
 mod device_backup;
+mod enrich;
 mod format;
 mod health;
 mod homescreen;
@@ -388,6 +389,15 @@ fn load_contacts(
     // `scratch` drops here, removing the temp dir and the decrypted DB.
 }
 
+/// Build the address-book reverse index for contact enrichment, or `None` when
+/// the backup has no contacts / the index is empty. Read failures are logged and
+/// treated as "no enrichment", never fatal — enrichment is always best-effort.
+fn contact_index(backup: &archive_core::Backup) -> Option<enrich::ContactIndex> {
+    let people = opt_or_log(load_contacts(backup), "contacts")?;
+    let idx = enrich::ContactIndex::build(&people);
+    (!idx.is_empty()).then_some(idx)
+}
+
 fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = Format::from_cli(format)
         .ok_or_else(|| AppError::usage(format!("unknown contacts format `{format}` (use csv, json, vcf, html, pdf)")))?;
@@ -463,12 +473,15 @@ fn run_calls(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
     let device = device_json(backup.device_info());
 
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
-    let Some(calls) = load_calls(&backup)? else {
+    let Some(mut calls) = load_calls(&backup)? else {
         return Ok(serde_json::json!({
             "ok": true, "command": "calls", "count": 0, "outputs": [],
             "note": "this backup has no call history", "device": device
         }));
     };
+    if let Some(idx) = contact_index(&backup) {
+        enrich::enrich_calls(&idx, &mut calls);
+    }
 
     let rendered = match format {
         Format::Csv => format::calls_csv(&calls),
@@ -732,6 +745,10 @@ fn run_voicemail(
             "note": "this backup has no voicemail", "device": device
         }));
     };
+
+    if let Some(idx) = contact_index(&backup) {
+        enrich::enrich_voicemail(&idx, &mut items);
+    }
 
     // Extract audio before rendering so `audio_file` is populated in the output.
     let audio_summary = match audio_fmt {
@@ -1467,13 +1484,22 @@ fn run_keychain_inventory(cli: &Cli, password: Option<&str>, format: &str) -> Re
 /// aggregates them). An unreadable store is logged and skipped, never fatal.
 fn collect_timeline_events(backup: &archive_core::Backup) -> Vec<timeline::Event> {
     let mut events: Vec<timeline::Event> = Vec::new();
-    if let Some(v) = opt_or_log(load_calls(backup), "calls") {
+    // Resolve handles to contact names once, so call/voicemail/WhatsApp events
+    // carry names instead of bare numbers when the address book is available.
+    let idx = contact_index(backup);
+    if let Some(mut v) = opt_or_log(load_calls(backup), "calls") {
+        if let Some(idx) = &idx {
+            enrich::enrich_calls(idx, &mut v);
+        }
         events.extend(timeline::from_calls(&v));
     }
     if let Some(v) = opt_or_log(load_accounts(backup), "accounts") {
         events.extend(timeline::from_accounts(&v));
     }
-    if let Some(v) = opt_or_log(load_voicemail(backup), "voicemail") {
+    if let Some(mut v) = opt_or_log(load_voicemail(backup), "voicemail") {
+        if let Some(idx) = &idx {
+            enrich::enrich_voicemail(idx, &mut v);
+        }
         events.extend(timeline::from_voicemail(&v));
     }
     if let Some(v) = opt_or_log(load_voice_memos(backup), "voice-memos") {
@@ -1495,7 +1521,10 @@ fn collect_timeline_events(backup: &archive_core::Backup) -> Vec<timeline::Event
     if let Some(v) = opt_or_log(load_attachments(backup), "attachments") {
         events.extend(timeline::from_attachments(&v));
     }
-    if let Some(v) = opt_or_log(load_whatsapp(backup), "whatsapp") {
+    if let Some(mut v) = opt_or_log(load_whatsapp(backup), "whatsapp") {
+        if let Some(idx) = &idx {
+            enrich::enrich_whatsapp(idx, &mut v);
+        }
         events.extend(timeline::from_whatsapp(&v));
     }
     if let Some(v) = opt_or_log(load_reminders(backup), "reminders") {
@@ -1873,6 +1902,9 @@ fn run_whatsapp(cli: &Cli, password: Option<&str>, format: &str, no_files: bool)
             "note": "this backup has no WhatsApp store", "device": device
         }));
     };
+    if let Some(idx) = contact_index(&backup) {
+        enrich::enrich_whatsapp(&idx, &mut items);
+    }
 
     let summary = if no_files {
         None
@@ -1911,11 +1943,16 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
 
     let mut rec = Recovery { out, sections: Vec::new(), outputs: Vec::new() };
+    // Resolve numbers to contact names once for every section that benefits.
+    let cidx = contact_index(&backup);
 
     if let Some(items) = opt_or_log(load_contacts(&backup), "contacts") {
         rec.add("contacts", "Kontakty", "contacts.html", format::contacts_html(&items), items.len(), None)?;
     }
-    if let Some(items) = opt_or_log(load_calls(&backup), "calls") {
+    if let Some(mut items) = opt_or_log(load_calls(&backup), "calls") {
+        if let Some(idx) = &cidx {
+            enrich::enrich_calls(idx, &mut items);
+        }
         rec.add("calls", "Hovory", "calls.html", format::calls_html(&items), items.len(), None)?;
     }
     if let Some(items) = opt_or_log(load_accounts(&backup), "accounts") {
@@ -1930,6 +1967,9 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         rec.add("homescreen-layout", "Rozložení plochy", "homescreen-layout.html", format::homescreen_html(&items), items.len(), None)?;
     }
     if let Some(mut items) = opt_or_log(load_voicemail(&backup), "voicemail") {
+        if let Some(idx) = &cidx {
+            enrich::enrich_voicemail(idx, &mut items);
+        }
         let media = if no_files {
             None
         } else {
@@ -2017,6 +2057,9 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         rec.add("attachments", "Přílohy zpráv", "attachments.html", format::attachments_html(&items), items.len(), media)?;
     }
     if let Some(mut items) = opt_or_log(load_whatsapp(&backup), "whatsapp") {
+        if let Some(idx) = &cidx {
+            enrich::enrich_whatsapp(idx, &mut items);
+        }
         let media = if no_files {
             None
         } else {

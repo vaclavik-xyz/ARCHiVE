@@ -32,6 +32,10 @@ pub struct WaMessage {
     /// Output-relative path to the extracted media (`whatsapp_media/<name>`);
     /// `None` until extraction runs or when the file is absent from the backup.
     pub media_file: Option<String>,
+    /// Address-book name resolved from the `sender` JID; empty when no contact
+    /// matched (or for own messages). Populated by [`crate::enrich`].
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub contact_name: String,
 }
 
 impl WaMessage {
@@ -97,6 +101,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<WaMessage>> {
             text: text.unwrap_or_default(),
             source_path: to_media_path(&media.unwrap_or_default()),
             media_file: None,
+            contact_name: String::new(),
         })
     })?;
     rows.collect()
@@ -200,6 +205,7 @@ mod tests {
         let mut m = WaMessage {
             chat: String::new(), sender: String::new(), from_me: false, date: String::new(),
             text: String::new(), source_path: String::new(), media_file: Some("whatsapp_media/1_p.JPG".into()),
+            contact_name: String::new(),
         };
         assert!(m.is_image());
         m.media_file = Some("whatsapp_media/1_v.mp4".into());

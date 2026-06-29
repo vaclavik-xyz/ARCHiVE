@@ -48,10 +48,11 @@ pub fn from_calls(calls: &[crate::calls::Call]) -> Vec<Event> {
     calls
         .iter()
         .map(|c| {
+            let who = if c.contact_name.is_empty() { or_unknown(&c.number) } else { c.contact_name.as_str() };
             Event::new(
                 c.date.clone(),
                 "call",
-                format!("{} {} ({}s)", c.direction, or_unknown(&c.number), c.duration_seconds),
+                format!("{} {} ({}s)", c.direction, who, c.duration_seconds),
             )
         })
         .collect()
@@ -75,10 +76,11 @@ pub fn from_voicemail(items: &[crate::voicemail::Voicemail]) -> Vec<Event> {
     items
         .iter()
         .map(|v| {
+            let who = if v.contact_name.is_empty() { or_unknown(&v.sender) } else { v.contact_name.as_str() };
             Event::new(
                 v.date.clone(),
                 "voicemail",
-                format!("from {} ({}s)", or_unknown(&v.sender), v.duration_seconds),
+                format!("from {} ({}s)", who, v.duration_seconds),
             )
         })
         .collect()
@@ -171,10 +173,11 @@ pub fn from_whatsapp(items: &[crate::whatsapp::WaMessage]) -> Vec<Event> {
         .iter()
         .map(|m| {
             let arrow = if m.from_me { "→" } else { "←" };
+            let who = if m.chat.is_empty() { or_unknown(&m.contact_name) } else { m.chat.as_str() };
             Event::new(
                 m.date.clone(),
                 "whatsapp",
-                format!("{} {} {}", or_unknown(&m.chat), arrow, trunc(&m.text, 80)),
+                format!("{} {} {}", who, arrow, trunc(&m.text, 80)),
             )
         })
         .collect()
@@ -321,6 +324,7 @@ mod tests {
             call_type: None,
             location: None,
             country: None,
+            contact_name: String::new(),
         }];
         let ev = from_calls(&calls);
         assert_eq!(ev.len(), 1);
