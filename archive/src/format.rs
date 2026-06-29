@@ -666,6 +666,46 @@ pub fn device_usage_html(items: &[crate::device_usage::AppUsage]) -> String {
     DeviceUsageTemplate { items }.render().unwrap()
 }
 
+pub fn app_files_csv(items: &[crate::app_files::ExtractedFile]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["domain", "path", "category", "bytes", "file"]).unwrap();
+    for f in items {
+        wtr.write_record([
+            f.domain.clone(),
+            f.path.clone(),
+            f.category.clone(),
+            f.bytes.to_string(),
+            f.file.clone(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn app_files_json(items: &[crate::app_files::ExtractedFile]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+struct AppFileRow<'a> {
+    f: &'a crate::app_files::ExtractedFile,
+    size: String,
+}
+
+#[derive(Template)]
+#[template(path = "app-files.html")]
+struct AppFilesTemplate<'a> {
+    app: &'a str,
+    rows: Vec<AppFileRow<'a>>,
+}
+
+pub fn app_files_html(app: &str, items: &[crate::app_files::ExtractedFile]) -> String {
+    let rows = items
+        .iter()
+        .map(|f| AppFileRow { f, size: crate::data_usage::human_bytes(f.bytes as i64) })
+        .collect();
+    AppFilesTemplate { app, rows }.render().unwrap()
+}
+
 pub fn app_databases_csv(items: &[crate::app_databases::AppDatabase]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record(["app", "domain", "path", "bytes", "readable", "tables"]).unwrap();

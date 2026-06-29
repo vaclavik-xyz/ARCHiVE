@@ -28,7 +28,7 @@ invocation.
 **PDF output:** the **in-process** export commands that list `html` (contacts,
 calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
-whatsapp, timeline, stats, app-databases, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
+whatsapp, timeline, stats, app-databases, app-files, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
 with `--chrome-path`; a missing browser is a usage error, exit 1), with the JSON
 envelope unchanged (`outputs` points at the `.pdf`). `messages -f pdf` is produced
@@ -653,6 +653,49 @@ stdout envelope:
 ```
 
 No app database files at all → `count: 0`, `outputs: []`, plus a `note`.
+
+### `app-files` — extract a named app's document/media files
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> app-files --app <NAME> -f <FORMAT> [--all]
+```
+
+`FORMAT` is one of `csv | json | html | pdf`. `--app <NAME>` selects the app by a
+case-insensitive **substring** of its backup domain — both `AppDomain-<bundle>`
+and `AppDomainGroup-<group>` containers match, Apple's own domains never do (e.g.
+`viber`, `whatsapp`, `com.burbn.instagram`). Every matching domain is walked and
+each file is fetched (decrypted if the backup is encrypted) to
+`<OUT>/app-files/<domain>/<relpath>`, preserving the in-domain layout (the domain
+becomes one path segment — `/` and `\` replaced with `_`; absolute paths and `..`
+traversal are rejected). By default only **media** is copied (image / video /
+audio, classified by extension); `--all` copies every file in the container.
+
+The manifest is written to `<OUT>/app-files.<ext>`; `html`/`pdf` render a gallery
+(images inline, video/audio/other as links). Each row: `domain`, `path` (within
+the domain), `bytes`, `category` (`image` / `video` / `audio` / `other`), and
+`file` (the output-relative path of the copied file). Sorted by domain then path.
+
+**Why it exists:** when an app's message database is excluded or encrypted (see
+`app-databases`), the **files** it stored — photos, videos, voice messages,
+documents — are usually still present in the backup and recoverable. This pulls
+them out even though the conversation itself cannot be reconstructed. A **view**
+over the backup manifest: **not** a `KNOWN_STORE` (so not in `inspect`) and
+**not** part of `recover`.
+
+stdout envelope:
+
+```json
+{
+  "ok": true, "command": "app-files", "count": 412, "bytes": 73400320,
+  "domains": 2, "outputs": ["<OUT>/app-files.json"],
+  "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
+}
+```
+
+`outputs` lists only the manifest; the extracted files live under
+`<OUT>/app-files/`. No matching domain → `count: 0`, `outputs: []`, `note: "no
+third-party app domain matched '<app>'"`. A matching domain with no qualifying
+files → `count: 0` plus a `note` naming how many domains matched.
 
 ### `recover-deleted` — carve deleted SQLite rows
 

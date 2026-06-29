@@ -1,5 +1,6 @@
 mod accounts;
 mod app_databases;
+mod app_files;
 mod audio;
 mod attachments;
 mod calendar;
@@ -244,6 +245,19 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Extract a named app's document/media files from its backup container(s).
+    AppFiles {
+        /// App to extract: matched as a case-insensitive substring of the backup
+        /// domain (e.g. `viber`, `whatsapp`, `com.burbn.instagram`).
+        #[arg(long)]
+        app: String,
+        /// Output format for the manifest: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+        /// Copy every file, not just media (images/videos/audio).
+        #[arg(long)]
+        all: bool,
+    },
     /// Recover DELETED rows from backup SQLite databases by carving freed
     /// pages/freeblocks/WAL (best-effort). `--store`: messages, calls, contacts, all.
     RecoverDeleted {
@@ -385,6 +399,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Timeline { format } => run_timeline(&cli, password.as_deref(), format),
         Command::Stats { format } => run_stats(&cli, password.as_deref(), format),
         Command::AppDatabases { format } => run_app_databases(&cli, password.as_deref(), format),
+        Command::AppFiles { app, format, all } => run_app_files(&cli, password.as_deref(), app, format, *all),
         Command::RecoverDeleted { format, store } => run_recover_deleted(&cli, password.as_deref(), format, store),
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
@@ -1771,6 +1786,90 @@ fn run_app_databases(cli: &Cli, password: Option<&str>, format: &str) -> Result<
     }))
 }
 
+fn run_app_files(cli: &Cli, password: Option<&str>, app: &str, format: &str, all: bool) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "app-files")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to extract app files"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let app_lc = app.to_lowercase();
+    let domains = backup.domains().map_err(|e| AppError::other(e.to_string()))?;
+    let matched: Vec<&String> = domains
+        .iter()
+        .filter(|d| app_databases::third_party_label(d).is_some() && d.to_lowercase().contains(&app_lc))
+        .collect();
+    if matched.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "app-files", "count": 0, "outputs": [],
+            "note": format!("no third-party app domain matched '{app}'"), "device": device
+        }));
+    }
+
+    let mut manifest: Vec<app_files::ExtractedFile> = Vec::new();
+    for dom in &matched {
+        let files = backup.list(dom, "").map_err(|e| AppError::other(e.to_string()))?;
+        for f in &files {
+            if !all && !app_files::is_media(f) {
+                continue;
+            }
+            let Some(rel) = app_files::safe_relpath(f) else { continue };
+            let rel_out = format!("app-files/{}/{}", app_files::domain_dir(dom), rel);
+            let dest = out.join(&rel_out);
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| AppError::other(e.to_string()))?;
+            }
+            match backup.fetch(dom, f, &dest) {
+                Ok(Some(p)) => {
+                    let bytes = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                    manifest.push(app_files::ExtractedFile {
+                        domain: (*dom).clone(),
+                        path: f.clone(),
+                        bytes,
+                        category: app_files::category(f).to_string(),
+                        file: rel_out,
+                    });
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("app-files: fetch {dom}/{f}: {e}"),
+            }
+        }
+    }
+    manifest.sort_by(|a, b| a.domain.cmp(&b.domain).then(a.path.cmp(&b.path)));
+
+    if manifest.is_empty() {
+        let what = if all { "files" } else { "media files" };
+        return Ok(serde_json::json!({
+            "ok": true, "command": "app-files", "count": 0, "outputs": [],
+            "note": format!("matched {} domain(s) for '{app}' but found no {what}", matched.len()),
+            "device": device
+        }));
+    }
+
+    let total_bytes: u64 = manifest.iter().map(|f| f.bytes).sum();
+    let rendered = match format {
+        Format::Csv => format::app_files_csv(&manifest),
+        Format::Json => format::app_files_json(&manifest),
+        Format::Html | Format::Pdf => format::app_files_html(app, &manifest),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("app-files.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!(
+        "Extracted {} file(s) ({} bytes) for '{app}' from {} domain(s) to {}/app-files/",
+        manifest.len(),
+        total_bytes,
+        matched.len(),
+        out.display()
+    );
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "app-files", "count": manifest.len(),
+        "bytes": total_bytes, "domains": matched.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
 fn run_timeline(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "timeline")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export timeline"))?;
@@ -2662,6 +2761,10 @@ mod cli_tests {
         assert!(matches!(s.command, Command::Stats { format } if format == "json"));
         let ad = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "app-databases", "-f", "json"]).unwrap();
         assert!(matches!(ad.command, Command::AppDatabases { format } if format == "json"));
+        let af = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "app-files", "--app", "viber", "-f", "json", "--all"]).unwrap();
+        assert!(matches!(af.command, Command::AppFiles { app, format, all } if app == "viber" && format == "json" && all));
+        // --app is required.
+        assert!(Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "app-files", "-f", "json"]).is_err());
         let w = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "wifi", "-f", "html"]).unwrap();
         assert!(matches!(w.command, Command::Wifi { format } if format == "html"));
     }
