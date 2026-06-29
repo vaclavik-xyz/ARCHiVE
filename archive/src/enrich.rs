@@ -125,12 +125,17 @@ pub fn enrich_voicemail(idx: &ContactIndex, items: &mut [crate::voicemail::Voice
     }
 }
 
-/// Fill `contact_name` on each WhatsApp message from its `sender` JID.
+/// Fill `contact_name` on each WhatsApp message from its `sender` JID, falling
+/// back to the chat peer's JID (`chat_jid`) when `sender` is empty — which it is
+/// for the owner's own (`from_me`) messages, where the resolvable party is the
+/// conversation peer.
 pub fn enrich_whatsapp(idx: &ContactIndex, items: &mut [crate::whatsapp::WaMessage]) {
     for m in items {
-        if m.contact_name.is_empty()
-            && let Some(name) = idx.resolve(&m.sender)
-        {
+        if !m.contact_name.is_empty() {
+            continue;
+        }
+        let handle = if m.sender.is_empty() { m.chat_jid.as_str() } else { m.sender.as_str() };
+        if let Some(name) = idx.resolve(handle) {
             m.contact_name = name.to_string();
         }
     }
@@ -170,6 +175,31 @@ mod tests {
         assert_eq!(idx.resolve("420776112233@s.whatsapp.net"), Some("Eva Malá"));
         // A non-messaging email that isn't in the book stays unresolved.
         assert_eq!(idx.resolve("nobody@example.com"), None);
+    }
+
+    #[test]
+    fn enrich_whatsapp_uses_sender_or_chat_jid_fallback() {
+        let idx = ContactIndex::build(&[contact("Eva", "Malá", &["776112233"], &[])]);
+        let wa = |from_me: bool, sender: &str, chat_jid: &str| crate::whatsapp::WaMessage {
+            chat: "Eva".into(),
+            chat_jid: chat_jid.into(),
+            sender: sender.into(),
+            from_me,
+            date: String::new(),
+            text: String::new(),
+            source_path: String::new(),
+            media_file: None,
+            contact_name: String::new(),
+        };
+        let mut msgs = vec![
+            // Incoming: resolved from the sender JID.
+            wa(false, "420776112233@s.whatsapp.net", "420776112233@s.whatsapp.net"),
+            // Outgoing (own): sender empty, resolved from the chat peer's JID.
+            wa(true, "", "420776112233@s.whatsapp.net"),
+        ];
+        enrich_whatsapp(&idx, &mut msgs);
+        assert_eq!(msgs[0].contact_name, "Eva Malá");
+        assert_eq!(msgs[1].contact_name, "Eva Malá");
     }
 
     #[test]
