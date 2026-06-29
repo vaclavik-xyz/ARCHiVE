@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Kontrola schématu databází</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%;margin:6px 0 18px}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top}
+th{background:#f5f5f5}code{background:#f0f0f0;padding:1px 5px;border-radius:3px}
+h2{margin-bottom:2px;font-size:1.05em}p.path{margin:0 0 6px;color:#555;font-size:.9em}
+.summary{font-size:1.1em;margin:8px 0}.warn{background:#fff8e1;border:1px solid #ffe082;padding:8px 12px;border-radius:6px;margin-bottom:16px}
+.badge{font-size:.75em;padding:2px 7px;border-radius:10px;vertical-align:middle}
+.badge.ok{background:#e6f4ea;color:#1e7d34}.badge.drifted{background:#fdecea;color:#b3261e}.badge.db_absent{background:#eceff1;color:#555}
+td.miss{color:#b3261e}</style></head><body>
+<h1>Kontrola schématu databází</h1>
+<p class="summary">OK: {{ ok }} &middot; Drift: {{ drifted }} &middot; Chybí DB: {{ absent }} &middot; celkem {{ stores.len() }}</p>
+<p class="warn">Ověřuje, že živé SQLite databáze v záloze mají sloupce, na kterých závisí extraktory. <strong>drift</strong> = očekávaný sloupec/tabulka chybí (typicky přejmenovaný/odebraný novou verzí iOS) — extraktor pak tiše vrací prázdný výstup. <strong>Chybí DB</strong> není drift, jen ta databáze v této záloze není.</p>
+{% for s in stores %}
+<h2>{{ s.command }} <span class="badge {{ s.status }}">{{ s.status }}</span></h2>
+<p class="path"><code>{{ s.domain }}</code> / <code>{{ s.rel_path }}</code></p>
+{% if !s.tables.is_empty() %}
+<table>
+<tr><th>Tabulka</th><th>Stav</th><th>Chybějící sloupce</th></tr>
+{% for t in s.tables %}
+<tr><td><code>{{ t.table }}</code></td><td>{{ t.status }}</td>
+<td{% if !t.missing_columns.is_empty() %} class="miss"{% endif %}>{% if !t.missing_columns.is_empty() %}{{ t.missing_columns|join(", ") }}{% endif %}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% endfor %}
+</body></html>

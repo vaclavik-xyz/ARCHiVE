@@ -99,6 +99,9 @@ archive --backup <backup-dir> -o <out> app-files --app viber -f html   # media o
 # Recover DELETED rows by carving freed SQLite pages/WAL (best-effort)
 archive --backup <backup-dir> -o <out> recover-deleted -f html   # --store messages|calls|contacts|notes|calendar|safari|photos|all
 
+# Schema drift self-check: do the live SQLite stores still carry the columns each extractor needs?
+archive --backup <backup-dir> -o <out> schema-check -f html   # csv | json | html | pdf
+
 # Recover saved Wi-Fi passwords from the keychain (ENCRYPTED backups only)
 archive --backup <backup-dir> --password <pw> -o <out> wifi -f html
 
@@ -152,6 +155,7 @@ written under `<out>/messages`.
 - [x] app-databases — csv, json, html, pdf: per-app database recoverability report (readable plain SQLite + table count vs encrypted/Core-Data/other); shows that many third-party messaging apps keep no readable store in the backup
 - [x] app-files — csv, json, html, pdf: extract a named app's document/media files from its `AppDomain-…`/`AppDomainGroup-…` containers (media only by default, `--all` for every file); recovers the photos/videos/voice messages that survive even when the message DB is excluded
 - [x] recover-deleted — csv, json, html: carve DELETED rows (messages/calls/contacts/notes/calendar/safari/photos) from freed SQLite pages (+ WAL for messages) (best-effort); `truncated` flags partially-recovered rows
+- [x] schema-check — csv, json, html, pdf: validate each live SQLite store against the columns its extractor depends on, flagging drift (renamed/removed columns across iOS versions) vs `ok` vs `db_absent`; explains an unexpectedly-empty export
 - [x] wifi — csv, json, html: recover saved Wi-Fi passwords from the keychain (encrypted backups only; passwords in plaintext)
 - [x] passwords — csv, json, html: recover saved website/app passwords from the keychain `inet` array (Safari/WebKit `com.apple.cfnetwork` + third-party app groups; Apple-internal keychain-sync items excluded); encrypted backups only, plaintext
 - [x] keychain-inventory — csv, json, html, pdf: non-secret census of the keychain (per-item service/account/group/protection-class/version across genp/inet/cert/keys; NO passwords) — triage scope before exporting secrets; encrypted backups only

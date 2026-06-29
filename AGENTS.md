@@ -749,6 +749,30 @@ and carved rows can include false positives. The envelope carries `count`,
 `stores: [{store, recovered}]`, `outputs`, `device`, and a `note` stating this.
 Read-only; never writes to the backup. Absent databases are skipped.
 
+### `schema-check` — detect SQLite schema drift
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> schema-check -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html | pdf`; writes `<OUT>/schema-check.<ext>`. For every
+SQLite store the tool extracts from (contacts, calls, accounts, data-usage,
+voicemail, voice-memos, safari-history, safari-bookmarks, calendar, notes, photos,
+whatsapp, health, device-usage), it resolves the database from the manifest, opens
+it **read-only**, and compares the live columns (`PRAGMA table_info`) against the
+load-bearing columns that store's extractor depends on. Each store reports `ok`
+(all needed columns present), `drifted` (an expected table or column is missing —
+typically renamed/removed by a newer iOS, which makes that extractor silently
+return empty), or `db_absent` (the database is simply not in this backup — not a
+drift). Per store: `{ command, domain, rel_path, status, tables: [{ table, status
+(ok|missing_columns|table_absent), missing_columns }] }`. The envelope carries
+`checked`, `ok_stores`, `drifted`, `db_absent`, `stores`, `outputs`, `device`, and
+a `note`. The expectations are the *stable core* columns (present across the
+supported iOS range); version-conditional columns the extractors already tolerate
+are omitted so a cosmetic schema change is never flagged. Use it to explain an
+unexpectedly-empty export: `drifted` means the schema moved, `db_absent` means the
+data was never there. Read-only; never logs any row data, only schema names.
+
 ### `wifi` — recover saved Wi-Fi passwords
 
 ```

@@ -25,6 +25,7 @@ mod recover;
 mod recover_deleted;
 mod reminders;
 mod safari;
+mod schema_check;
 mod sqlite_util;
 mod stats;
 mod timeline;
@@ -269,6 +270,13 @@ enum Command {
         #[arg(long, default_value = "all")]
         store: String,
     },
+    /// Check each SQLite store's live schema against the columns its extractor
+    /// needs, flagging drift (renamed/removed columns) across iOS versions.
+    SchemaCheck {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Recover saved Wi-Fi passwords from the keychain (encrypted backups only).
     Wifi {
         /// Output format: csv, json, html (no pdf — avoids a plaintext sidecar).
@@ -402,6 +410,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::AppDatabases { format } => run_app_databases(&cli, password.as_deref(), format),
         Command::AppFiles { app, format, all } => run_app_files(&cli, password.as_deref(), app, format, *all),
         Command::RecoverDeleted { format, store } => run_recover_deleted(&cli, password.as_deref(), format, store),
+        Command::SchemaCheck { format } => run_schema_check(&cli, password.as_deref(), format),
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
         Command::KeychainInventory { format } => run_keychain_inventory(&cli, password.as_deref(), format),
@@ -1509,6 +1518,91 @@ fn run_recover_deleted(cli: &Cli, password: Option<&str>, format: &str, store: &
         "ok": true, "command": "recover-deleted", "count": all.len(),
         "stores": per_store, "outputs": [out_file.to_string_lossy()], "device": device,
         "note": "best-effort: recovered deleted rows are partial (limited by SQLite page reuse/VACUUM) and may include false positives"
+    }))
+}
+
+// Check each known SQLite store's live schema against the columns its extractor
+// depends on. Read-only; resolves each store's DB from the manifest, opens it
+// read-only, and compares column sets. Never logs any data — only schema names.
+fn run_schema_check(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    use rusqlite::{Connection, OpenFlags};
+
+    let format = export_format(format, "schema-check")?;
+    let out = cli
+        .out
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--out is required to export the schema-check report"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let mut reports: Vec<schema_check::StoreReport> = Vec::new();
+    for store in schema_check::EXPECTATIONS {
+        let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+        let file_name = store.rel_path.rsplit('/').next().unwrap_or("store.db");
+        let dest = scratch.path().join(file_name);
+        let db = backup
+            .fetch(store.domain, store.rel_path, &dest)
+            .map_err(|e| AppError::other(e.to_string()))?;
+        let (status, tables) = match db {
+            None => ("db_absent", Vec::new()),
+            Some(path) => {
+                // Read-only: never modifies the extracted copy. A DB that fails to
+                // open (corrupt/locked) is reported with every table absent rather
+                // than aborting the whole report.
+                match Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+                    Ok(conn) => {
+                        let tables: Vec<schema_check::TableReport> = store
+                            .needs
+                            .iter()
+                            .map(|need| {
+                                let cols = sqlite_util::table_columns(&conn, need.table).ok();
+                                // PRAGMA returns an empty set for a missing table.
+                                let actual = cols.as_ref().filter(|c| !c.is_empty());
+                                schema_check::check_table(need, actual)
+                            })
+                            .collect();
+                        (schema_check::store_status(&tables), tables)
+                    }
+                    Err(_) => {
+                        let tables = store
+                            .needs
+                            .iter()
+                            .map(|need| schema_check::check_table(need, None))
+                            .collect();
+                        ("drifted", tables)
+                    }
+                }
+            }
+        };
+        reports.push(schema_check::StoreReport {
+            command: store.command.into(),
+            domain: store.domain.into(),
+            rel_path: store.rel_path.into(),
+            status,
+            tables,
+        });
+    }
+
+    let ok = reports.iter().filter(|r| r.status == "ok").count();
+    let drifted = reports.iter().filter(|r| r.status == "drifted").count();
+    let absent = reports.iter().filter(|r| r.status == "db_absent").count();
+
+    let rendered = match format {
+        Format::Csv => format::schema_check_csv(&reports),
+        Format::Json => format::schema_check_json(&reports),
+        Format::Html | Format::Pdf => format::schema_check_html(&reports),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("schema-check.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("schema-check: {ok} ok, {drifted} drifted, {absent} db-absent ({} checked)", reports.len());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "schema-check", "checked": reports.len(),
+        "ok_stores": ok, "drifted": drifted, "db_absent": absent,
+        "stores": reports, "outputs": [out_file.to_string_lossy()], "device": device,
+        "note": "drift = an expected column/table is missing from the live schema (a renamed/removed column makes that extractor silently return empty); db_absent just means the database is not in this backup"
     }))
 }
 
@@ -2813,6 +2907,19 @@ mod cli_tests {
         assert!(matches!(d.command, Command::RecoverDeleted { ref format, ref store } if format == "html" && store == "all"));
         let m = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "recover-deleted", "-f", "csv", "--store", "messages"]).unwrap();
         assert!(matches!(m.command, Command::RecoverDeleted { ref store, .. } if store == "messages"));
+    }
+
+    #[test]
+    fn parses_schema_check_format() {
+        let s = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "schema-check", "-f", "json"]).unwrap();
+        assert!(matches!(s.command, Command::SchemaCheck { ref format } if format == "json"));
+    }
+
+    #[test]
+    fn schema_check_rejects_vcf() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "schema-check", "-f", "vcf"]).unwrap();
+        let err = run_schema_check(&cli, None, "vcf").unwrap_err();
+        assert_eq!(err.kind, "usage");
     }
 
     #[test]
