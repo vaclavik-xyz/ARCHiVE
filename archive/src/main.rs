@@ -216,6 +216,13 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Census of the keychain: per-item metadata (service, account, group, class)
+    /// with NO secrets. Encrypted backups only.
+    KeychainInventory {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Run every extractor into <out>/ and write a customer index.html package.
     Recover {
         /// Skip large media extraction (metadata + HTML only).
@@ -322,6 +329,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::RecoverDeleted { format, store } => run_recover_deleted(&cli, password.as_deref(), format, store),
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
+        Command::KeychainInventory { format } => run_keychain_inventory(&cli, password.as_deref(), format),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
@@ -1319,6 +1327,46 @@ fn run_passwords(cli: &Cli, password: Option<&str>, format: &str) -> Result<serd
         "ok": true, "command": "passwords", "count": creds.len(),
         "outputs": [out_file.to_string_lossy()], "device": device,
         "note": "recovered passwords are plaintext — handle and transmit securely"
+    }))
+}
+
+fn run_keychain_inventory(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    // Not sensitive: this census carries no secrets, so pdf is allowed.
+    let format = export_format(format, "keychain-inventory")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export the keychain inventory"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let items = backup.keychain_inventory().map_err(|e| AppError::other(e.to_string()))?;
+    if items.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "keychain-inventory", "count": 0, "outputs": [],
+            "note": "no keychain items (the keychain is included only in ENCRYPTED backups)",
+            "device": device
+        }));
+    }
+    // Per-array summary: total items and how many decrypted (transferable).
+    let mut summary = serde_json::Map::new();
+    for arr in ["genp", "inet", "cert", "keys"] {
+        let total = items.iter().filter(|m| m.array == arr).count();
+        if total == 0 {
+            continue;
+        }
+        let decrypted = items.iter().filter(|m| m.array == arr && m.decrypted).count();
+        summary.insert(arr.to_string(), serde_json::json!({ "total": total, "decrypted": decrypted }));
+    }
+    let rendered = match format {
+        Format::Csv => format::keychain_inventory_csv(&items),
+        Format::Json => format::keychain_inventory_json(&items),
+        Format::Html | Format::Pdf => format::keychain_inventory_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("keychain-inventory.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("Wrote keychain inventory ({} item(s)) to {}", items.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "keychain-inventory", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "summary": summary, "device": device
     }))
 }
 

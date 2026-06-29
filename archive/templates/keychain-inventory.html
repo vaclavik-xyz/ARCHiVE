@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Keychain – přehled</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}code{font-family:ui-monospace,Menlo,monospace}.no{color:#999}</style></head><body>
+<h1>Keychain – přehled položek ({{ items.len() }})</h1>
+<p>Census keychainu bez tajemství — pouze metadata (žádná hesla). „Dešifrováno = ne" obvykle značí <em>ThisDeviceOnly</em> položku, která se nepřenese do přenosné zálohy.</p>
+<table>
+<tr><th>Pole</th><th>Služba / web</th><th>Účet</th><th>Skupina (app)</th><th>Třída</th><th>Verze</th><th>Dešifrováno</th></tr>
+{% for m in items %}
+<tr{% if !m.decrypted %} class="no"{% endif %}>
+<td><code>{{ m.array }}</code></td><td>{{ m.service }}</td><td>{{ m.account }}</td>
+<td><code>{{ m.access_group }}</code></td><td>{{ m.protection_class }}</td><td>{{ m.version }}</td>
+<td>{% if m.decrypted %}ano{% else %}ne{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>

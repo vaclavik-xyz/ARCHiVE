@@ -186,6 +186,16 @@ impl Backup {
         }
     }
 
+    /// A non-secret census of the keychain: per-item metadata (service, account,
+    /// access group, protection class, item version) across all arrays, with no
+    /// password or secret values. Empty when the backup has no keychain.
+    pub fn keychain_inventory(&self) -> Result<Vec<keychain::KeychainItemMeta>, BackupError> {
+        match self.keychain_material()? {
+            Some((plist_bytes, class_keys)) => Ok(keychain::inventory(&plist_bytes, &class_keys)),
+            None => Ok(Vec::new()),
+        }
+    }
+
     /// Decrypt the keychain plist and gather the protection-class keys needed to
     /// unwrap its items. `Ok(None)` when the backup has no keychain (unencrypted
     /// backups). Shared by every keychain extractor.

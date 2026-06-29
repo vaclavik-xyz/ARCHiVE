@@ -28,7 +28,7 @@ invocation.
 **PDF output:** the **in-process** export commands that list `html` (contacts,
 calls, accounts, known-networks, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, attachments, whatsapp, timeline,
-recover-deleted, health, apps) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
+recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
 with `--chrome-path`; a missing browser is a usage error, exit 1), with the JSON
 envelope unchanged (`outputs` points at the `.pdf`). `messages -f pdf` is produced
@@ -520,6 +520,21 @@ third-party app groups are kept; Apple's internal iCloud-Keychain-sync groups
 machine secrets, not passwords — are excluded. Returns `count: 0` with a note when
 the backup has no keychain or no saved logins. **Sensitive** — handle and transmit
 securely.
+
+### `keychain-inventory` — non-secret keychain census
+
+```
+archive --backup <DIR> --password <PW> -o <OUT> keychain-inventory -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html | pdf` (**pdf allowed** — this output carries no
+secrets). Lists per-item metadata across the keychain `genp`/`inet`/`cert`/`keys`
+arrays: `{ array, service, account, access_group, protection_class, version,
+decrypted }` — **never** a password or secret value. `decrypted: false` ≈ a
+ThisDeviceOnly item not transferable in a portable backup. The envelope adds a
+`summary` of per-array totals and decrypted counts. Encrypted backups only;
+`count: 0` with a note otherwise. Useful to triage scope before exporting secrets
+with `wifi`/`passwords`.
 
 ### `recover` — one-shot customer package
 
