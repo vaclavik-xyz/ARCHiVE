@@ -197,17 +197,27 @@ fn parse_asn1_time(tag: u8, content: &[u8]) -> String {
     format!("{year:04}-{}-{}T{}:{}:{}Z", g(0, 2), g(2, 4), g(4, 6), g(6, 8), ss)
 }
 
-/// Best-effort detection of the `CA:TRUE` basic constraint (OID 2.5.29.19): find
-/// the extension OID and look for an encoded `BOOLEAN TRUE` (`01 01 ff`) shortly
-/// after it (within the extension's small value). Defaults false.
+/// Detect the `CA:TRUE` basic constraint (OID 2.5.29.19). The extension is
+/// `SEQUENCE { extnID OID, critical BOOLEAN DEFAULT FALSE, extnValue OCTET STRING
+/// }`, and the OCTET STRING wraps `BasicConstraints ::= SEQUENCE { cA BOOLEAN
+/// DEFAULT FALSE, ... }`. We parse that structure and read the **inner** `cA`
+/// boolean specifically — not just any `01 01 ff` nearby, which could be the
+/// extension's `critical` flag on a non-CA certificate. Defaults false.
 fn has_ca_basic_constraint(tbs: &[u8]) -> bool {
     const BC_OID: [u8; 5] = [0x06, 0x03, 0x55, 0x1D, 0x13];
     let mut i = 0;
     while i + BC_OID.len() <= tbs.len() {
         if tbs[i..].starts_with(&BC_OID) {
-            let window_end = (i + BC_OID.len() + 16).min(tbs.len());
-            let window = &tbs[i + BC_OID.len()..window_end];
-            return window.windows(3).any(|w| w == [0x01, 0x01, 0xFF]);
+            let mut j = i + BC_OID.len();
+            // Optional `critical` BOOLEAN — skip it so it is never read as cA.
+            if let Some((0x01, _, next)) = read_tlv(tbs, j) {
+                j = next;
+            }
+            // extnValue OCTET STRING wrapping the BasicConstraints SEQUENCE.
+            let Some((0x04, octet, _)) = read_tlv(tbs, j) else { return false };
+            let Some((0x30, bc, _)) = read_tlv(octet, 0) else { return false };
+            // cA BOOLEAN is the first element when present; absent ⇒ default FALSE.
+            return matches!(read_tlv(bc, 0), Some((0x01, ca, _)) if ca.first() == Some(&0xFF));
         }
         i += 1;
     }
@@ -250,8 +260,14 @@ mod tests {
 
     fn tlv(tag: u8, content: &[u8]) -> Vec<u8> {
         let mut out = vec![tag];
-        assert!(content.len() < 128, "test DER stays short-form");
-        out.push(content.len() as u8);
+        let n = content.len();
+        if n < 128 {
+            out.push(n as u8);
+        } else if n < 256 {
+            out.extend([0x81, n as u8]);
+        } else {
+            out.extend([0x82, (n >> 8) as u8, (n & 0xff) as u8]);
+        }
         out.extend_from_slice(content);
         out
     }
@@ -269,9 +285,27 @@ mod tests {
         tlv(0x17, s.as_bytes())
     }
 
+    /// One basicConstraints Extension SEQUENCE: OID, optional `critical` BOOLEAN,
+    /// then the OCTET STRING wrapping `SEQUENCE { cA BOOLEAN }` (cA omitted when
+    /// `ca` is false, mirroring DEFAULT FALSE).
+    fn basic_constraints_ext(critical: bool, ca: bool) -> Vec<u8> {
+        let inner = if ca { tlv(0x30, &[0x01, 0x01, 0xFF]) } else { tlv(0x30, &[]) };
+        let mut ext = vec![0x06, 0x03, 0x55, 0x1D, 0x13];
+        if critical {
+            ext.extend([0x01, 0x01, 0xFF]); // critical BOOLEAN TRUE
+        }
+        ext.extend(tlv(0x04, &inner)); // extnValue OCTET STRING
+        tlv(0x30, &ext)
+    }
+
     /// A minimal cert: SEQUENCE{ tbs SEQUENCE{ [0]ver, serial, sigalg, issuer,
-    /// validity, subject, ...basicConstraints CA:TRUE }, sigalg, sig }.
+    /// validity, subject, SPKI, [3] extensions }, sigalg, sig }. `ext` is an
+    /// optional pre-built Extension SEQUENCE placed in the extensions list.
     fn build_cert(serial: &[u8], issuer: &str, subject: &str, nb: &str, na: &str, ca: bool) -> Vec<u8> {
+        build_cert_ext(serial, issuer, subject, nb, na, ca.then(|| basic_constraints_ext(false, true)))
+    }
+
+    fn build_cert_ext(serial: &[u8], issuer: &str, subject: &str, nb: &str, na: &str, ext: Option<Vec<u8>>) -> Vec<u8> {
         let mut tbs = Vec::new();
         tbs.extend(tlv(0xA0, &tlv(0x02, &[0x02]))); // [0] version v3
         tbs.extend(tlv(0x02, serial)); // serialNumber
@@ -283,14 +317,8 @@ mod tests {
         tbs.extend(tlv(0x30, &validity));
         tbs.extend(cn_name(subject));
         tbs.extend(tlv(0x30, &[0x06, 0x01, 0x00])); // dummy SPKI placeholder
-        if ca {
-            // extensions [3] { SEQUENCE { SEQUENCE { OID 2.5.29.19, OCTET basicConstraints } } }
-            let bc_value = tlv(0x04, &tlv(0x30, &[0x01, 0x01, 0xFF])); // OCTET STRING wrapping SEQ{BOOL TRUE}
-            let mut ext = vec![0x06, 0x03, 0x55, 0x1D, 0x13];
-            ext.extend(bc_value);
-            let ext_seq = tlv(0x30, &ext);
-            let exts = tlv(0x30, &ext_seq);
-            tbs.extend(tlv(0xA3, &exts));
+        if let Some(ext) = ext {
+            tbs.extend(tlv(0xA3, &tlv(0x30, &ext))); // [3] { SEQUENCE OF Extension }
         }
         let tbs_seq = tlv(0x30, &tbs);
         let mut cert = tbs_seq.clone();
@@ -319,6 +347,27 @@ mod tests {
         let info = describe(&CertificateItem { label: String::new(), der, has_private_key: false });
         assert!(info.is_ca);
         assert!(!info.has_private_key);
+    }
+
+    #[test]
+    fn critical_end_entity_is_not_a_ca() {
+        // Regression: a non-CA cert with a *critical* basicConstraints whose cA is
+        // omitted (DEFAULT FALSE). The `01 01 ff` here is the `critical` flag, not
+        // cA — it must NOT be mislabelled as a CA.
+        let ext = basic_constraints_ext(true, false);
+        let der = build_cert_ext(&[0x07], "Issuer", "leaf.example.com", "230101000000Z", "240101000000Z", Some(ext));
+        let info = describe(&CertificateItem { label: String::new(), der, has_private_key: false });
+        assert!(!info.is_ca, "critical end-entity cert must not be a CA");
+        assert_eq!(info.subject, "leaf.example.com");
+    }
+
+    #[test]
+    fn critical_ca_is_detected() {
+        // A genuine CA whose basicConstraints is also critical (critical + cA TRUE).
+        let ext = basic_constraints_ext(true, true);
+        let der = build_cert_ext(&[0x08], "Root", "Root", "200101000000Z", "300101000000Z", Some(ext));
+        let info = describe(&CertificateItem { label: String::new(), der, has_private_key: false });
+        assert!(info.is_ca);
     }
 
     #[test]
