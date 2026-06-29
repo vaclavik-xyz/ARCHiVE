@@ -1539,18 +1539,28 @@ fn run_schema_check(cli: &Cli, password: Option<&str>, format: &str) -> Result<s
     let mut reports: Vec<schema_check::StoreReport> = Vec::new();
     for store in schema_check::EXPECTATIONS {
         let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
-        let file_name = store.rel_path.rsplit('/').next().unwrap_or("store.db");
-        let dest = scratch.path().join(file_name);
-        let db = backup
-            .fetch(store.domain, store.rel_path, &dest)
-            .map_err(|e| AppError::other(e.to_string()))?;
-        let (status, tables) = match db {
+        // Try each candidate (domain, path) in order; check the first one present.
+        let mut matched: Option<(&str, &str, std::path::PathBuf)> = None;
+        for (domain, rel_path) in store.locations {
+            let file_name = rel_path.rsplit('/').next().unwrap_or("store.db");
+            let dest = scratch.path().join(file_name);
+            if let Some(path) = backup.fetch(domain, rel_path, &dest).map_err(|e| AppError::other(e.to_string()))? {
+                matched = Some((domain, rel_path, path));
+                break;
+            }
+        }
+        // Report the matched location, or the first candidate when none is present.
+        let (domain, rel_path) = match &matched {
+            Some((d, r, _)) => (*d, *r),
+            None => store.locations.first().map(|(d, r)| (*d, *r)).unwrap_or(("", "")),
+        };
+        let (status, tables) = match matched.as_ref().map(|(_, _, p)| p) {
             None => ("db_absent", Vec::new()),
             Some(path) => {
                 // Read-only: never modifies the extracted copy. A DB that fails to
                 // open (corrupt/locked) is reported with every table absent rather
                 // than aborting the whole report.
-                match Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+                match Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
                     Ok(conn) => {
                         let tables: Vec<schema_check::TableReport> = store
                             .needs
@@ -1577,8 +1587,8 @@ fn run_schema_check(cli: &Cli, password: Option<&str>, format: &str) -> Result<s
         };
         reports.push(schema_check::StoreReport {
             command: store.command.into(),
-            domain: store.domain.into(),
-            rel_path: store.rel_path.into(),
+            domain: domain.into(),
+            rel_path: rel_path.into(),
             status,
             tables,
         });

@@ -7,28 +7,40 @@
 //! reports any that are missing — so an empty export can be explained as either a
 //! genuine absence or a schema change.
 //!
-//! The expectations ([`EXPECTATIONS`]) are a static, hand-maintained mirror of the
-//! `SELECT`s in the sibling extractor modules. They are deliberately limited to
-//! the *load-bearing* columns (anchors, dates, the values rendered into output);
-//! incidental columns are omitted so a cosmetic schema addition is never flagged.
+//! Columns are split into two tiers, mirroring how the extractors actually build
+//! their SQL. **Required** columns appear unconditionally in the query (or guard
+//! an early return), so their absence breaks extraction and counts as drift.
+//! **Optional** columns are gated behind a `table_columns(...)` check with a
+//! `NULL`/`COALESCE`/skip fallback — the export still succeeds without them, so a
+//! missing optional column is reported for visibility but never flags drift. This
+//! keeps the check honest: it fires only when a store would genuinely break.
 
 use std::collections::HashSet;
 
 use serde::Serialize;
 
-/// One table an extractor depends on, named with the columns it reads.
+/// One table an extractor depends on, split into hard-required and tolerated
+/// columns. `required` must be non-empty — a table listed here is one the
+/// extractor genuinely needs; tables read only via tolerated optional columns are
+/// not modelled.
 pub struct TableNeed {
     pub table: &'static str,
-    pub columns: &'static [&'static str],
+    /// Columns whose absence breaks extraction (unconditional in the query, or an
+    /// early-return guard). SQLite's implicit `ROWID` is excluded — it is not a
+    /// declared column and never appears in `PRAGMA table_info`.
+    pub required: &'static [&'static str],
+    /// Columns the extractor tolerates absent (gated with a NULL/COALESCE/skip
+    /// fallback). Reported when missing, but never cause drift.
+    pub optional: &'static [&'static str],
 }
 
 /// A store the tool extracts from: which command consumes it, where the database
-/// lives in the backup (`domain` + `rel_path`, resolved via the manifest), and the
-/// tables/columns that command needs to function.
+/// lives (one or more candidate `(domain, rel_path)` locations, tried in order —
+/// multi-entry for stores whose DB moved across iOS versions), and the
+/// tables/columns that command needs.
 pub struct StoreSchema {
     pub command: &'static str,
-    pub domain: &'static str,
-    pub rel_path: &'static str,
+    pub locations: &'static [(&'static str, &'static str)],
     pub needs: &'static [TableNeed],
 }
 
@@ -36,182 +48,208 @@ pub struct StoreSchema {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TableReport {
     pub table: String,
-    /// `ok` | `missing_columns` | `table_absent`.
+    /// `ok` | `missing_columns` (a required column is gone) | `table_absent`.
     pub status: &'static str,
-    /// Expected columns not found in the live schema (empty when `ok`).
-    pub missing_columns: Vec<String>,
+    /// Required columns not found in the live schema (drift-causing).
+    pub missing_required: Vec<String>,
+    /// Optional columns not found — informational only, never drift.
+    pub missing_optional: Vec<String>,
 }
 
 /// Per-store schema-check result.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StoreReport {
     pub command: String,
+    /// The matched location's domain (or the first candidate's, when absent).
     pub domain: String,
+    /// The matched location's relative path (or the first candidate's, when absent).
     pub rel_path: String,
-    /// `ok` (all needed columns present) | `drifted` (a table/column is missing) |
-    /// `db_absent` (the database is not in this backup — not a drift, just absent).
+    /// `ok` (all required columns present) | `drifted` (a required column/table is
+    /// missing) | `db_absent` (no candidate location is in this backup).
     pub status: &'static str,
     pub tables: Vec<TableReport>,
 }
 
-/// Compare one table's required columns against its actual column set. `actual` is
-/// `None` when the table does not exist in the database (a `PRAGMA table_info` that
-/// returns no rows), in which case every needed column is reported missing.
+/// Compare one table's columns against its actual column set. `actual` is `None`
+/// when the table does not exist (a `PRAGMA table_info` that returns no rows), in
+/// which case every column is reported missing and the status is `table_absent`
+/// (a required column is unsatisfiable, so the store is drifted).
 pub fn check_table(need: &TableNeed, actual: Option<&HashSet<String>>) -> TableReport {
+    let names = |cols: &[&'static str]| cols.iter().map(|c| (*c).to_string()).collect::<Vec<_>>();
     match actual {
         None => TableReport {
             table: need.table.into(),
             status: "table_absent",
-            missing_columns: need.columns.iter().map(|c| (*c).to_string()).collect(),
+            missing_required: names(need.required),
+            missing_optional: names(need.optional),
         },
         Some(cols) => {
-            let missing: Vec<String> =
-                need.columns.iter().filter(|c| !cols.contains(**c)).map(|c| (*c).to_string()).collect();
-            let status = if missing.is_empty() { "ok" } else { "missing_columns" };
-            TableReport { table: need.table.into(), status, missing_columns: missing }
+            let missing_required: Vec<String> =
+                need.required.iter().filter(|c| !cols.contains(**c)).map(|c| (*c).to_string()).collect();
+            let missing_optional: Vec<String> =
+                need.optional.iter().filter(|c| !cols.contains(**c)).map(|c| (*c).to_string()).collect();
+            let status = if missing_required.is_empty() { "ok" } else { "missing_columns" };
+            TableReport { table: need.table.into(), status, missing_required, missing_optional }
         }
     }
 }
 
-/// Roll per-table reports up into a store status: `ok` only if every table is `ok`.
+/// Roll per-table reports up into a store status: `ok` only if every table is `ok`
+/// (all required columns present); any `missing_columns`/`table_absent` is drift.
 pub fn store_status(tables: &[TableReport]) -> &'static str {
     if tables.iter().all(|t| t.status == "ok") { "ok" } else { "drifted" }
 }
 
 /// Every SQLite store the tool extracts from, with its load-bearing schema. Kept
 /// in sync by hand with the extractor modules' `SELECT`s and the canonical
-/// domain/paths in `KNOWN_STORES`. Columns listed here are the stable core present
-/// across the supported iOS range — version-conditional extras the extractors
-/// already tolerate are deliberately omitted so a cosmetic schema change is never
-/// flagged as drift.
+/// domain/paths in `KNOWN_STORES`; the required/optional split mirrors each
+/// module's `table_columns(...)` gating. `required` lists only columns that
+/// `PRAGMA table_info` actually returns — SQLite's implicit `ROWID` (used by some
+/// joins) is never listed, so tables whose only hard dependency is an implicit
+/// rowid are omitted rather than forced to false-drift.
 pub const EXPECTATIONS: &[StoreSchema] = &[
     StoreSchema {
         command: "contacts",
-        domain: "HomeDomain",
-        rel_path: "Library/AddressBook/AddressBook.sqlitedb",
+        locations: &[("HomeDomain", "Library/AddressBook/AddressBook.sqlitedb")],
         needs: &[
-            TableNeed { table: "ABPerson", columns: &["ROWID", "First", "Last", "Organization"] },
-            TableNeed { table: "ABMultiValue", columns: &["record_id", "property", "value", "label"] },
-            // ABMultiValueLabel has no named ROWID column (the join uses SQLite's
-            // implicit rowid, which PRAGMA table_info does not list), only `value`.
-            TableNeed { table: "ABMultiValueLabel", columns: &["value"] },
+            TableNeed { table: "ABPerson", required: &["ROWID"], optional: &["First", "Last", "Organization", "Note"] },
+            TableNeed { table: "ABMultiValue", required: &["record_id", "property"], optional: &["value", "label"] },
         ],
     },
     StoreSchema {
         command: "calls",
-        domain: "HomeDomain",
-        rel_path: "Library/CallHistoryDB/CallHistory.storedata",
+        locations: &[("HomeDomain", "Library/CallHistoryDB/CallHistory.storedata")],
         needs: &[TableNeed {
             table: "ZCALLRECORD",
-            columns: &["Z_PK", "ZADDRESS", "ZDATE", "ZDURATION", "ZORIGINATED", "ZANSWERED", "ZCALLTYPE"],
+            required: &["ZADDRESS", "ZDATE", "ZDURATION", "ZORIGINATED", "ZANSWERED", "ZCALLTYPE"],
+            optional: &["ZSERVICE_PROVIDER", "ZLOCATION", "ZISO_COUNTRY_CODE"],
         }],
     },
     StoreSchema {
         command: "accounts",
-        domain: "HomeDomain",
-        rel_path: "Library/Accounts/Accounts3.sqlite",
+        locations: &[("HomeDomain", "Library/Accounts/Accounts3.sqlite")],
         needs: &[
-            TableNeed { table: "ZACCOUNT", columns: &["Z_PK", "ZUSERNAME", "ZACCOUNTDESCRIPTION", "ZACCOUNTTYPE"] },
-            TableNeed { table: "ZACCOUNTTYPE", columns: &["Z_PK", "ZACCOUNTTYPEDESCRIPTION"] },
+            TableNeed {
+                table: "ZACCOUNT",
+                required: &["Z_PK", "ZACCOUNTTYPE"],
+                optional: &["ZUSERNAME", "ZACCOUNTDESCRIPTION", "ZOWNINGBUNDLEID", "ZDATE", "ZACTIVE"],
+            },
+            TableNeed { table: "ZACCOUNTTYPE", required: &["Z_PK"], optional: &["ZACCOUNTTYPEDESCRIPTION", "ZIDENTIFIER"] },
         ],
     },
     StoreSchema {
         command: "data-usage",
-        domain: "WirelessDomain",
-        rel_path: "Library/Databases/DataUsage.sqlite",
+        locations: &[("WirelessDomain", "Library/Databases/DataUsage.sqlite")],
         needs: &[
             TableNeed {
                 table: "ZLIVEUSAGE",
-                columns: &["Z_PK", "ZHASPROCESS", "ZWWANIN", "ZWWANOUT", "ZWIFIIN", "ZWIFIOUT", "ZTIMESTAMP"],
+                required: &["ZHASPROCESS"],
+                optional: &["ZWWANIN", "ZWWANOUT", "ZWIFIIN", "ZWIFIOUT", "ZTIMESTAMP"],
             },
-            TableNeed { table: "ZPROCESS", columns: &["Z_PK", "ZPROCNAME", "ZBUNDLENAME"] },
+            TableNeed { table: "ZPROCESS", required: &["Z_PK"], optional: &["ZPROCNAME", "ZBUNDLENAME"] },
         ],
     },
     StoreSchema {
         command: "voicemail",
-        domain: "HomeDomain",
-        rel_path: "Library/Voicemail/voicemail.db",
+        locations: &[("HomeDomain", "Library/Voicemail/voicemail.db")],
         needs: &[TableNeed {
             table: "voicemail",
-            columns: &["ROWID", "sender", "date", "duration", "trashed_date", "flags"],
+            required: &["sender", "date", "duration", "trashed_date", "flags"],
+            optional: &["expiration"],
         }],
     },
     StoreSchema {
         command: "voice-memos",
-        domain: "AppDomainGroup-group.com.apple.VoiceMemos",
-        rel_path: "Recordings/CloudRecordings.db",
-        needs: &[TableNeed { table: "ZCLOUDRECORDING", columns: &["Z_PK", "ZDATE", "ZDURATION"] }],
+        // Modern store only; the legacy MediaDomain/Recordings.db (iOS ≤ 11) has a
+        // different schema and is out of scope for these backups.
+        locations: &[("AppDomainGroup-group.com.apple.VoiceMemos", "Recordings/CloudRecordings.db")],
+        needs: &[TableNeed {
+            table: "ZCLOUDRECORDING",
+            required: &["ZDATE", "ZDURATION"],
+            optional: &["ZCUSTOMLABEL", "ZENCRYPTEDTITLE", "ZPATH"],
+        }],
     },
     StoreSchema {
         command: "safari-history",
-        domain: "AppDomain-com.apple.mobilesafari",
-        rel_path: "Library/Safari/History.db",
+        locations: &[("AppDomain-com.apple.mobilesafari", "Library/Safari/History.db")],
         needs: &[
-            TableNeed { table: "history_visits", columns: &["id", "history_item", "visit_time", "title"] },
-            TableNeed { table: "history_items", columns: &["id", "url", "visit_count"] },
+            TableNeed { table: "history_visits", required: &["history_item", "visit_time"], optional: &["title"] },
+            TableNeed { table: "history_items", required: &["id", "url"], optional: &["visit_count"] },
         ],
     },
     StoreSchema {
         command: "safari-bookmarks",
-        domain: "AppDomain-com.apple.mobilesafari",
-        rel_path: "Library/Safari/Bookmarks.db",
-        needs: &[TableNeed { table: "bookmarks", columns: &["id", "title", "url", "parent"] }],
+        locations: &[("AppDomain-com.apple.mobilesafari", "Library/Safari/Bookmarks.db")],
+        needs: &[TableNeed { table: "bookmarks", required: &["title", "url", "parent"], optional: &[] }],
     },
     StoreSchema {
         command: "calendar",
-        domain: "HomeDomain",
-        rel_path: "Library/Calendar/Calendar.sqlitedb",
+        locations: &[("HomeDomain", "Library/Calendar/Calendar.sqlitedb")],
         needs: &[
-            TableNeed { table: "CalendarItem", columns: &["summary", "start_date", "end_date", "calendar_id"] },
-            TableNeed { table: "Calendar", columns: &["ROWID", "title"] },
+            TableNeed {
+                table: "CalendarItem",
+                required: &["summary", "start_date", "calendar_id"],
+                optional: &["end_date", "all_day"],
+            },
+            TableNeed { table: "Calendar", required: &["ROWID"], optional: &["title"] },
         ],
     },
     StoreSchema {
         command: "notes",
-        domain: "AppDomainGroup-group.com.apple.notes",
-        rel_path: "NoteStore.sqlite",
-        needs: &[
-            TableNeed { table: "ZICCLOUDSYNCINGOBJECT", columns: &["Z_PK", "ZTITLE1", "ZSNIPPET", "ZNOTEDATA"] },
-            TableNeed { table: "ZICNOTEDATA", columns: &["Z_PK", "ZDATA"] },
-        ],
+        locations: &[("AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite")],
+        needs: &[TableNeed {
+            table: "ZICCLOUDSYNCINGOBJECT",
+            required: &["ZNOTEDATA"],
+            optional: &["ZTITLE1", "ZSNIPPET", "ZCREATIONDATE", "ZMODIFICATIONDATE1", "ZFOLDER", "ZTITLE2"],
+        }],
     },
     StoreSchema {
         command: "photos",
-        domain: "CameraRollDomain",
-        rel_path: "Media/PhotoData/Photos.sqlite",
-        needs: &[TableNeed { table: "ZASSET", columns: &["Z_PK", "ZFILENAME", "ZDIRECTORY", "ZDATECREATED"] }],
+        locations: &[("CameraRollDomain", "Media/PhotoData/Photos.sqlite")],
+        needs: &[TableNeed {
+            table: "ZASSET",
+            required: &["Z_PK", "ZFILENAME", "ZDIRECTORY", "ZKIND"],
+            optional: &["ZDATECREATED", "ZADDEDDATE", "ZFAVORITE", "ZHIDDEN", "ZTRASHEDSTATE", "ZLATITUDE", "ZLONGITUDE"],
+        }],
     },
     StoreSchema {
         command: "whatsapp",
-        domain: "AppDomainGroup-group.net.whatsapp.WhatsApp.shared",
-        rel_path: "ChatStorage.sqlite",
-        needs: &[
-            TableNeed {
-                table: "ZWAMESSAGE",
-                columns: &["Z_PK", "ZCHATSESSION", "ZMESSAGEDATE", "ZTEXT", "ZMEDIAITEM"],
-            },
-            TableNeed { table: "ZWACHATSESSION", columns: &["Z_PK", "ZPARTNERNAME"] },
-        ],
+        locations: &[("AppDomainGroup-group.net.whatsapp.WhatsApp.shared", "ChatStorage.sqlite")],
+        needs: &[TableNeed {
+            table: "ZWAMESSAGE",
+            required: &["ZMESSAGEDATE"],
+            optional: &["ZTEXT", "ZISFROMME", "ZFROMJID", "ZCHATSESSION", "ZMEDIAITEM"],
+        }],
     },
     StoreSchema {
         command: "health",
-        domain: "HealthDomain",
-        rel_path: "Health/healthdb_secure.sqlite",
+        locations: &[("HealthDomain", "Health/healthdb_secure.sqlite")],
         needs: &[
-            TableNeed { table: "samples", columns: &["data_id", "data_type", "start_date", "end_date"] },
-            // `workouts.start_date` is version-conditional (iOS 16 sources workout
-            // dates from joined `samples`/`workout_activities`); only `data_id` is
-            // the stable anchor here.
-            TableNeed { table: "workouts", columns: &["data_id"] },
+            TableNeed { table: "samples", required: &["data_id"], optional: &["data_type", "start_date", "end_date"] },
+            TableNeed {
+                table: "workouts",
+                required: &["data_id"],
+                optional: &["start_date", "end_date", "activity_type", "duration", "total_distance"],
+            },
+            TableNeed { table: "quantity_samples", required: &["data_id"], optional: &["quantity"] },
         ],
     },
     StoreSchema {
         command: "device-usage",
-        domain: "AppDomainGroup-group.com.apple.coreduet",
-        rel_path: "Library/Knowledge/knowledgeC.db",
+        // knowledgeC.db has lived at several domain/paths; all share the ZOBJECT
+        // schema, so every candidate is tried and the first present one is checked.
+        locations: &[
+            ("AppDomainGroup-group.com.apple.coreduet", "Library/Knowledge/knowledgeC.db"),
+            ("AppDomainGroup-group.com.apple.coreduet", "Library/CoreDuet/Knowledge/knowledgeC.db"),
+            ("AppDomainGroup-group.com.apple.coreduetd", "Library/Knowledge/knowledgeC.db"),
+            ("AppDomainGroup-group.com.apple.coreduetd", "Library/CoreDuet/Knowledge/knowledgeC.db"),
+            ("HomeDomain", "Library/CoreDuet/Knowledge/knowledgeC.db"),
+            ("HomeDomain", "Library/CoreDuet/knowledgeC.db"),
+        ],
         needs: &[TableNeed {
             table: "ZOBJECT",
-            columns: &["Z_PK", "ZSTREAMNAME", "ZVALUESTRING", "ZSTARTDATE", "ZENDDATE"],
+            required: &["ZSTREAMNAME", "ZVALUESTRING", "ZSTARTDATE", "ZENDDATE"],
+            optional: &[],
         }],
     },
 ];
@@ -224,49 +262,77 @@ mod tests {
         names.iter().map(|s| (*s).to_string()).collect()
     }
 
+    fn need(required: &'static [&'static str], optional: &'static [&'static str]) -> TableNeed {
+        TableNeed { table: "ZCALLRECORD", required, optional }
+    }
+
     #[test]
-    fn all_columns_present_is_ok() {
-        let need = TableNeed { table: "ZCALLRECORD", columns: &["ZDATE", "ZADDRESS"] };
+    fn all_required_present_is_ok() {
         let actual = cols(&["Z_PK", "ZDATE", "ZADDRESS", "ZDURATION"]);
-        let r = check_table(&need, Some(&actual));
+        let r = check_table(&need(&["Z_PK", "ZDATE"], &["ZADDRESS"]), Some(&actual));
         assert_eq!(r.status, "ok");
-        assert!(r.missing_columns.is_empty());
+        assert!(r.missing_required.is_empty() && r.missing_optional.is_empty());
     }
 
     #[test]
-    fn missing_column_is_reported() {
-        let need = TableNeed { table: "ZCALLRECORD", columns: &["ZDATE", "ZADDRESS"] };
-        let actual = cols(&["Z_PK", "ZDATE"]); // ZADDRESS renamed/dropped
-        let r = check_table(&need, Some(&actual));
+    fn missing_required_column_is_drift() {
+        let actual = cols(&["Z_PK"]); // ZDATE renamed/dropped
+        let r = check_table(&need(&["Z_PK", "ZDATE"], &[]), Some(&actual));
         assert_eq!(r.status, "missing_columns");
-        assert_eq!(r.missing_columns, vec!["ZADDRESS".to_string()]);
+        assert_eq!(r.missing_required, vec!["ZDATE".to_string()]);
     }
 
     #[test]
-    fn absent_table_lists_all_columns_missing() {
-        let need = TableNeed { table: "ZCALLRECORD", columns: &["ZDATE", "ZADDRESS"] };
-        let r = check_table(&need, None);
+    fn missing_optional_column_is_not_drift() {
+        let actual = cols(&["Z_PK", "ZDATE"]); // optional ZADDRESS absent
+        let r = check_table(&need(&["Z_PK", "ZDATE"], &["ZADDRESS"]), Some(&actual));
+        assert_eq!(r.status, "ok"); // tolerated → still ok
+        assert_eq!(r.missing_optional, vec!["ZADDRESS".to_string()]);
+        assert!(r.missing_required.is_empty());
+    }
+
+    #[test]
+    fn absent_table_is_drift_listing_all_columns() {
+        let r = check_table(&need(&["Z_PK", "ZDATE"], &["ZADDRESS"]), None);
         assert_eq!(r.status, "table_absent");
-        assert_eq!(r.missing_columns, vec!["ZDATE".to_string(), "ZADDRESS".to_string()]);
+        assert_eq!(r.missing_required, vec!["Z_PK".to_string(), "ZDATE".to_string()]);
+        assert_eq!(r.missing_optional, vec!["ZADDRESS".to_string()]);
     }
 
     #[test]
     fn store_status_rolls_up() {
-        let ok = TableReport { table: "a".into(), status: "ok", missing_columns: vec![] };
-        let bad = TableReport { table: "b".into(), status: "missing_columns", missing_columns: vec!["x".into()] };
-        assert_eq!(store_status(&[ok.clone()]), "ok");
+        let ok = TableReport { table: "a".into(), status: "ok", missing_required: vec![], missing_optional: vec![] };
+        let bad = TableReport {
+            table: "b".into(),
+            status: "missing_columns",
+            missing_required: vec!["x".into()],
+            missing_optional: vec![],
+        };
+        // An optional-only miss does not drift the store.
+        let opt = TableReport {
+            table: "c".into(),
+            status: "ok",
+            missing_required: vec![],
+            missing_optional: vec!["y".into()],
+        };
+        assert_eq!(store_status(&[ok.clone(), opt]), "ok");
         assert_eq!(store_status(&[ok, bad]), "drifted");
     }
 
     #[test]
     fn expectations_are_well_formed() {
-        // Every expectation needs at least one table, and every table at least one
-        // column — an empty need can never drift and is a maintenance mistake.
+        // Every expectation needs a location and at least one table; every table
+        // at least one REQUIRED column (an all-optional table can never drift and
+        // is a modelling mistake — omit it instead).
         for s in EXPECTATIONS {
-            assert!(!s.command.is_empty() && !s.domain.is_empty() && !s.rel_path.is_empty());
+            assert!(!s.command.is_empty(), "empty command");
+            assert!(!s.locations.is_empty(), "{} has no locations", s.command);
+            for (d, p) in s.locations {
+                assert!(!d.is_empty() && !p.is_empty(), "{} has an empty location", s.command);
+            }
             assert!(!s.needs.is_empty(), "{} has no tables", s.command);
             for n in s.needs {
-                assert!(!n.columns.is_empty(), "{}.{} has no columns", s.command, n.table);
+                assert!(!n.required.is_empty(), "{}.{} has no required columns", s.command, n.table);
             }
         }
     }

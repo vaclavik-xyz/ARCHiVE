@@ -1028,7 +1028,7 @@ pub fn deleted_html(items: &[crate::recover_deleted::DeletedRecord]) -> String {
 
 pub fn schema_check_csv(items: &[crate::schema_check::StoreReport]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
-    wtr.write_record(["command", "domain", "path", "table", "status", "missing_columns"]).unwrap();
+    wtr.write_record(["command", "domain", "path", "table", "status", "missing_required", "missing_optional"]).unwrap();
     for s in items {
         if s.tables.is_empty() {
             wtr.write_record([
@@ -1037,6 +1037,7 @@ pub fn schema_check_csv(items: &[crate::schema_check::StoreReport]) -> String {
                 s.rel_path.clone(),
                 String::new(),
                 s.status.to_string(),
+                String::new(),
                 String::new(),
             ])
             .unwrap();
@@ -1048,7 +1049,8 @@ pub fn schema_check_csv(items: &[crate::schema_check::StoreReport]) -> String {
                     s.rel_path.clone(),
                     t.table.clone(),
                     t.status.to_string(),
-                    t.missing_columns.join(";"),
+                    t.missing_required.join(";"),
+                    t.missing_optional.join(";"),
                 ])
                 .unwrap();
             }

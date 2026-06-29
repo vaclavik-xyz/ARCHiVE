@@ -7,7 +7,7 @@ h2{margin-bottom:2px;font-size:1.05em}p.path{margin:0 0 6px;color:#555;font-size
 .summary{font-size:1.1em;margin:8px 0}.warn{background:#fff8e1;border:1px solid #ffe082;padding:8px 12px;border-radius:6px;margin-bottom:16px}
 .badge{font-size:.75em;padding:2px 7px;border-radius:10px;vertical-align:middle}
 .badge.ok{background:#e6f4ea;color:#1e7d34}.badge.drifted{background:#fdecea;color:#b3261e}.badge.db_absent{background:#eceff1;color:#555}
-td.miss{color:#b3261e}</style></head><body>
+td.miss{color:#b3261e}td.opt{color:#888;font-size:.9em}</style></head><body>
 <h1>Kontrola schématu databází</h1>
 <p class="summary">OK: {{ ok }} &middot; Drift: {{ drifted }} &middot; Chybí DB: {{ absent }} &middot; celkem {{ stores.len() }}</p>
 <p class="warn">Ověřuje, že živé SQLite databáze v záloze mají sloupce, na kterých závisí extraktory. <strong>drift</strong> = očekávaný sloupec/tabulka chybí (typicky přejmenovaný/odebraný novou verzí iOS) — extraktor pak tiše vrací prázdný výstup. <strong>Chybí DB</strong> není drift, jen ta databáze v této záloze není.</p>
@@ -16,10 +16,11 @@ td.miss{color:#b3261e}</style></head><body>
 <p class="path"><code>{{ s.domain }}</code> / <code>{{ s.rel_path }}</code></p>
 {% if !s.tables.is_empty() %}
 <table>
-<tr><th>Tabulka</th><th>Stav</th><th>Chybějící sloupce</th></tr>
+<tr><th>Tabulka</th><th>Stav</th><th>Chybí (required → drift)</th><th>Chybí (optional → toleruje se)</th></tr>
 {% for t in s.tables %}
 <tr><td><code>{{ t.table }}</code></td><td>{{ t.status }}</td>
-<td{% if !t.missing_columns.is_empty() %} class="miss"{% endif %}>{% if !t.missing_columns.is_empty() %}{{ t.missing_columns|join(", ") }}{% endif %}</td></tr>
+<td{% if !t.missing_required.is_empty() %} class="miss"{% endif %}>{% if !t.missing_required.is_empty() %}{{ t.missing_required|join(", ") }}{% endif %}</td>
+<td class="opt">{% if !t.missing_optional.is_empty() %}{{ t.missing_optional|join(", ") }}{% endif %}</td></tr>
 {% endfor %}
 </table>
 {% endif %}
