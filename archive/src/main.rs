@@ -307,7 +307,7 @@ enum Command {
     Diff {
         /// The second (newer) backup directory to compare against.
         #[arg(long)]
-        against: String,
+        against: std::path::PathBuf,
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
@@ -2025,11 +2025,11 @@ fn run_db_export(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value,
 // `--against` is B (newer); both are opened with the same `--password`. Read-only
 // on both. Reports added/removed/modified files; the size comparison uses manifest
 // sizes, so it works for encrypted backups.
-fn run_diff(cli: &Cli, password: Option<&str>, against: &str, format: &str) -> Result<serde_json::Value, AppError> {
+fn run_diff(cli: &Cli, password: Option<&str>, against: &std::path::Path, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "diff")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export the diff"))?;
     let backup_a = open_backup(cli, password)?;
-    let backup_b = archive_core::Backup::open(std::path::Path::new(against), password).map_err(open_error)?;
+    let backup_b = archive_core::Backup::open(against, password).map_err(open_error)?;
     let device = device_json(backup_a.device_info());
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
 
@@ -3199,7 +3199,7 @@ mod cli_tests {
     #[test]
     fn parses_diff_against_and_format() {
         let d = Cli::try_parse_from(["archive", "--backup", "/a", "-o", "/o", "diff", "--against", "/b", "-f", "json"]).unwrap();
-        assert!(matches!(d.command, Command::Diff { ref against, ref format } if against == "/b" && format == "json"));
+        assert!(matches!(d.command, Command::Diff { ref against, ref format } if against == std::path::Path::new("/b") && format == "json"));
     }
 
     #[test]
