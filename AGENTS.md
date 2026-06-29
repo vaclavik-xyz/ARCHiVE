@@ -26,7 +26,7 @@ before **or** after the subcommand name, which is agent-friendly for programmati
 invocation.
 
 **PDF output:** the **in-process** export commands that list `html` (contacts,
-calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, bluetooth-devices, significant-locations, keyboard-lexicon, voicemail, voice-memos, safari-history/bookmarks,
+calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, interactions, bluetooth-devices, significant-locations, keyboard-lexicon, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
 whatsapp, timeline, stats, app-databases, app-files, recover-deleted, health, apps, keychain-inventory, certificates) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
@@ -229,6 +229,41 @@ stdout envelope:
 {
   "ok": true, "command": "device-usage", "count": 87,
   "outputs": ["<OUT>/device-usage.json"],
+  "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
+}
+```
+
+### `interactions` — per-contact communication history (interactionC.db)
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> interactions -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html | pdf`. Writes `<OUT>/interactions.<ext>`.
+Reads CoreDuet's `interactionC.db` (the "People" sibling of `knowledgeC.db`,
+probing a few candidate domain/paths) and aggregates the `ZINTERACTIONS` table
+per contact, joined on the interaction's **sender** (`ZSENDER` → `ZCONTACTS.Z_PK`):
+`display_name` (best of `ZDISPLAYNAME`/`ZNAME`/identifier), `identifier`
+(`ZIDENTIFIER` — phone/email/handle), `total`, `incoming`/`outgoing`
+(`ZDIRECTION` 0/1), `apps` (distinct `ZBUNDLEID`, e.g. Messages/Phone/Mail), and
+`first`/`last` (ISO 8601 UTC), sorted most-contacted first. The sender link is
+the robust join that needs no version-specific recipient join table.
+Schema-tolerant: a missing table, a missing `ZSENDER` join key, or absent
+optional columns yields an empty/partial result.
+
+**Availability:** present on backups that include the CoreDuet app-group
+container; when absent the command returns `count: 0` with a `note`, and an
+empty-but-present store returns `count: 0` with a different `note`. A **store**,
+so it is listed by `inspect` (presence probed across the candidate paths) and
+included in `recover` when non-empty. **Sensitive:** the output contains contact
+names and handles (phone numbers / emails).
+
+stdout envelope:
+
+```json
+{
+  "ok": true, "command": "interactions", "count": 489,
+  "outputs": ["<OUT>/interactions.json"],
   "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
 }
 ```
@@ -841,7 +876,7 @@ archive --backup <DIR> [--password <PW>] -o <OUT> schema-check -f <FORMAT>
 `FORMAT` is `csv | json | html | pdf`; writes `<OUT>/schema-check.<ext>`. For every
 SQLite store the tool extracts from (contacts, calls, accounts, data-usage,
 voicemail, voice-memos, safari-history, safari-bookmarks, calendar, notes, photos,
-whatsapp, health, device-usage, bluetooth-devices, significant-locations), it resolves the database from the manifest —
+whatsapp, health, device-usage, interactions, bluetooth-devices, significant-locations), it resolves the database from the manifest —
 trying each candidate location in order for stores whose DB moved across iOS
 versions (device-usage probes all six `knowledgeC.db` paths) — opens it
 **read-only**, and compares the live columns (`PRAGMA table_info`) against what that
@@ -1094,6 +1129,7 @@ stdout envelope:
     { "type": "homescreen-layout", "file": "homescreen-layout.html", "count": 45 },
     { "type": "data-usage", "file": "data-usage.html", "count": 413 },
     { "type": "device-usage", "file": "device-usage.html", "count": 87 },
+    { "type": "interactions", "file": "interactions.html", "count": 489 },
     { "type": "bluetooth-devices", "file": "bluetooth-devices.html", "count": 1005 },
     { "type": "significant-locations", "file": "significant-locations.html", "count": 128 },
     { "type": "keyboard-lexicon", "file": "keyboard-lexicon.html", "count": 12 }

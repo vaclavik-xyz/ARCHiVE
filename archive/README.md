@@ -41,6 +41,9 @@ archive --backup <backup-dir> -o <out> data-usage -f html   # csv | json | html 
 # Per-app foreground usage (time, sessions) from CoreDuet's knowledgeC.db (often excluded from iOS 16+ backups)
 archive --backup <backup-dir> -o <out> device-usage -f html   # csv | json | html | pdf
 
+# Per-contact communication history (who, which app, how often, when) from CoreDuet's interactionC.db
+archive --backup <backup-dir> -o <out> interactions -f html   # csv | json | html | pdf
+
 # Paired + previously-seen Bluetooth devices (names, MAC addresses) from the system Bluetooth databases
 archive --backup <backup-dir> -o <out> bluetooth-devices -f html   # csv | json | html | pdf
 
@@ -161,6 +164,7 @@ written under `<out>/messages`.
 - [x] homescreen-layout — csv, json, html, pdf: Home Screen pages, dock, folders and widget stacks from SpringBoard's `IconState.plist`; works on any backup
 - [x] data-usage — csv, json, html, pdf: per-process cellular/Wi-Fi byte counters from `DataUsage.sqlite` (ZLIVEUSAGE aggregated per process)
 - [x] device-usage — csv, json, html, pdf: per-app foreground time + sessions from CoreDuet's `knowledgeC.db` (`/app/usage` stream); the store is often excluded from iOS 16+ backups, then reports an honest 0
+- [x] interactions — csv, json, html, pdf: per-contact communication history from CoreDuet's `interactionC.db` (the "People" sibling of `knowledgeC.db`). Aggregates `ZINTERACTIONS` per contact joined on the interaction's sender (`ZSENDER` → `ZCONTACTS`) — total interactions, an incoming/outgoing split, the distinct apps used (`ZBUNDLEID`, e.g. Messages/Phone/Mail), and the first/last interaction time — ordered most-contacted first. The sender link is the robust join that needs no version-specific recipient join table
 - [x] bluetooth-devices — csv, json, html, pdf: paired, classic and previously-seen Bluetooth devices (name, address, resolved identity address) from the LE `com.apple.MobileBluetooth.ledevices.{paired,other}.db` databases and the classic `com.apple.MobileBluetooth.devices.plist`; the DBs' last-seen/connection columns are device-relative counters (not a wall-clock epoch) and are deliberately not exported as dates
 - [x] significant-locations — csv, json, html, pdf: recorded location-fix history (timestamp, latitude/longitude, altitude, accuracy, speed) from the routined `Cache.sqlite`/`cloud.sqlite`/`local.sqlite` (`ZRTCLLOCATIONMO`) — the store behind iOS *Significant Locations*. The routined database lives under `Library/Caches`, which iOS excludes from ordinary iTunes/Finder backups, so this usually reports an honest 0; it still recovers history from full filesystem extractions that include the caches
 - [x] keyboard-lexicon — csv, json, html, pdf: the user's **custom** keyboard words from `Library/Keyboard/LocalDictionary` (the entries added via "Add to Dictionary"). Format-tolerant (property list, plain text, or a printable-run carve). This is the user-curated word list, *not* the learned statistical typing model (which is internal markers, not a recoverable vocabulary — see below); the file is empty on devices where the owner never added a custom word

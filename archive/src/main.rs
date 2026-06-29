@@ -18,6 +18,7 @@ mod enrich;
 mod format;
 mod health;
 mod homescreen;
+mod interactions;
 mod keyboard_lexicon;
 mod known_networks;
 mod mail;
@@ -117,6 +118,13 @@ enum Command {
     },
     /// Per-app foreground usage (time, sessions) from CoreDuet's knowledgeC.db.
     DeviceUsage {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// Per-contact communication history (who, which app, how often, when) from
+    /// CoreDuet's interactionC.db.
+    Interactions {
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
@@ -470,6 +478,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::HomescreenLayout { format } => run_homescreen(&cli, password.as_deref(), format),
         Command::DataUsage { format } => run_data_usage(&cli, password.as_deref(), format),
         Command::DeviceUsage { format } => run_device_usage(&cli, password.as_deref(), format),
+        Command::Interactions { format } => run_interactions(&cli, password.as_deref(), format),
         Command::BluetoothDevices { format } => run_bluetooth_devices(&cli, password.as_deref(), format),
         Command::SignificantLocations { format } => run_significant_locations(&cli, password.as_deref(), format),
         Command::KeyboardLexicon { format } => run_keyboard_lexicon(&cli, password.as_deref(), format),
@@ -1098,6 +1107,56 @@ fn run_device_usage(cli: &Cli, password: Option<&str>, format: &str) -> Result<s
 
     Ok(serde_json::json!({
         "ok": true, "command": "device-usage", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+fn load_interactions(
+    backup: &archive_core::Backup,
+) -> Result<Option<Vec<interactions::ContactInteractions>>, AppError> {
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    for (domain, path) in interactions::CANDIDATES {
+        let tmp = scratch.path().join("interactionC.db");
+        if let Some(db) = backup.fetch(domain, path, &tmp).map_err(|e| AppError::other(e.to_string()))? {
+            return Ok(Some(interactions::parse(&db).map_err(|e| AppError::other(e.to_string()))?));
+        }
+    }
+    Ok(None)
+}
+
+fn run_interactions(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "interactions")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export interactions"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let Some(items) = load_interactions(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "interactions", "count": 0, "outputs": [],
+            "note": "this backup has no interactionC.db (CoreDuet interactions store)", "device": device
+        }));
+    };
+    if items.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "interactions", "count": 0, "outputs": [],
+            "note": "interactionC.db has no contact-linked interactions (empty, or an unsupported schema)",
+            "device": device
+        }));
+    }
+
+    let rendered = match format {
+        Format::Csv => format::interactions_csv(&items),
+        Format::Json => format::interactions_json(&items),
+        Format::Html | Format::Pdf => format::interactions_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("interactions.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("Wrote interaction history for {} contact(s) to {}", items.len(), out_file.display());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "interactions", "count": items.len(),
         "outputs": [out_file.to_string_lossy()], "device": device
     }))
 }
@@ -2999,6 +3058,11 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     {
         rec.add("device-usage", "Využití aplikací", "device-usage.html", format::device_usage_html(&items), items.len(), None)?;
     }
+    if let Some(items) = opt_or_log(load_interactions(&backup), "interactions")
+        && !items.is_empty()
+    {
+        rec.add("interactions", "Historie kontaktů", "interactions.html", format::interactions_html(&items), items.len(), None)?;
+    }
     if let Some(items) = opt_or_log(load_bluetooth_devices(&backup), "bluetooth-devices")
         && !items.is_empty()
     {
@@ -3342,6 +3406,9 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     // knowledgeC.db has lived at several domain/paths; presence is detected
     // specially in `run_inspect` by probing device_usage::CANDIDATES.
     ("device-usage", true, device_usage::DOMAIN, ""),
+    // interactionC.db has lived under a couple of CoreDuet domains; presence is
+    // detected specially in `run_inspect` by probing interactions::CANDIDATES.
+    ("interactions", true, interactions::DOMAIN, ""),
     // Bluetooth devices live across two LE databases and a classic plist; presence
     // is detected specially in `run_inspect` by probing all of them.
     ("bluetooth-devices", true, bluetooth::DOMAIN, ""),
@@ -3421,6 +3488,15 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 }
             }
             any
+        } else if name == "interactions" {
+            let mut any = false;
+            for (d, p) in interactions::CANDIDATES {
+                if backup.has(d, p).map_err(|e| AppError::other(e.to_string()))? {
+                    any = true;
+                    break;
+                }
+            }
+            any
         } else if name == "bluetooth-devices" {
             let mut any = backup
                 .has(bluetooth::DOMAIN, bluetooth::CLASSIC_PLIST)
@@ -3468,6 +3544,7 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "homescreen-layout" => load_homescreen(&backup).ok().flatten().map(|v| v.len()),
                 "data-usage" => load_data_usage(&backup).ok().flatten().map(|v| v.len()),
                 "device-usage" => load_device_usage(&backup).ok().flatten().map(|v| v.len()),
+                "interactions" => load_interactions(&backup).ok().flatten().map(|v| v.len()),
                 "bluetooth-devices" => load_bluetooth_devices(&backup).ok().flatten().map(|v| v.len()),
                 "significant-locations" => load_significant_locations(&backup).ok().flatten().map(|v| v.len()),
                 "keyboard-lexicon" => load_keyboard_lexicon(&backup).ok().flatten().map(|v| v.len()),
@@ -3720,7 +3797,7 @@ mod cli_tests {
         // list mirrors that match — when adding a store, add it here AND add the
         // matching `load_*` count arm.
         let counted = [
-            "contacts", "calls", "accounts", "known-networks", "homescreen-layout", "data-usage", "device-usage", "bluetooth-devices", "significant-locations", "keyboard-lexicon", "voicemail", "voice-memos",
+            "contacts", "calls", "accounts", "known-networks", "homescreen-layout", "data-usage", "device-usage", "interactions", "bluetooth-devices", "significant-locations", "keyboard-lexicon", "voicemail", "voice-memos",
             "safari-history", "safari-bookmarks", "calendar", "notes", "photos",
             "photos-recently-deleted", "attachments", "whatsapp", "health", "reminders", "mail",
         ];
@@ -4027,6 +4104,17 @@ mod cli_tests {
         }
         let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "device-usage").unwrap();
         assert!(s.1, "device-usage must be supported");
+    }
+
+    #[test]
+    fn parses_interactions_invocation() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "interactions", "-f", "json"]).unwrap();
+        match cli.command {
+            Command::Interactions { format } => assert_eq!(format, "json"),
+            _ => panic!("expected Interactions"),
+        }
+        let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "interactions").unwrap();
+        assert!(s.1, "interactions must be supported");
     }
 
     #[test]

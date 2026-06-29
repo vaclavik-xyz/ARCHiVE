@@ -743,6 +743,39 @@ pub fn device_usage_html(items: &[crate::device_usage::AppUsage]) -> String {
     DeviceUsageTemplate { items }.render().unwrap()
 }
 
+pub fn interactions_csv(items: &[crate::interactions::ContactInteractions]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["display_name", "identifier", "total", "incoming", "outgoing", "apps", "first", "last"]).unwrap();
+    for c in items {
+        wtr.write_record([
+            c.display_name.clone(),
+            c.identifier.clone(),
+            c.total.to_string(),
+            c.incoming.to_string(),
+            c.outgoing.to_string(),
+            c.apps.join(";"),
+            c.first.clone(),
+            c.last.clone(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn interactions_json(items: &[crate::interactions::ContactInteractions]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "interactions.html")]
+struct InteractionsTemplate<'a> {
+    items: &'a [crate::interactions::ContactInteractions],
+}
+
+pub fn interactions_html(items: &[crate::interactions::ContactInteractions]) -> String {
+    InteractionsTemplate { items }.render().unwrap()
+}
+
 pub fn app_files_csv(items: &[crate::app_files::ExtractedFile]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record(["domain", "path", "category", "bytes", "file"]).unwrap();

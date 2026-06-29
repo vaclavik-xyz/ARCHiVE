@@ -312,6 +312,32 @@ pub const EXPECTATIONS: &[StoreSchema] = &[
             optional: &[],
         }],
     },
+    StoreSchema {
+        command: "interactions",
+        // interactionC.db has lived under a couple of CoreDuet domains; all share
+        // the ZINTERACTIONS/ZCONTACTS schema. ZSENDER is the load-bearing join key
+        // into ZCONTACTS (required); direction/app/timestamp are select-or-NULL
+        // (optional). ZCONTACTS is checked for its Z_PK join target.
+        locations: &[
+            ("AppDomainGroup-group.com.apple.coreduet", "Library/CoreDuet/People/interactionC.db"),
+            ("AppDomainGroup-group.com.apple.coreduetd", "Library/CoreDuet/People/interactionC.db"),
+            ("HomeDomain", "Library/CoreDuet/People/interactionC.db"),
+        ],
+        needs: &[
+            TableNeed {
+                table: "ZINTERACTIONS",
+                table_optional: false,
+                required: &["ZSENDER"],
+                optional: &["ZDIRECTION", "ZBUNDLEID", "ZSTARTDATE"],
+            },
+            TableNeed {
+                table: "ZCONTACTS",
+                table_optional: false,
+                required: &["Z_PK"],
+                optional: &["ZIDENTIFIER", "ZNAME", "ZDISPLAYNAME"],
+            },
+        ],
+    },
     // The two LE Bluetooth databases are separate files, each holding its own
     // device table. They are modelled as two independent stores so each present DB
     // is validated against its own required table — a single store would only check

@@ -70,6 +70,7 @@ archive --backup ~/Backup/<UDID> -o out known-networks  -f json  # saved Wi-Fi S
 archive --backup ~/Backup/<UDID> -o out homescreen-layout -f html # home screen layout: pages, dock, folders, widgets
 archive --backup ~/Backup/<UDID> -o out data-usage      -f html  # per-process cellular/Wi-Fi byte counters
 archive --backup ~/Backup/<UDID> -o out device-usage    -f html  # per-app foreground time (knowledgeC.db; often absent on iOS 16+)
+archive --backup ~/Backup/<UDID> -o out interactions    -f html  # per-contact communication history (who, which app, how often; interactionC.db)
 archive --backup ~/Backup/<UDID> -o out bluetooth-devices -f html # paired + previously-seen Bluetooth devices (names, MAC addresses)
 archive --backup ~/Backup/<UDID> -o out significant-locations -f html # routined location history (usually excluded from standard backups)
 archive --backup ~/Backup/<UDID> -o out keyboard-lexicon  -f html  # user's custom "Add to Dictionary" keyboard words
