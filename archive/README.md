@@ -213,15 +213,16 @@ misleading or unverifiable data:
   statistical model whose keys are internal markers
   (`…tium.candidate/word/pattern/…`), **not** a recoverable vocabulary — so no
   learned lexicon is fabricated from it.
-- **Legacy AES-CBC keychain items** (format version 1/2, very old iOS) — modern
-  backups contain only version-3 (AES-GCM) items, and no version-1/2 backup was
-  available to validate a CBC decryption path against, so it is not shipped
-  unverified.
-
-(VPN / enterprise-Wi-Fi 802.1X/EAP credentials are now recovered **best-effort**
-by `vpn-creds` — the marker set is documented but unvalidated against a device
-that actually has such items, so it is shipped with that caveat rather than left
-out.)
+(Two items previously listed here are now handled **best-effort** rather than left
+out: VPN / enterprise-Wi-Fi 802.1X/EAP credentials are recovered by `vpn-creds`
+with a documented-but-unvalidated marker set; and **legacy AES-CBC keychain
+items** (format version 1/2, very old iOS) are now decrypted on a best-effort,
+**experimental** basis by every keychain extractor. Modern backups contain only
+version-3 (AES-GCM) items and no version-1/2 backup was available to validate the
+CBC path, so its header layout and convention (zero IV, PKCS#7 padding) are
+reconstructed from limited documentation — a format mismatch safely yields nothing
+(the strict DER parser rejects the garbage; an item is skipped, never mis-decoded
+into fabricated attributes), and the version-3 path is unchanged.)
 
 Some shipped extractors are also commonly **empty on a standard backup** by
 design — they recover real data only from backups/extractions that include the
