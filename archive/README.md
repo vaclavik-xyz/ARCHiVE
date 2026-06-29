@@ -189,3 +189,35 @@ written under `<out>/messages`.
 - [x] keychain-inventory — csv, json, html, pdf: non-secret census of the keychain (per-item service/account/group/protection-class/version across genp/inet/cert/keys; NO passwords) — triage scope before exporting secrets; encrypted backups only
 - [x] certificates — csv, json, html, pdf: recover X.509 certificates from the keychain `cert` array → a `certificates.pem` bundle plus a metadata table (subject/issuer CN, serial, validity, CA flag, and whether a matching private key makes it an identity); **public certificates only — no private key material is exported**. Encrypted backups only; certs stored under a *ThisDeviceOnly* protection class are not transferable in a portable backup and cannot be decrypted (then reports an honest 0)
 - [x] pdf output — `-f pdf` on every HTML-bearing command, rendered from the HTML via a headless browser
+
+## Deliberately not recovered (and why)
+
+A few forensic artifacts were evaluated and **intentionally left unimplemented**
+because they cannot be recovered *correctly* from a standard encrypted
+iTunes/Finder backup — the project prefers an honest gap over code that emits
+misleading or unverifiable data:
+
+- **Keyboard learned-words lexicon** — the legacy clean word list
+  (`<lang>-dynamic-text.dat`) is gone on modern iOS; its replacement,
+  `KeyboardDomain/Library/Keyboard/user_model_database.sqlite`, stores a
+  statistical typing model whose keys are internal markers
+  (`…tium.candidate/word/pattern/…`), **not** a recoverable vocabulary. There is
+  no clean lexicon to extract, so none is fabricated.
+- **VPN / enterprise-Wi-Fi (802.1X/EAP) credentials** — these live in the
+  keychain, but Apple's service markers for them could not be pinned down on the
+  devices available for validation (which carry no VPN/EAP items), so any
+  extractor would be unverifiable guesswork that might silently match nothing.
+  Personal-Wi-Fi PSKs are covered by `wifi`; website/app logins by `passwords`.
+- **Legacy AES-CBC keychain items** (format version 1/2, very old iOS) — modern
+  backups contain only version-3 (AES-GCM) items, and no version-1/2 backup was
+  available to validate a CBC decryption path against, so it is not shipped
+  unverified.
+
+Some shipped extractors are also commonly **empty on a standard backup** by
+design — they recover real data only from backups/extractions that include the
+relevant store: `significant-locations` (routined DB lives under
+`Library/Caches`, excluded from backups), `device-usage` (`knowledgeC.db`, often
+excluded on iOS 16+), `certificates` (certs are frequently *ThisDeviceOnly* and
+not transferable), and `known-networks` (the plaintext SSID list moved to the
+keychain on iOS 16+). Each reports an honest `count: 0` with an explanatory note
+rather than failing.
