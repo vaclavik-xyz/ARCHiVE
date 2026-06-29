@@ -171,16 +171,21 @@ fn looks_phone(s: &str) -> bool {
     digits >= 7 && s.chars().all(|c| c.is_ascii_digit() || " +-().".contains(c))
 }
 
-/// Whether a decoded text reads as genuine human content rather than carved binary
-/// that merely happened to be valid UTF-8. Rejects strings dominated (≥20%) by
-/// control / non-printable characters. Gates the *soft* text anchors (names,
-/// titles, note snippets, message bodies) so a random byte run can't mint a record.
+/// Whether a decoded text reads as genuine human content rather than carved
+/// binary. Rejects strings dominated (≥20%) by control / non-printable characters
+/// **or** Unicode replacement characters — the carver decodes with
+/// `String::from_utf8_lossy`, so invalid bytes surface as `U+FFFD`, not raw
+/// control bytes. Gates the *soft* text anchors (names, titles, note snippets,
+/// message bodies) so a random byte run can't mint a record.
 fn looks_texty(s: &str) -> bool {
     let total = s.chars().count();
     if total == 0 {
         return false;
     }
-    let bad = s.chars().filter(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r')).count();
+    let bad = s
+        .chars()
+        .filter(|&c| c == '\u{FFFD}' || (c.is_control() && !matches!(c, '\t' | '\n' | '\r')))
+        .count();
     bad * 5 < total
 }
 
@@ -734,6 +739,12 @@ mod tests {
         // event — dropped even though it decoded as valid UTF-8 and carries a date.
         let junk = "\u{1}\u{2}\u{3}\u{4}ab".to_string(); // 4 control + 2 letters
         let records = vec![rec(CarveSource::Freelist, vec![CarvedValue::Text(junk), CarvedValue::Real(600_000_000.0)])];
+        assert!(recover("calendar", &records, &LiveKeys::default()).is_empty());
+
+        // The carver decodes with from_utf8_lossy, so invalid bytes become U+FFFD
+        // replacement characters — these must count as binary too, not human text.
+        let lossy = "\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}ab".to_string(); // 4 replacement + 2 letters
+        let records = vec![rec(CarveSource::Freelist, vec![CarvedValue::Text(lossy), CarvedValue::Real(600_000_000.0)])];
         assert!(recover("calendar", &records, &LiveKeys::default()).is_empty());
     }
 
