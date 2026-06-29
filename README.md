@@ -28,7 +28,8 @@ portable formats:
   AES-256-encrypted `package` of the output, Recently Deleted photo/video recovery
   (`photos-recently-deleted`), saved Wi-Fi passwords (`wifi`) and website/app
   passwords (`passwords`) from the keychain, X.509 `certificates` recovered from
-  the keychain (PEM bundle, public certs only), on-device `backup`
+  the keychain (PEM bundle, public certs only), best-effort VPN / enterprise-Wi-Fi
+  credentials (`vpn-creds`) from the keychain, on-device `backup`
   capture, and a backup `integrity` check (agent-first JSON output)
 - **`imessage-exporter`** — iMessage / SMS / RCS conversations and attachments
 
@@ -101,6 +102,7 @@ archive --backup ~/Backup/<UDID> -o out wifi            -f html  # saved Wi-Fi p
 archive --backup ~/Backup/<UDID> -o out passwords       -f html  # saved website/app passwords (encrypted backups)
 archive --backup ~/Backup/<UDID> -o out keychain-inventory -f json  # keychain census: per-item metadata, NO secrets
 archive --backup ~/Backup/<UDID> -o out certificates    -f html  # X.509 certs from the keychain → certificates.pem + metadata (no private keys)
+archive --backup ~/Backup/<UDID> -o out vpn-creds       -f html  # best-effort VPN / enterprise-Wi-Fi (EAP) credentials from the keychain (plaintext)
 ```
 
 The `messages` command drives the `imessage-exporter` binary (built in the same

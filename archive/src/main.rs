@@ -375,6 +375,14 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Recover VPN / enterprise-Wi-Fi (802.1X/EAP) credentials from the keychain
+    /// (encrypted backups only). Sensitive: plaintext secrets. Best-effort
+    /// marker-based detection.
+    VpnCreds {
+        /// Output format: csv, json, html (no pdf — avoids a plaintext sidecar).
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Run every extractor into <out>/ and write a customer index.html package.
     Recover {
         /// Skip large media extraction (metadata + HTML only).
@@ -500,6 +508,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
         Command::KeychainInventory { format } => run_keychain_inventory(&cli, password.as_deref(), format),
         Command::Certificates { format } => run_certificates(&cli, password.as_deref(), format),
+        Command::VpnCreds { format } => run_vpn_creds(&cli, password.as_deref(), format),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
@@ -2058,6 +2067,46 @@ fn run_certificates(cli: &Cli, password: Option<&str>, format: &str) -> Result<s
     }))
 }
 
+fn run_vpn_creds(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "vpn-creds")?;
+    // Sensitive (plaintext secrets): the shared PDF path writes a temporary
+    // plaintext HTML sidecar, which we will not do here.
+    if format == Format::Pdf {
+        return Err(AppError::usage(
+            "pdf is not available for vpn-creds (it would write a temporary plaintext HTML file); use csv, json, or html",
+        ));
+    }
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export VPN credentials"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let creds = backup.network_credentials().map_err(|e| AppError::other(e.to_string()))?;
+    if creds.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "vpn-creds", "count": 0, "outputs": [],
+            "note": "no VPN / enterprise-Wi-Fi credentials recovered (the keychain is included only in ENCRYPTED backups; this device may have none, or use markers this best-effort detector does not recognize — personal Wi-Fi PSKs are recovered by `wifi`)",
+            "device": device
+        }));
+    }
+    let rendered = match format {
+        Format::Csv => format::vpn_creds_csv(&creds),
+        Format::Json => format::vpn_creds_json(&creds),
+        Format::Html => format::vpn_creds_html(&creds),
+        Format::Vcf | Format::Pdf => unreachable!("vcf rejected by export_format; pdf rejected above"),
+    };
+    let out_file = out.join(format!("vpn-creds.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    // Count only — never log the recovered secrets.
+    let (vpn, eap) = (creds.iter().filter(|c| c.kind == "vpn").count(), creds.iter().filter(|c| c.kind == "eap").count());
+    eprintln!("Recovered {} network credential(s) ({vpn} vpn, {eap} eap) to {}", creds.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "vpn-creds", "count": creds.len(), "vpn": vpn, "eap": eap,
+        "outputs": [out_file.to_string_lossy()], "device": device,
+        "note": "recovered secrets are plaintext — handle and transmit securely"
+    }))
+}
+
 // Merge every in-process extractor into one chronological timeline. Like
 // `recover`, each store is best-effort (absent/unreadable is logged and skipped).
 // A view over the other extractors, not a data store: standalone (not in
@@ -3586,6 +3635,17 @@ mod cli_tests {
         assert!(matches!(c.command, Command::Certificates { format } if format == "json"));
         // Keychain-derived (encrypted-only), so it is NOT a recover/inspect store.
         assert!(KNOWN_STORES.iter().all(|(n, ..)| *n != "certificates"));
+    }
+
+    #[test]
+    fn parses_vpn_creds_and_rejects_pdf() {
+        let v = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "vpn-creds", "-f", "json"]).unwrap();
+        assert!(matches!(v.command, Command::VpnCreds { format } if format == "json"));
+        // Keychain-derived (encrypted-only), not a recover/inspect store.
+        assert!(KNOWN_STORES.iter().all(|(n, ..)| *n != "vpn-creds"));
+        // pdf is rejected for this sensitive export (no plaintext sidecar).
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "vpn-creds", "-f", "pdf"]).unwrap();
+        assert_eq!(run_vpn_creds(&cli, None, "pdf").unwrap_err().kind, "usage");
     }
 
     #[test]

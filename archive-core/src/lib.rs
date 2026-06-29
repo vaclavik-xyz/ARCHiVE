@@ -220,6 +220,19 @@ impl Backup {
         }
     }
 
+    /// Recover **VPN / enterprise-Wi-Fi (802.1X/EAP) credentials** from the
+    /// keychain `genp` array. Empty when the backup has no keychain.
+    ///
+    /// Best-effort marker-based classification; the returned `password` fields are
+    /// plaintext secrets and must not be logged. See [`Backup::wifi_credentials`]
+    /// for the decryption model.
+    pub fn network_credentials(&self) -> Result<Vec<keychain::NetworkCredential>, BackupError> {
+        match self.keychain_material()? {
+            Some((plist_bytes, class_keys)) => Ok(keychain::extract_network_credentials(&plist_bytes, &class_keys)),
+            None => Ok(Vec::new()),
+        }
+    }
+
     /// Decrypt the keychain plist and gather the protection-class keys needed to
     /// unwrap its items. `Ok(None)` when the backup has no keychain (unencrypted
     /// backups). Shared by every keychain extractor.

@@ -1035,6 +1035,28 @@ stdout envelope:
 }
 ```
 
+### `certificates`-adjacent: `vpn-creds` — VPN / enterprise-Wi-Fi credentials
+
+```
+archive --backup <DIR> --password <PW> -o <OUT> vpn-creds -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html` (**no pdf** — like `wifi`/`passwords`, this is a
+sensitive plaintext export and the PDF path would write a temporary plaintext
+sidecar). Decrypts the keychain `genp` array and returns items whose
+service/access-group markers indicate a **VPN** (`vpn`/`ipsec`/`l2tp`/`pptp`/
+`ikev2`/`racoon`) or **enterprise-Wi-Fi EAP** (`eap`/`802.1x`/`8021x`/`eapol`/
+`enterprise`) credential and that carry a non-empty secret:
+`{ kind (vpn|eap), service, account, password }`. Personal Wi-Fi PSKs
+(`svce == AirPort`) and ordinary app/website logins are excluded (use
+`wifi`/`passwords`). The envelope adds `vpn` and `eap` counts.
+
+**Sensitive:** `password` fields are plaintext — never logged by the tool.
+**Best-effort:** the marker set is documented but was not validated against a
+device that actually has VPN/EAP credentials, so coverage is not guaranteed; a
+device with none returns `count: 0` with a note. Encrypted backups only;
+keychain-derived, so not part of `recover`/`inspect`.
+
 ### `recover` — one-shot customer package
 
 ```
