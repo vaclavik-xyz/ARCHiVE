@@ -82,7 +82,9 @@ fn emit_page(items: &[Value], container: &str, out: &mut Vec<IconSlot>) {
                     identifier,
                     label: name.clone(),
                 });
-                let fcontainer = format!("folder:{name}");
+                // Disambiguate by the folder's home location so two folders with
+                // the same (or empty) name never merge their contents.
+                let fcontainer = format!("folder:{name} [{container} #{pos}]");
                 let mut fpos = 0u32;
                 for page in &pages {
                     for entry in page {
@@ -246,10 +248,10 @@ mod tests {
         assert_eq!(folder_slot.label, "Social");
         assert_eq!(folder_slot.position, 1);
 
-        assert_eq!(slots[3].container, "folder:Social");
+        assert_eq!(slots[3].container, "folder:Social [page 1 #1]");
         assert_eq!(slots[3].position, 0);
         assert_eq!(slots[3].identifier, "com.x.fb");
-        assert_eq!(slots[4].container, "folder:Social");
+        assert_eq!(slots[4].container, "folder:Social [page 1 #1]");
         assert_eq!(slots[4].position, 1);
         assert_eq!(slots[4].identifier, "com.x.ig");
 
@@ -279,6 +281,40 @@ mod tests {
         assert_eq!(slots[0].identifier, "com.legacy.app");
         assert_eq!(slots[1].kind, "webclip");
         assert_eq!(slots[1].label, "Web App");
+    }
+
+    #[test]
+    fn duplicate_and_unnamed_folders_have_distinct_containers() {
+        let mk = |name: Option<&str>, app_id: &str| {
+            let mut f = Dictionary::new();
+            f.insert("listType".into(), Value::String("folder".into()));
+            if let Some(n) = name {
+                f.insert("displayName".into(), Value::String(n.into()));
+            }
+            f.insert("iconLists".into(), Value::Array(vec![Value::Array(vec![app(app_id)])]));
+            Value::Dictionary(f)
+        };
+        let mut top = Dictionary::new();
+        top.insert(
+            "iconLists".into(),
+            // two same-named folders + one unnamed, all on page 1
+            Value::Array(vec![Value::Array(vec![
+                mk(Some("Games"), "com.a"),
+                mk(Some("Games"), "com.b"),
+                mk(None, "com.c"),
+            ])]),
+        );
+
+        let slots = parse(&to_bytes(&Value::Dictionary(top)));
+        // Each folder child must sit in a distinct container.
+        let child_containers: Vec<&str> = slots
+            .iter()
+            .filter(|s| s.kind == "app")
+            .map(|s| s.container.as_str())
+            .collect();
+        assert_eq!(child_containers.len(), 3);
+        let distinct: std::collections::HashSet<&&str> = child_containers.iter().collect();
+        assert_eq!(distinct.len(), 3, "folder contents must not merge: {child_containers:?}");
     }
 
     #[test]
