@@ -1,4 +1,5 @@
 mod accounts;
+mod app_databases;
 mod audio;
 mod attachments;
 mod calendar;
@@ -236,6 +237,13 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Per-app database recoverability report: which app databases are readable
+    /// plain SQLite vs encrypted/other (so you can see what's extractable).
+    AppDatabases {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Recover DELETED rows from backup SQLite databases by carving freed
     /// pages/freeblocks/WAL (best-effort). `--store`: messages, calls, contacts, all.
     RecoverDeleted {
@@ -376,6 +384,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Apps { format } => run_apps(&cli, password.as_deref(), format),
         Command::Timeline { format } => run_timeline(&cli, password.as_deref(), format),
         Command::Stats { format } => run_stats(&cli, password.as_deref(), format),
+        Command::AppDatabases { format } => run_app_databases(&cli, password.as_deref(), format),
         Command::RecoverDeleted { format, store } => run_recover_deleted(&cli, password.as_deref(), format, store),
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
@@ -1683,6 +1692,85 @@ fn run_stats(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
     }))
 }
 
+/// Read the first `n` bytes of a file (for magic-byte sniffing), tolerant of
+/// short files / open failures.
+fn file_head(path: &std::path::Path, n: usize) -> Vec<u8> {
+    use std::io::Read;
+    let mut buf = vec![0u8; n];
+    match std::fs::File::open(path) {
+        Ok(mut f) => {
+            let k = f.read(&mut buf).unwrap_or(0);
+            buf.truncate(k);
+            buf
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
+fn run_app_databases(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "app-databases")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export the app-databases report"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    // Scan every third-party app **and app-group** container — the real store
+    // often lives in an `AppDomainGroup-*` shared container (e.g. WhatsApp's
+    // ChatStorage.sqlite), not the per-app `AppDomain-<bundle>`.
+    let domains = backup.domains().map_err(|e| AppError::other(e.to_string()))?;
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let mut rows: Vec<app_databases::AppDatabase> = Vec::new();
+    for dom in &domains {
+        let Some(label) = app_databases::third_party_label(dom) else { continue };
+        let files = backup.list(dom, "").map_err(|e| AppError::other(e.to_string()))?;
+        for f in files.iter().filter(|f| app_databases::is_db_like(f)) {
+            let tmp = scratch.path().join("probe.db");
+            match backup.fetch(dom, f, &tmp) {
+                Ok(Some(p)) => {
+                    let bytes = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                    let readable = app_databases::is_sqlite(&file_head(&p, 16));
+                    let tables = if readable { app_databases::count_tables(&p) } else { None };
+                    rows.push(app_databases::AppDatabase {
+                        app: label.clone(),
+                        domain: dom.clone(),
+                        path: f.clone(),
+                        bytes,
+                        readable,
+                        tables,
+                    });
+                    let _ = std::fs::remove_file(&p);
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("app-databases: fetch {dom}/{f}: {e}"),
+            }
+        }
+    }
+    rows.sort_by(|a, b| a.app.cmp(&b.app).then(b.bytes.cmp(&a.bytes)));
+
+    if rows.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "app-databases", "count": 0, "outputs": [],
+            "note": "no third-party app database files found in this backup", "device": device
+        }));
+    }
+
+    let readable = rows.iter().filter(|d| d.readable).count();
+    let rendered = match format {
+        Format::Csv => format::app_databases_csv(&rows),
+        Format::Json => format::app_databases_json(&rows),
+        Format::Html | Format::Pdf => format::app_databases_html(&rows),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("app-databases.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("Wrote {} app database(s) ({} readable) to {}", rows.len(), readable, out_file.display());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "app-databases", "count": rows.len(), "readable": readable,
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
 fn run_timeline(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "timeline")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export timeline"))?;
@@ -2572,6 +2660,8 @@ mod cli_tests {
         assert!(matches!(t.command, Command::Timeline { format } if format == "json"));
         let s = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "stats", "-f", "json"]).unwrap();
         assert!(matches!(s.command, Command::Stats { format } if format == "json"));
+        let ad = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "app-databases", "-f", "json"]).unwrap();
+        assert!(matches!(ad.command, Command::AppDatabases { format } if format == "json"));
         let w = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "wifi", "-f", "html"]).unwrap();
         assert!(matches!(w.command, Command::Wifi { format } if format == "html"));
     }

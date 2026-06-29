@@ -279,6 +279,20 @@ impl Backup {
         Ok(ids.into_iter().collect())
     }
 
+    /// Distinct backup domains present in the manifest, sorted. Read-only
+    /// (manifest scan only; decrypts nothing). Useful for discovering where an
+    /// app stores data — both its `AppDomain-<bundle>` container and any
+    /// `AppDomainGroup-*` shared containers.
+    pub fn domains(&self) -> Result<Vec<String>, BackupError> {
+        let entries = self
+            .raw
+            .entries()
+            .map_err(|why| BackupError::Open(why.to_string()))?;
+        let set: std::collections::BTreeSet<String> =
+            entries.iter().map(|e| e.domain.clone()).collect();
+        Ok(set.into_iter().collect())
+    }
+
     /// Verify the backup is complete: every regular-file manifest entry has its
     /// stored file on disk, and (for unencrypted backups only) the on-disk size
     /// matches the recorded size. `sample_cap` bounds each sample list. Read-only;

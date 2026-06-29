@@ -28,7 +28,7 @@ invocation.
 **PDF output:** the **in-process** export commands that list `html` (contacts,
 calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
-whatsapp, timeline, stats, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
+whatsapp, timeline, stats, app-databases, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
 with `--chrome-path`; a missing browser is a usage error, exit 1), with the JSON
 envelope unchanged (`outputs` points at the `.pdf`). `messages -f pdf` is produced
@@ -620,6 +620,39 @@ carries the headline figures):
   "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
 }
 ```
+
+### `app-databases` — per-app database recoverability report
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> app-databases -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html | pdf`. Writes `<OUT>/app-databases.<ext>`.
+Walks every third-party app domain (`AppDomain-<bundle>`, from the same source as
+`apps`), and for each database-like file (`.sqlite` / `.sqlite3` / `.sqlitedb` /
+`.db` / `.data`) fetches it and classifies it. Each row: `app` (bundle id),
+`path` (within the app domain), `bytes`, `readable` (begins with the SQLite magic
+— a plain, openable database, **not** an encrypted SQLCipher / Core-Data binary
+store), and `tables` (table count when readable, else `null`). Sorted by app then
+size; the envelope adds a `readable` count.
+
+**Why it exists:** many modern messaging apps (Viber, Messenger, …) keep no
+readable message store in a normal backup — the database is excluded or
+encrypted. This report makes that explicit per app, so you can see what is
+actually extractable rather than guessing. A **view** over the backup manifest:
+**not** a `KNOWN_STORE` (so not in `inspect`) and **not** part of `recover`.
+
+stdout envelope:
+
+```json
+{
+  "ok": true, "command": "app-databases", "count": 29, "readable": 28,
+  "outputs": ["<OUT>/app-databases.json"],
+  "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
+}
+```
+
+No app database files at all → `count: 0`, `outputs: []`, plus a `note`.
 
 ### `recover-deleted` — carve deleted SQLite rows
 
