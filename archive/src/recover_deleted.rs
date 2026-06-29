@@ -50,6 +50,10 @@ pub struct DeletedRecord {
     pub date: Option<String>,
     /// A human-readable one-line description (message text, call number, names).
     pub summary: String,
+    /// The carved cell ran past the bytes available (record-size cap or an
+    /// overwritten tail), so the recovered values are **partial** — trailing
+    /// columns may be missing or cut short. Surfaced so callers can flag the row.
+    pub truncated: bool,
 }
 
 fn source_str(s: CarveSource) -> &'static str {
@@ -179,6 +183,7 @@ fn messages_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
                 store: "messages".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date,
                 summary,
             })
@@ -239,6 +244,7 @@ fn calls_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
                 store: "calls".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date,
                 summary,
             })
@@ -264,6 +270,7 @@ fn contacts_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
                 store: "contacts".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date: None,
                 summary: trunc(&texts.join(" · "), 200),
             })
@@ -295,6 +302,7 @@ fn notes_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
                 store: "notes".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date: max_cocoa_date(r),
                 summary: trunc(&texts.join(" · "), 200),
             })
@@ -333,6 +341,7 @@ fn calendar_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
                 store: "calendar".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date: min_cocoa_date(r),
                 summary,
             })
@@ -373,6 +382,7 @@ fn safari_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> 
                 store: "safari".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date,
                 summary,
             })
@@ -632,6 +642,23 @@ mod tests {
         // A different (genuinely deleted) URL is kept.
         let gone = vec![rec_n(Some(3), CarveSource::Freelist, vec![CarvedValue::Text("https://gone.example.com/x".into())])];
         assert_eq!(recover("safari", &gone, &live).len(), 1);
+    }
+
+    #[test]
+    fn truncated_flag_propagates_to_recovered_record() {
+        let g = "9B7E5F2A-1C3D-4E5F-8A9B-0C1D2E3F4A5B";
+        let partial = CarvedRecord {
+            rowid: Some(7),
+            source: CarveSource::Freelist,
+            values: vec![CarvedValue::Text(g.into()), CarvedValue::Text("partial body".into())],
+            truncated: true,
+        };
+        let out = recover("messages", &[partial], &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert!(out[0].truncated);
+        // A fully-recovered record reports false.
+        let full = vec![rec_n(Some(8), CarveSource::Freelist, vec![CarvedValue::Text(g.into()), CarvedValue::Text("full".into())])];
+        assert!(!recover("messages", &full, &LiveKeys::default())[0].truncated);
     }
 
     #[test]

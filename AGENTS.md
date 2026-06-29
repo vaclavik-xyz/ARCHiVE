@@ -716,8 +716,10 @@ protobuf and not recovered here), `calendar` (`Calendar.sqlitedb`, event title +
 location + earliest associated Cocoa date — schema-less carving cannot single out
 the start column from end/created, so the earliest is reported), and `safari`
 (`History.db`, a URL or a titled visit with a Cocoa visit date). Each output row is `{ store, source (freelist|freeblock|
-unallocated|wal), rowid, date (ISO 8601 UTC or null), summary }`, sorted
-chronologically.
+unallocated|wal), rowid, date (ISO 8601 UTC or null), summary, truncated }`,
+sorted chronologically. `truncated` is true when the carved cell ran past the
+available bytes (record-size cap or an overwritten tail), so its trailing columns
+are partial — the CSV shows `yes`, the HTML marks the row `✂ oříznuto`.
 
 Rows still **live** in the database are excluded (a carved candidate whose cell
 rowid — or, for messages, GUID — is still present in the live table is dropped).

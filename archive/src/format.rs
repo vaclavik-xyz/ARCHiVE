@@ -995,7 +995,7 @@ pub fn timeline_html(items: &[crate::timeline::Event]) -> String {
 
 pub fn deleted_csv(items: &[crate::recover_deleted::DeletedRecord]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
-    wtr.write_record(["store", "source", "rowid", "date", "summary"]).unwrap();
+    wtr.write_record(["store", "source", "rowid", "date", "summary", "truncated"]).unwrap();
     for d in items {
         wtr.write_record([
             d.store.clone(),
@@ -1003,6 +1003,7 @@ pub fn deleted_csv(items: &[crate::recover_deleted::DeletedRecord]) -> String {
             d.rowid.map(|r| r.to_string()).unwrap_or_default(),
             d.date.clone().unwrap_or_default(),
             d.summary.clone(),
+            if d.truncated { "yes".into() } else { String::new() },
         ])
         .unwrap();
     }
@@ -1778,9 +1779,10 @@ mod tests {
             rowid: Some(12),
             date: Some("2020-01-06T10:40:00+00:00".into()),
             summary: "ahoj".into(),
+            truncated: false,
         }];
         assert!(deleted_html(&deleted).contains("ahoj"));
-        assert!(deleted_csv(&deleted).contains("store,source,rowid,date,summary"));
+        assert!(deleted_csv(&deleted).contains("store,source,rowid,date,summary,truncated"));
         assert!(deleted_json(&deleted).contains("\"store\""));
 
         let wifi = vec![archive_core::keychain::WifiCredential {
