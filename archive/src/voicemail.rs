@@ -32,6 +32,10 @@ pub struct Voicemail {
     /// `voicemail_audio/2020-09-13_122640_+420…_3.m4a`); `None` until audio
     /// extraction runs, or when the backup has no audio for this row.
     pub audio_file: Option<String>,
+    /// Address-book name resolved from `sender`; empty when no contact matched.
+    /// Populated by [`crate::enrich`].
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub contact_name: String,
 }
 
 pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Voicemail>> {
@@ -69,6 +73,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Voicemail>> {
             expiration: expiration.filter(|&e| e != 0).and_then(unix_to_iso),
             flags: flags.unwrap_or(0),
             audio_file: None,
+            contact_name: String::new(),
         })
     })?;
     rows.collect()

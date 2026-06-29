@@ -54,7 +54,7 @@ archive -o out backup                                   # writes out/<UDID>/
 
 # Per data type (csv | json | vcf | html; media types extract files by default)
 archive --backup ~/Backup/<UDID> -o out contacts        -f vcf   # incl. postal addresses
-archive --backup ~/Backup/<UDID> -o out calls           -f json
+archive --backup ~/Backup/<UDID> -o out calls           -f json  # numbers resolved to contact names (also voicemail/whatsapp/timeline)
 archive --backup ~/Backup/<UDID> -o out accounts        -f json  # configured accounts (Apple ID, Google, Exchange, …)
 archive --backup ~/Backup/<UDID> -o out known-networks  -f json  # saved Wi-Fi SSIDs, no passwords (often empty on iOS 16+)
 archive --backup ~/Backup/<UDID> -o out homescreen-layout -f html # home screen layout: pages, dock, folders, widgets

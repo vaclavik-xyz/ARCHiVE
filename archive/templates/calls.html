@@ -5,10 +5,10 @@ table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px;text-
 th{background:#f5f5f5}</style></head><body>
 <h1>Hovory ({{ calls.len() }})</h1>
 <table>
-<tr><th>Číslo</th><th>Datum</th><th>Trvání (s)</th><th>Směr</th><th>Přijatý</th><th>Služba</th><th>Video</th><th>Lokace</th><th>Země</th></tr>
+<tr><th>Číslo</th><th>Kontakt</th><th>Datum</th><th>Trvání (s)</th><th>Směr</th><th>Přijatý</th><th>Služba</th><th>Video</th><th>Lokace</th><th>Země</th></tr>
 {% for c in calls %}
 <tr>
-<td>{{ c.number }}</td><td>{{ c.date }}</td><td>{{ c.duration_seconds }}</td>
+<td>{{ c.number }}</td><td>{{ c.contact_name }}</td><td>{{ c.date }}</td><td>{{ c.duration_seconds }}</td>
 <td>{{ c.direction }}</td><td>{{ c.answered }}</td><td>{{ c.service }}</td>
 <td>{% if let Some(v) = c.video %}{{ v }}{% endif %}</td>
 <td>{% if let Some(l) = c.location.as_ref() %}{{ l }}{% endif %}</td>

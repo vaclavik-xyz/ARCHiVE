@@ -37,6 +37,16 @@ on macOS, a headless browser elsewhere; `--chrome-path` is forwarded), and keeps
 the messages envelope (`output` directory). The `recover` one-shot package has no
 `-f pdf` and stays HTML.
 
+**Contact enrichment:** when the backup has an address book, `calls`,
+`voicemail`, `whatsapp`, `timeline` and `recover` automatically resolve phone
+numbers / emails / WhatsApp JIDs to a `contact_name`. Matching is best-effort:
+phone numbers compare on their **last 9 digits** (so country-code and formatting
+differences still match), emails match case-insensitively, and a JID matches on
+its numeric local part. The field is **omitted from JSON** (and blank in
+CSV/HTML) when nothing matched; in `timeline` the resolved name replaces the raw
+number in the event summary. No contacts in the backup ⇒ no enrichment, never an
+error.
+
 ## Commands
 
 ### `inspect` — discover what is extractable (read-only)
@@ -123,6 +133,8 @@ archive --backup <DIR> [--password <PW>] -o <OUT> calls -f <FORMAT>
 ```
 
 Each call object: `number` (phone number, or an Apple ID/email for FaceTime),
+`contact_name` (address-book name resolved from `number`; **omitted from JSON
+when no contact matched** — see *Contact enrichment* below),
 `date` (ISO 8601 UTC), `duration_seconds`, `direction` (`incoming`/`outgoing`),
 `answered` (bool), `service` (`phone`/`facetime`/raw bundle id/`unknown`),
 `video` (best-effort FaceTime video flag — **version-dependent and undocumented**,
@@ -177,7 +189,7 @@ archive --backup <DIR> [--password <PW>] -o <OUT> voicemail -f <FORMAT> [--audio
 
 With `--audio`, each voicemail's audio is fetched from `HomeDomain/Library/Voicemail/<rowid>.amr` into `<out>/voicemail_audio/` and linked from each record's `audio_file` field. Each audio file is named `<date>_<sender>_<rowid>.<ext>` (date is `YYYY-MM-DD_HHMMSS` UTC or `unknown`; sender is the sanitized caller number or `unknown` when withheld). `--audio-format` defaults to `amr` (raw copy, no dependencies); `m4a`/`wav` transcode via `ffmpeg` (required only then). `--audio-format` without `--audio` is a usage error.
 
-Each record gains `rowid` (stable per-backup id, JSON output only) and `audio_file` (output-relative path in all formats, or `null` when no audio exists for that row).
+Each record gains `rowid` (stable per-backup id, JSON output only), `audio_file` (output-relative path in all formats, or `null` when no audio exists for that row), and `contact_name` (resolved from `sender`; omitted from JSON when no contact matched — see *Contact enrichment*).
 
 stdout envelope:
 
@@ -397,7 +409,9 @@ extracted by default** into `<OUT>/whatsapp_media/`; pass `--no-files` for a
 text-only transcript. Reads `ChatStorage.sqlite` from the WhatsApp shared app-group
 container. Each message: `chat` (contact/group name), `sender` (JID; empty when
 from me), `from_me` (bool), `date` (ISO 8601 UTC), `text`, `media_file`
-(output-relative extracted media, or `null`). Envelope carries a `files` object
+(output-relative extracted media, or `null`), `contact_name` (resolved from the
+`sender` JID; omitted from JSON when no contact matched — see *Contact
+enrichment*). Envelope carries a `files` object
 (`dir`, `extracted`, `missing`) when extraction ran — consistent with `photos`/
 `attachments`; `count` is total messages. No WhatsApp store → `count: 0`,
 `outputs: []`, plus a `note`.

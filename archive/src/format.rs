@@ -151,7 +151,7 @@ pub fn calls_csv(calls: &[crate::calls::Call]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([
         "number", "date", "duration_seconds", "direction", "answered", "service",
-        "video", "call_type", "location", "country",
+        "video", "call_type", "location", "country", "contact_name",
     ])
     .unwrap();
     for c in calls {
@@ -166,6 +166,7 @@ pub fn calls_csv(calls: &[crate::calls::Call]) -> String {
             c.call_type.map(|v| v.to_string()).unwrap_or_default(),
             c.location.clone().unwrap_or_default(),
             c.country.clone().unwrap_or_default(),
+            c.contact_name.clone(),
         ])
         .unwrap();
     }
@@ -253,7 +254,7 @@ pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([
         "sender", "date", "duration_seconds", "trashed", "trashed_at", "expiration", "flags",
-        "audio_file",
+        "audio_file", "contact_name",
     ])
     .unwrap();
     for v in items {
@@ -266,6 +267,7 @@ pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
             v.expiration.clone().unwrap_or_default(),
             v.flags.to_string(),
             v.audio_file.clone().unwrap_or_default(),
+            v.contact_name.clone(),
         ])
         .unwrap();
     }
@@ -627,7 +629,7 @@ pub fn attachments_html(items: &[crate::attachments::Attachment]) -> String {
 
 pub fn whatsapp_csv(items: &[crate::whatsapp::WaMessage]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
-    wtr.write_record(["chat", "sender", "from_me", "date", "text", "media_file"]).unwrap();
+    wtr.write_record(["chat", "sender", "from_me", "date", "text", "media_file", "contact_name"]).unwrap();
     for m in items {
         wtr.write_record([
             m.chat.clone(),
@@ -636,6 +638,7 @@ pub fn whatsapp_csv(items: &[crate::whatsapp::WaMessage]) -> String {
             m.date.clone(),
             m.text.clone(),
             m.media_file.clone().unwrap_or_default(),
+            m.contact_name.clone(),
         ])
         .unwrap();
     }
@@ -1050,6 +1053,7 @@ mod tests {
             expiration: None,
             flags: 0,
             audio_file: None,
+            contact_name: String::new(),
         }]
     }
 
@@ -1375,6 +1379,7 @@ mod tests {
             text: "Ahoj".into(),
             source_path: "Message/Media/x/photo.jpg".into(),
             media_file: Some("whatsapp_media/2_photo.jpg".into()),
+            contact_name: String::new(),
         }
     }
 
@@ -1424,6 +1429,7 @@ mod tests {
             call_type: Some(1),
             location: None,
             country: Some("CZ".into()),
+            contact_name: String::new(),
         }]
     }
 

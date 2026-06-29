@@ -113,7 +113,7 @@ written under `<out>/messages`.
 
 - [x] inspect — store discovery (read-only)
 - [x] contacts — csv, json, vcf, html (incl. postal addresses)
-- [x] calls — csv, json, html
+- [x] calls — csv, json, html (numbers resolved to `contact_name` from the address book when available)
 - [x] accounts — csv, json, html: configured accounts (Apple ID, Google, Exchange, …) from `Accounts3.sqlite`; metadata only, no passwords
 - [x] known-networks — csv, json, html: remembered Wi-Fi SSIDs (no passwords) from `com.apple.wifi*.plist`; works on any backup, but the plaintext list is usually empty on iOS 16+ (the inventory moved to the keychain — see `wifi`)
 - [x] homescreen-layout — csv, json, html, pdf: Home Screen pages, dock, folders and widget stacks from SpringBoard's `IconState.plist`; works on any backup

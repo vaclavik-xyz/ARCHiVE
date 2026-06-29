@@ -9,7 +9,7 @@ th{background:#f5f5f5}td.me{background:#e7ffe7}img{max-width:200px;max-height:20
 {% for m in messages %}
 <tr>
 <td>{{ m.date }}</td><td>{{ m.chat }}</td>
-<td{% if m.from_me %} class="me"{% endif %}>{% if m.from_me %}já{% else %}{{ m.sender }}{% endif %}</td>
+<td{% if m.from_me %} class="me"{% endif %}>{% if m.from_me %}já{% else if !m.contact_name.is_empty() %}{{ m.contact_name }}{% else %}{{ m.sender }}{% endif %}</td>
 <td>{{ m.text }}</td>
 <td>{% if let Some(f) = m.media_file.as_ref() %}{% if m.is_image() %}<a href="{{ f }}"><img src="{{ f }}" loading="lazy"></a>{% else %}<a href="{{ f }}">{{ f }}</a>{% endif %}{% endif %}</td>
 </tr>
