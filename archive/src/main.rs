@@ -1859,6 +1859,30 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
             )
         };
         rec.add("photos", "Fotky a videa", "photos.html", format::photos_html(&items), items.len(), media)?;
+
+        // Recently Deleted: a dedicated recovery view (own folder + estimated
+        // purge dates). `items` is consumed here as the photos section is done.
+        let mut trashed = photos_deleted::filter_trashed(items);
+        if !trashed.is_empty() {
+            let media = if no_files {
+                None
+            } else {
+                media_or_log(
+                    photos::extract_into(&backup, &mut trashed, out, photos_deleted::DELETED_DIR)
+                        .map(|s| (s.dir, s.extracted, s.missing)),
+                    "photos-recently-deleted",
+                )
+            };
+            let deleted = photos_deleted::into_deleted(trashed);
+            rec.add(
+                "photos-recently-deleted",
+                "Smazané fotky (obnovitelné)",
+                "photos-recently-deleted.html",
+                format::photos_deleted_html(&deleted),
+                deleted.len(),
+                media,
+            )?;
+        }
     }
     if let Some(mut items) = opt_or_log(load_attachments(&backup), "attachments") {
         let media = if no_files {

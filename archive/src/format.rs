@@ -435,7 +435,7 @@ pub fn photos_csv(items: &[crate::photos::Photo]) -> String {
         "filename", "kind", "created", "favorite", "trashed", "width", "height",
         "latitude", "longitude", "duration_seconds", "file",
         "hidden", "edited", "live_photo", "modified", "added",
-        "original_filename", "title", "burst_id", "albums",
+        "original_filename", "title", "burst_id", "albums", "trashed_date",
     ])
     .unwrap();
     for p in items {
@@ -460,6 +460,7 @@ pub fn photos_csv(items: &[crate::photos::Photo]) -> String {
             p.title.clone(),
             p.burst_id.clone().unwrap_or_default(),
             p.albums.join("; "),
+            p.trashed_date.clone(),
         ])
         .unwrap();
     }
@@ -1206,7 +1207,7 @@ mod tests {
         assert!(csv.contains("IMG_0001.HEIC,image,2020-01-06T10:40:00+00:00,true,false,4032,3024,50.087,14.42,,photos/1_IMG_0001.HEIC"));
         // Enriched columns appended.
         let header = csv.lines().next().unwrap();
-        assert!(header.ends_with("hidden,edited,live_photo,modified,added,original_filename,title,burst_id,albums"));
+        assert!(header.ends_with("hidden,edited,live_photo,modified,added,original_filename,title,burst_id,albums,trashed_date"));
         assert!(csv.contains("IMG_E0001.HEIC,Západ,,Dovolená; Rodina")); // original,title,burst(empty),albums
         let back: serde_json::Value = serde_json::from_str(&photos_json(&p)).unwrap();
         assert_eq!(back[0]["latitude"], 50.087);
@@ -1245,6 +1246,16 @@ mod tests {
         let html = photos_html(&[p]);
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
+    }
+
+    #[test]
+    fn photos_csv_includes_trashed_date() {
+        let mut p = sample_photo();
+        p.trashed = true;
+        p.trashed_date = "2020-01-06T10:45:00+00:00".into();
+        let csv = photos_csv(&[p]);
+        assert!(csv.lines().next().unwrap().ends_with(",albums,trashed_date"));
+        assert!(csv.contains("2020-01-06T10:45:00+00:00"));
     }
 
     fn sample_attachment() -> crate::attachments::Attachment {

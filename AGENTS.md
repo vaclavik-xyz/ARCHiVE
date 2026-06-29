@@ -582,7 +582,8 @@ one HTML file per data type plus the media folders, plus a customer-facing
 and a table linking each export with counts). The backup is opened once.
 `--no-files` skips the large media extraction (metadata + HTML only). A store
 absent from the backup is skipped; one unreadable store is logged and skipped, not
-fatal. Two things are **not** in the package: iMessage/SMS/RCS conversation
+fatal. The `photos-recently-deleted` section (recovered into `recently-deleted/`)
+is added only when the Camera Roll has trashed assets still in the purge window. Two things are **not** in the package: iMessage/SMS/RCS conversation
 transcripts (run the standalone `messages` command) and the installed-app
 inventory (run `apps`) — the first is a subprocess export, the second is
 manifest-derived rather than a data store.
@@ -597,7 +598,9 @@ stdout envelope:
   "sections": [
     { "type": "contacts", "file": "contacts.html", "count": 1234 },
     { "type": "photos", "file": "photos.html", "count": 1240,
-      "files": { "dir": "photos", "extracted": 1238, "missing": 2 } }
+      "files": { "dir": "photos", "extracted": 1238, "missing": 2 } },
+    { "type": "photos-recently-deleted", "file": "photos-recently-deleted.html", "count": 7,
+      "files": { "dir": "recently-deleted", "extracted": 7, "missing": 0 } }
   ],
   "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
 }
