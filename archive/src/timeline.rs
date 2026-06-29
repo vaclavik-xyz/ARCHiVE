@@ -182,10 +182,15 @@ pub fn from_whatsapp(items: &[crate::whatsapp::WaMessage]) -> Vec<Event> {
         .collect()
 }
 
-/// A label with at least one alphabetic character is a real display name; one
-/// with none (digits, `+`, `@s.whatsapp.net`, …) is a raw phone/JID handle.
-fn is_display_label(s: &str) -> bool {
-    s.chars().any(|c| c.is_alphabetic())
+/// Whether a chat label is a raw machine handle (a WhatsApp JID or a bare
+/// phone-like token) rather than a human display name. Checked before any
+/// alphabetic heuristic, since a JID's domain (`@s.whatsapp.net`) is alphabetic.
+fn is_raw_handle(s: &str) -> bool {
+    if s.contains("@s.whatsapp.net") || s.contains("@g.us") || s.contains("@c.us") {
+        return true;
+    }
+    // Phone-like: digits plus the usual phone punctuation, nothing else.
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit() || " +-().".contains(c))
 }
 
 /// Choose a WhatsApp timeline label, balancing two needs: replace a raw-number
@@ -197,7 +202,7 @@ fn wa_label(chat: &str, contact_name: &str) -> String {
     if chat.is_empty() {
         return or_unknown(name).to_string();
     }
-    if !is_display_label(chat) {
+    if is_raw_handle(chat) {
         // Raw number/JID: the resolved name is strictly better when present.
         return if name.is_empty() { chat.to_string() } else { name.to_string() };
     }
@@ -342,6 +347,10 @@ mod tests {
         let ev = from_whatsapp(&[wa("420776112233", "Eva Malá", false)]);
         assert!(ev[0].summary.contains("Eva Malá"), "got {}", ev[0].summary);
         assert!(!ev[0].summary.contains("420776112233"));
+        // A chat label that is a full JID is also raw → replaced, not appended.
+        let jid = from_whatsapp(&[wa("420776112233@s.whatsapp.net", "Eva Malá", false)]);
+        assert_eq!(jid[0].summary.matches("Eva Malá").count(), 1);
+        assert!(!jid[0].summary.contains("whatsapp.net"), "got {}", jid[0].summary);
         // A real group label is KEPT, with the sender appended for context.
         let grp = from_whatsapp(&[wa("Rodina", "Eva Malá", false)]);
         assert!(grp[0].summary.contains("Rodina") && grp[0].summary.contains("Eva Malá"), "got {}", grp[0].summary);
