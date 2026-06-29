@@ -250,6 +250,29 @@ pub fn known_networks_html(items: &[crate::known_networks::KnownNetwork]) -> Str
     KnownNetworksTemplate { networks: items }.render().unwrap()
 }
 
+pub fn bluetooth_devices_csv(items: &[crate::bluetooth::BluetoothDevice]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["name", "address", "resolved_address", "kind"]).unwrap();
+    for d in items {
+        wtr.write_record([&d.name, &d.address, &d.resolved_address, &d.kind.to_string()]).unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn bluetooth_devices_json(items: &[crate::bluetooth::BluetoothDevice]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "bluetooth-devices.html")]
+struct BluetoothDevicesTemplate<'a> {
+    devices: &'a [crate::bluetooth::BluetoothDevice],
+}
+
+pub fn bluetooth_devices_html(items: &[crate::bluetooth::BluetoothDevice]) -> String {
+    BluetoothDevicesTemplate { devices: items }.render().unwrap()
+}
+
 pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([
