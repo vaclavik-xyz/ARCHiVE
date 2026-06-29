@@ -24,6 +24,7 @@ mod photos;
 mod photos_deleted;
 mod recover;
 mod recover_deleted;
+mod redact;
 mod reminders;
 mod safari;
 mod schema_check;
@@ -235,6 +236,9 @@ enum Command {
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
+        /// Mask phone numbers and email local parts in the output (for sharing).
+        #[arg(long)]
+        redact: bool,
     },
     /// Activity dashboard: per-category event counts and date ranges across
     /// every in-process extractor (a statistical view over the timeline).
@@ -290,6 +294,9 @@ enum Command {
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
+        /// Mask phone numbers and email local parts in the matched snippets.
+        #[arg(long)]
+        redact: bool,
     },
     /// Consolidate the extracted data into one queryable SQLite database
     /// (`<out>/archive.sqlite`): timeline + contacts + calls + whatsapp tables.
@@ -422,13 +429,13 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Reminders { format } => run_reminders(&cli, password.as_deref(), format),
         Command::Mail { format } => run_mail(&cli, password.as_deref(), format),
         Command::Apps { format } => run_apps(&cli, password.as_deref(), format),
-        Command::Timeline { format } => run_timeline(&cli, password.as_deref(), format),
+        Command::Timeline { format, redact } => run_timeline(&cli, password.as_deref(), format, *redact),
         Command::Stats { format } => run_stats(&cli, password.as_deref(), format),
         Command::AppDatabases { format } => run_app_databases(&cli, password.as_deref(), format),
         Command::AppFiles { app, format, all } => run_app_files(&cli, password.as_deref(), app, format, *all),
         Command::RecoverDeleted { format, store } => run_recover_deleted(&cli, password.as_deref(), format, store),
         Command::SchemaCheck { format } => run_schema_check(&cli, password.as_deref(), format),
-        Command::Search { query, format } => run_search(&cli, password.as_deref(), query, format),
+        Command::Search { query, format, redact } => run_search(&cli, password.as_deref(), query, format, *redact),
         Command::DbExport => run_db_export(&cli, password.as_deref()),
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
@@ -1927,7 +1934,7 @@ fn run_stats(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
 // Case-file search across every in-process record + the address book. Read-only.
 // Match snippets contain personal data, so they are written only to the output
 // file — never logged to stderr (only the count and the user's own query are).
-fn run_search(cli: &Cli, password: Option<&str>, query: &str, format: &str) -> Result<serde_json::Value, AppError> {
+fn run_search(cli: &Cli, password: Option<&str>, query: &str, format: &str, redact: bool) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "search")?;
     if query.trim().is_empty() {
         return Err(AppError::usage("--query must not be empty"));
@@ -1940,19 +1947,22 @@ fn run_search(cli: &Cli, password: Option<&str>, query: &str, format: &str) -> R
     let records = collect_search_records(&backup);
     let contacts = opt_or_log(load_contacts(&backup), "contacts").unwrap_or_default();
     let hits = search::search(&records, &contacts, query);
+    // Matching ran on the raw text; redaction masks identifiers only in the output —
+    // the echoed query and the snippets alike, so a redacted report leaks nothing.
+    let (display_query, hits) = search::apply_redaction(query, hits, redact);
 
     let rendered = match format {
         Format::Csv => format::search_csv(&hits),
         Format::Json => format::search_json(&hits),
-        Format::Html | Format::Pdf => format::search_html(&hits, query),
+        Format::Html | Format::Pdf => format::search_html(&hits, &display_query),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("search.{}", format.extension()));
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
-    eprintln!("search: {} match(es) for {query:?}", hits.len());
+    eprintln!("search: {} match(es) for {display_query:?}", hits.len());
 
     Ok(serde_json::json!({
-        "ok": true, "command": "search", "query": query, "matches": hits.len(),
+        "ok": true, "command": "search", "query": display_query, "matches": hits.len(), "redacted": redact,
         "outputs": [out_file.to_string_lossy()], "device": device
     }))
 }
@@ -2162,14 +2172,19 @@ fn run_app_files(cli: &Cli, password: Option<&str>, app: &str, format: &str, all
     }))
 }
 
-fn run_timeline(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+fn run_timeline(cli: &Cli, password: Option<&str>, format: &str, redact: bool) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "timeline")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export timeline"))?;
     let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
 
-    let events = timeline::finalize(collect_timeline_events(&backup));
+    let mut events = timeline::finalize(collect_timeline_events(&backup));
+    if redact {
+        for e in &mut events {
+            e.summary = redact::redact_pii(&e.summary);
+        }
+    }
     let rendered = match format {
         Format::Csv => format::timeline_csv(&events),
         Format::Json => format::timeline_json(&events),
@@ -2180,7 +2195,7 @@ fn run_timeline(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} timeline event(s) to {}", events.len(), out_file.display());
     Ok(serde_json::json!({
-        "ok": true, "command": "timeline", "count": events.len(),
+        "ok": true, "command": "timeline", "count": events.len(), "redacted": redact,
         "outputs": [out_file.to_string_lossy()], "device": device
     }))
 }
@@ -3048,7 +3063,7 @@ mod cli_tests {
         let a = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "apps", "-f", "csv"]).unwrap();
         assert!(matches!(a.command, Command::Apps { format } if format == "csv"));
         let t = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "timeline", "-f", "json"]).unwrap();
-        assert!(matches!(t.command, Command::Timeline { format } if format == "json"));
+        assert!(matches!(t.command, Command::Timeline { format, redact } if format == "json" && !redact));
         let s = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "stats", "-f", "json"]).unwrap();
         assert!(matches!(s.command, Command::Stats { format } if format == "json"));
         let ad = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "app-databases", "-f", "json"]).unwrap();
@@ -3101,13 +3116,18 @@ mod cli_tests {
     #[test]
     fn parses_search_query_and_format() {
         let s = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "search", "-q", "novák", "-f", "json"]).unwrap();
-        assert!(matches!(s.command, Command::Search { ref query, ref format } if query == "novák" && format == "json"));
+        assert!(matches!(s.command, Command::Search { ref query, ref format, redact } if query == "novák" && format == "json" && !redact));
+        // --redact flips the flag on for both search and timeline.
+        let r = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "search", "-q", "x", "-f", "json", "--redact"]).unwrap();
+        assert!(matches!(r.command, Command::Search { redact, .. } if redact));
+        let t = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "timeline", "-f", "html", "--redact"]).unwrap();
+        assert!(matches!(t.command, Command::Timeline { redact, .. } if redact));
     }
 
     #[test]
     fn search_rejects_empty_query() {
         let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "search", "-q", "  ", "-f", "json"]).unwrap();
-        let err = run_search(&cli, None, "  ", "json").unwrap_err();
+        let err = run_search(&cli, None, "  ", "json", false).unwrap_err();
         assert_eq!(err.kind, "usage");
     }
 

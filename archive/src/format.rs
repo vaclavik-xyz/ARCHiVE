@@ -1855,6 +1855,20 @@ mod tests {
         assert!(timeline_csv(&events).contains("timestamp,kind,summary"));
         assert!(timeline_json(&events).contains("\"kind\""));
 
+        // Guards the search --redact leak path: when run_search passes a redacted
+        // query + redacted snippets, the rendered HTML must not contain the raw
+        // identifier (title or row) yet must show the masked form.
+        let raw = "+420776452878";
+        let display = crate::redact::redact_pii(raw);
+        let hits = vec![crate::search::SearchHit {
+            store: "call".into(),
+            timestamp: None,
+            snippet: crate::redact::redact_pii("outgoing +420776452878 (42s)"),
+        }];
+        let html = search_html(&hits, &display);
+        assert!(!html.contains("420776452878"), "raw identifier leaked into redacted search HTML");
+        assert!(html.contains("••"));
+
         let deleted = vec![crate::recover_deleted::DeletedRecord {
             store: "messages".into(),
             source: "wal".into(),

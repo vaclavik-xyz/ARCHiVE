@@ -84,8 +84,8 @@ archive --backup <backup-dir> -o <out> mail -f html
 # Installed third-party apps (bundle ids) from the backup manifest
 archive --backup <backup-dir> -o <out> apps -f json
 
-# Unified chronological timeline merging every in-process extractor
-archive --backup <backup-dir> -o <out> timeline -f html
+# Unified chronological timeline merging every in-process extractor (--redact masks phone numbers/emails for sharing)
+archive --backup <backup-dir> -o <out> timeline -f html [--redact]
 
 # Activity dashboard: per-category event counts + date ranges (a view over the timeline)
 archive --backup <backup-dir> -o <out> stats -f html   # csv | json | html | pdf
@@ -103,7 +103,7 @@ archive --backup <backup-dir> -o <out> recover-deleted -f html   # --store messa
 archive --backup <backup-dir> -o <out> schema-check -f html   # csv | json | html | pdf
 
 # Case-file search: find one term (phone, name, keyword) across every record + the address book
-archive --backup <backup-dir> -o <out> search -q "+420776452878" -f html   # csv | json | html | pdf
+archive --backup <backup-dir> -o <out> search -q "+420776452878" -f html [--redact]   # csv | json | html | pdf
 
 # Combined SQLite export: all data in one queryable <out>/archive.sqlite (timeline + contacts + calls + whatsapp)
 archive --backup <backup-dir> -o <out> db-export
@@ -156,7 +156,8 @@ written under `<out>/messages`.
 - [x] reminders — csv, json, html: lists, items, due/completion, priority (Core Data store)
 - [x] mail — csv, json, html: local/POP3 `.emlx` messages (best-effort; usually absent on iOS)
 - [x] apps — csv, json, html: installed third-party app bundle ids (manifest-derived)
-- [x] timeline — csv, json, html: every in-process extractor merged into one chronological stream
+- [x] timeline — csv, json, html: every in-process extractor merged into one chronological stream; `--redact` masks phone numbers and email local parts (names kept) for shareable output
+- [x] search `--redact` · timeline `--redact` — mask the strongest identifiers (phone numbers → last 2 digits, email local part → first char) in the output so a report can be shared; matching still runs on the raw text
 - [x] stats — csv, json, html, pdf: activity dashboard (per-category event counts + date ranges; a view over the timeline)
 - [x] app-databases — csv, json, html, pdf: per-app database recoverability report (readable plain SQLite + table count vs encrypted/Core-Data/other); shows that many third-party messaging apps keep no readable store in the backup
 - [x] app-files — csv, json, html, pdf: extract a named app's document/media files from its `AppDomain-…`/`AppDomainGroup-…` containers (media only by default, `--all` for every file); recovers the photos/videos/voice messages that survive even when the message DB is excluded

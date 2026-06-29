@@ -70,6 +70,21 @@ fn contains_ci(haystack: &str, needle_lc: &str) -> bool {
     haystack.to_lowercase().contains(needle_lc)
 }
 
+/// Apply `--redact` to the search *output*: returns the display query and hits the
+/// caller should render and report. When `redact` is true, the echoed query and
+/// every hit snippet are masked by [`crate::redact::redact_pii`] (so a redacted
+/// report leaks neither the searched identifier nor the matched ones); when false
+/// they pass through unchanged. Matching has already run on the raw query upstream.
+pub fn apply_redaction(query: &str, mut hits: Vec<SearchHit>, redact: bool) -> (String, Vec<SearchHit>) {
+    if !redact {
+        return (query.to_string(), hits);
+    }
+    for h in &mut hits {
+        h.snippet = crate::redact::redact_pii(&h.snippet);
+    }
+    (crate::redact::redact_pii(query), hits)
+}
+
 /// Search `records` and the address book `contacts` for `query` (case-insensitive
 /// substring of each record's `searchable` text). An empty/whitespace query
 /// matches nothing. Record hits come first in their existing order, then contacts.
@@ -172,6 +187,20 @@ mod tests {
         // Querying a category name must not return every record of that category.
         let records = vec![rec("2020-01-06T00:00:00+00:00", "call", "outgoing Jan (42s)")];
         assert!(search(&records, &[], "call").is_empty());
+    }
+
+    #[test]
+    fn apply_redaction_masks_query_and_snippets_when_on() {
+        let hits = vec![SearchHit { store: "call".into(), timestamp: None, snippet: "outgoing +420776452878 (42s)".into() }];
+        // redact on → query and snippets masked, no raw identifier survives.
+        let (q, redacted) = apply_redaction("+420776452878", hits.clone(), true);
+        assert_eq!(q, "+••••••••••78");
+        assert!(!redacted[0].snippet.contains("420776452878"));
+        assert!(redacted[0].snippet.contains("••"));
+        // redact off → passes through verbatim.
+        let (q2, plain) = apply_redaction("+420776452878", hits, false);
+        assert_eq!(q2, "+420776452878");
+        assert!(plain[0].snippet.contains("420776452878"));
     }
 
     #[test]
