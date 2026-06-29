@@ -85,7 +85,14 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Call>> {
 
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], |row| {
-        let address: Option<Vec<u8>> = row.get(0)?;
+        // ZADDRESS is a phone number stored as TEXT on some iOS versions (e.g. 16)
+        // and as a BLOB on others, so read it type-tolerantly rather than fixing a
+        // Rust type (a fixed `Vec<u8>` errors on a Text column).
+        let address: String = match row.get_ref(0)? {
+            rusqlite::types::ValueRef::Text(t) => decode_address(Some(t.to_vec())),
+            rusqlite::types::ValueRef::Blob(b) => decode_address(Some(b.to_vec())),
+            _ => String::new(),
+        };
         let date: Option<f64> = row.get(1)?;
         let duration: Option<f64> = row.get(2)?;
         let originated: Option<i64> = row.get(3)?;
@@ -95,7 +102,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Call>> {
         let location: Option<String> = row.get(7)?;
         let country: Option<String> = row.get(8)?;
         Ok(Call {
-            number: decode_address(address),
+            number: address,
             date: date.and_then(cocoa_to_iso).unwrap_or_default(),
             duration_seconds: duration.unwrap_or(0.0).round() as i64,
             direction: if originated == Some(1) { "outgoing" } else { "incoming" }.to_string(),
@@ -193,5 +200,25 @@ mod tests {
         assert_eq!(calls[0].location, None);
         assert_eq!(calls[0].country, None);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parses_text_zaddress() {
+        // iOS 16 stores ZADDRESS as TEXT, not BLOB. Reading it must not error.
+        let dir = std::env::temp_dir().join(format!("be-calls-text-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("CallHistory.storedata");
+        let _ = std::fs::remove_file(&db);
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE ZCALLRECORD (Z_PK INTEGER PRIMARY KEY, ZDATE REAL, ZDURATION REAL, ZADDRESS TEXT, ZORIGINATED INTEGER, ZANSWERED INTEGER, ZCALLTYPE INTEGER);
+             INSERT INTO ZCALLRECORD VALUES (1, 100.0, 10.0, '+420776452878', 1, 1, 1);",
+        )
+        .unwrap();
+        drop(conn);
+
+        let calls = parse(&db).unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].number, "+420776452878");
     }
 }
