@@ -831,6 +831,24 @@ and holds personal data; the JSON envelope carries only per-table row counts
 (`tables: { timeline, contacts, calls, whatsapp }`), `outputs` and `device` —
 never the rows. Read-only on the backup.
 
+### `diff` — file-level diff of two backups
+
+```
+archive --backup <A> [--password <PW>] -o <OUT> diff --against <B> -f <FORMAT>
+```
+
+`--backup` is backup **A** (older), `--against <B>` the second (newer) backup;
+both open with the same `--password`. `FORMAT` is `csv | json | html | pdf`; writes
+`<OUT>/backup-diff.<ext>`. Compares the two manifests keyed by `(domain,
+relative_path)` and reports each file as `added` (only in B), `removed` (only in A),
+or `modified` (present in both, logical size changed) — unchanged files are counted,
+not listed. Each change row is `{ change, domain, path, size_a, size_b }`. The size
+is the manifest's logical size, so the comparison works for **encrypted** backups
+too (it never compares on-disk ciphertext lengths). It is a *structural* diff: it
+flags that a file's content changed, not what changed inside it. The envelope
+carries `summary: { added, removed, modified, unchanged }`, `outputs` and `device`.
+Read-only on both backups.
+
 ### `wifi` — recover saved Wi-Fi passwords
 
 ```

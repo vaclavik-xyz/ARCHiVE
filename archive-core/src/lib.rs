@@ -73,6 +73,17 @@ pub struct IntegrityReport {
     pub mismatch_sample: Vec<String>,
 }
 
+/// One regular-file entry in a backup's manifest (see [`Backup::file_entries`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileEntry {
+    /// The entry's backup domain (e.g. `HomeDomain`, `CameraRollDomain`).
+    pub domain: String,
+    /// The file's path relative to its domain.
+    pub relative_path: String,
+    /// The file's logical size in bytes, from the manifest.
+    pub size: u64,
+}
+
 /// Whether a Unix `mode` word denotes a regular file (vs a directory or symlink).
 fn is_regular_file(mode: u64) -> bool {
     const S_IFMT: u64 = 0o170000;
@@ -253,6 +264,24 @@ impl Backup {
             .collect();
         paths.sort();
         Ok(paths)
+    }
+
+    /// Every regular file in the backup as a [`FileEntry`] (`domain`,
+    /// `relative_path`, `size`), with directories and symlinks excluded. The size
+    /// is the manifest's logical size, so it is comparable across encrypted and
+    /// unencrypted backups (it is not the on-disk ciphertext length). Read-only
+    /// (manifest scan only; decrypts nothing) — the basis for diffing two backups.
+    pub fn file_entries(&self) -> Result<Vec<FileEntry>, BackupError> {
+        let entries = self.raw.entries().map_err(|why| BackupError::Open(why.to_string()))?;
+        Ok(entries
+            .iter()
+            .filter(|e| is_regular_file(e.metadata.mode))
+            .map(|e| FileEntry {
+                domain: e.domain.clone(),
+                relative_path: e.relative_path.clone(),
+                size: e.metadata.size,
+            })
+            .collect())
     }
 
     /// Distinct third-party app bundle identifiers installed on the device,
