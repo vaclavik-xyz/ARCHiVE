@@ -171,6 +171,19 @@ fn looks_phone(s: &str) -> bool {
     digits >= 7 && s.chars().all(|c| c.is_ascii_digit() || " +-().".contains(c))
 }
 
+/// Whether a decoded text reads as genuine human content rather than carved binary
+/// that merely happened to be valid UTF-8. Rejects strings dominated (≥20%) by
+/// control / non-printable characters. Gates the *soft* text anchors (names,
+/// titles, note snippets, message bodies) so a random byte run can't mint a record.
+fn looks_texty(s: &str) -> bool {
+    let total = s.chars().count();
+    if total == 0 {
+        return false;
+    }
+    let bad = s.chars().filter(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r')).count();
+    bad * 5 < total
+}
+
 /// A text that looks like a browser URL — the (soft) anchor for Safari history.
 fn looks_url(s: &str) -> bool {
     (s.contains("://") || s.starts_with("www."))
@@ -218,7 +231,7 @@ fn messages_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
                 .values
                 .iter()
                 .filter_map(as_text)
-                .filter(|t| !is_guid(t) && !t.is_empty())
+                .filter(|t| !is_guid(t) && !t.is_empty() && looks_texty(t))
                 .max_by_key(|t| t.chars().count());
             let summary = match text {
                 Some(t) => trunc(t, 200),
@@ -281,6 +294,12 @@ fn calls_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
                     .map(str::to_string),
                 _ => None,
             });
+            // Corroboration: a lone in-range REAL is too weak an anchor on its own
+            // (any date-shaped float would mint a phantom call). Require a second
+            // call signal — a number, or a plausible duration (0s for a missed call).
+            if address.is_none() && duration.is_none() {
+                return None;
+            }
             let mut summary = address.unwrap_or_else(|| "(unknown number)".into());
             if let Some(d) = duration {
                 summary = format!("{summary} ({}s)", d.round() as i64);
@@ -325,7 +344,11 @@ fn contacts_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
                     if !phones.contains(&t) {
                         phones.push(t);
                     }
-                } else if t.chars().count() <= 64 && t.chars().any(char::is_alphabetic) && !names.contains(&t) {
+                } else if t.chars().count() <= 64
+                    && t.chars().any(char::is_alphabetic)
+                    && looks_texty(t)
+                    && !names.contains(&t)
+                {
                     names.push(t);
                 }
             }
@@ -372,7 +395,7 @@ fn notes_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
                 .values
                 .iter()
                 .filter_map(as_text)
-                .filter(|t| t.chars().count() >= 2 && t.chars().any(char::is_alphabetic))
+                .filter(|t| t.chars().count() >= 2 && t.chars().any(char::is_alphabetic) && looks_texty(t))
                 .collect();
             if texts.is_empty() {
                 return None;
@@ -405,13 +428,19 @@ fn calendar_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
                 .values
                 .iter()
                 .filter_map(as_text)
-                .filter(|t| t.chars().any(char::is_alphabetic))
+                .filter(|t| t.chars().any(char::is_alphabetic) && looks_texty(t))
                 .max_by_key(|t| t.chars().count())?;
             let location = r
                 .values
                 .iter()
                 .filter_map(as_text)
-                .find(|t| *t != title && t.chars().any(char::is_alphabetic));
+                .find(|t| *t != title && t.chars().any(char::is_alphabetic) && looks_texty(t));
+            let date = min_cocoa_date(r);
+            // Corroboration: a lone alphabetic word is too weak to be an event on
+            // its own. Require a second signal — a Cocoa date or a location text.
+            if date.is_none() && location.is_none() {
+                return None;
+            }
             let mut summary = trunc(title, 160);
             if let Some(loc) = location {
                 summary = format!("{summary} · {}", trunc(loc, 60));
@@ -421,7 +450,7 @@ fn calendar_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
                 truncated: r.truncated,
-                date: min_cocoa_date(r),
+                date,
                 summary,
             })
         })
@@ -676,6 +705,36 @@ mod tests {
         // A carved AddressBook label literal with nothing else is noise → dropped.
         let label_only = vec![rec(CarveSource::Unallocated, vec![CarvedValue::Text("_$!<Work>!$_".into())])];
         assert!(recover("contacts", &label_only, &LiveKeys::default()).is_empty());
+    }
+
+    #[test]
+    fn anchor_upgrade_requires_corroboration() {
+        // calls: a lone in-range date REAL with neither a number nor a duration is
+        // an uncorroborated coincidence → dropped.
+        let lone_date = vec![rec(CarveSource::Freelist, vec![CarvedValue::Real(600_000_000.0)])];
+        assert!(recover("calls", &lone_date, &LiveKeys::default()).is_empty());
+        // ...but a date + duration (a missed call whose number didn't survive) is
+        // corroborated and recovered.
+        let missed = vec![rec(CarveSource::Freelist, vec![CarvedValue::Real(600_000_000.0), CarvedValue::Real(0.0)])];
+        let out = recover("calls", &missed, &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert!(out[0].summary.contains("unknown number"));
+
+        // calendar: a lone alphabetic title with no date and no location is noise.
+        let bare = vec![rec(CarveSource::Freelist, vec![CarvedValue::Text("Schůzka".into())])];
+        assert!(recover("calendar", &bare, &LiveKeys::default()).is_empty());
+        // ...but a title + location (no date) is corroborated.
+        let titled = vec![rec(CarveSource::Freelist, vec![CarvedValue::Text("Oběd".into()), CarvedValue::Text("Praha".into())])];
+        assert_eq!(recover("calendar", &titled, &LiveKeys::default()).len(), 1);
+    }
+
+    #[test]
+    fn anchor_upgrade_rejects_binary_text() {
+        // A carved "title" dominated by control bytes is binary noise, not a real
+        // event — dropped even though it decoded as valid UTF-8 and carries a date.
+        let junk = "\u{1}\u{2}\u{3}\u{4}ab".to_string(); // 4 control + 2 letters
+        let records = vec![rec(CarveSource::Freelist, vec![CarvedValue::Text(junk), CarvedValue::Real(600_000_000.0)])];
+        assert!(recover("calendar", &records, &LiveKeys::default()).is_empty());
     }
 
     #[test]
