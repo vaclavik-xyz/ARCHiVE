@@ -1413,7 +1413,7 @@ fn live_keys(db_path: &std::path::Path, store: &str) -> recover_deleted::LiveKey
         "contacts" => rowid_live_keys(&conn, "SELECT ROWID FROM ABPerson", &mut keys.rowids),
         "notes" => rowid_live_keys(&conn, "SELECT Z_PK FROM ZICCLOUDSYNCINGOBJECT", &mut keys.rowids),
         "calendar" => rowid_live_keys(&conn, "SELECT ROWID FROM CalendarItem", &mut keys.rowids),
-        "safari" => rowid_live_keys(&conn, "SELECT ROWID FROM history_visits", &mut keys.rowids),
+        "safari" => safari_live_keys(&conn, &mut keys),
         _ => Ok(()),
     };
     keys
@@ -1436,6 +1436,19 @@ fn rowid_live_keys(conn: &rusqlite::Connection, sql: &str, out: &mut std::collec
     let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
     for id in rows.flatten() {
         out.insert(id);
+    }
+    Ok(())
+}
+
+/// Live Safari keys: `history_visits` rowids plus `history_items` URLs. Safari
+/// recovers URL-only rows (from `history_items`, a separate rowid space), so a
+/// live row is excluded by its URL rather than by rowid.
+fn safari_live_keys(conn: &rusqlite::Connection, keys: &mut recover_deleted::LiveKeys) -> rusqlite::Result<()> {
+    rowid_live_keys(conn, "SELECT ROWID FROM history_visits", &mut keys.rowids)?;
+    let mut stmt = conn.prepare("SELECT url FROM history_items")?;
+    let rows = stmt.query_map([], |r| r.get::<_, Option<String>>(0))?;
+    for u in rows.flatten().flatten() {
+        keys.urls.insert(u);
     }
     Ok(())
 }

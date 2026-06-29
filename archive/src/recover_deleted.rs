@@ -30,6 +30,9 @@ pub struct LiveKeys {
     pub rowids: HashSet<i64>,
     /// Live message GUIDs (extra safety against rowid reuse), messages only.
     pub guids: HashSet<String>,
+    /// Live Safari history URLs (`history_items.url`). Safari recovers URL-only
+    /// rows that carry no usable rowid key, so live URLs are excluded by content.
+    pub urls: HashSet<String>,
 }
 
 /// One recovered deleted row, normalised across stores (mirrors the timeline
@@ -92,6 +95,16 @@ fn max_cocoa_date(r: &CarvedRecord) -> Option<String> {
         .iter()
         .filter_map(cocoa_seconds)
         .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .and_then(datetime::cocoa_to_iso)
+}
+
+/// The smallest plausible Cocoa-seconds date among a record's values, as ISO
+/// 8601. Used for calendar events, whose start precedes the end/other dates.
+fn min_cocoa_date(r: &CarvedRecord) -> Option<String> {
+    r.values
+        .iter()
+        .filter_map(cocoa_seconds)
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .and_then(datetime::cocoa_to_iso)
 }
 
@@ -288,7 +301,9 @@ fn notes_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
 
 /// Calendar.sqlitedb (`CalendarItem`): the event title (`summary`) is plain text,
 /// `start_date` a Cocoa-seconds REAL, `location` more text. Anchors on the longest
-/// alphabetic title; attaches the location and the event date.
+/// alphabetic title; attaches the location and the event date. The row holds
+/// several dates (start/end/created); the **earliest** plausible one approximates
+/// the start, so we report that rather than the end.
 fn calendar_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
     records
         .iter()
@@ -315,7 +330,7 @@ fn calendar_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
                 store: "calendar".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
-                date: max_cocoa_date(r),
+                date: min_cocoa_date(r),
                 summary,
             })
         })
@@ -333,6 +348,10 @@ fn safari_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> 
                 return None;
             }
             let url = r.values.iter().filter_map(as_text).find(|t| looks_url(t));
+            // A URL still present in the live `history_items` table is not deleted.
+            if url.is_some_and(|u| live.urls.contains(u)) {
+                return None;
+            }
             let date = max_cocoa_date(r);
             let title = r
                 .values
@@ -578,6 +597,34 @@ mod tests {
         assert!(recover("calendar", &cal, &LiveKeys::default()).is_empty());
         let saf = vec![rec_n(None, CarveSource::Wal, vec![CarvedValue::Text("https://x.test/a".into())])];
         assert!(recover("safari", &saf, &LiveKeys::default()).is_empty());
+    }
+
+    #[test]
+    fn calendar_reports_start_not_end_date() {
+        // A row carrying both a start and a (later) end date reports the start.
+        let start = 600_000_000.0; // 2020-01-06
+        let end = 631_000_000.0; // ~11 months later
+        let records = vec![rec_n(
+            Some(4),
+            CarveSource::Freelist,
+            vec![CarvedValue::Text("Dovolená".into()), CarvedValue::Real(end), CarvedValue::Real(start)],
+        )];
+        let out = recover("calendar", &records, &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert!(out[0].date.as_deref().unwrap().starts_with("2020-01-06"));
+    }
+
+    #[test]
+    fn safari_excludes_live_history_item_url() {
+        let live_url = "https://live.example.com/";
+        let mut live = LiveKeys::default();
+        live.urls.insert(live_url.into());
+        // The same URL carved from a free region is still live → dropped.
+        let live_row = vec![rec_n(Some(2), CarveSource::Freelist, vec![CarvedValue::Text(live_url.into())])];
+        assert!(recover("safari", &live_row, &live).is_empty());
+        // A different (genuinely deleted) URL is kept.
+        let gone = vec![rec_n(Some(3), CarveSource::Freelist, vec![CarvedValue::Text("https://gone.example.com/x".into())])];
+        assert_eq!(recover("safari", &gone, &live).len(), 1);
     }
 
     #[test]
