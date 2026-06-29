@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Uložené Wi-Fi sítě</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}code{font-family:ui-monospace,Menlo,monospace}</style></head><body>
+<h1>Uložené Wi-Fi sítě ({{ networks.len() }})</h1>
+<p>Sítě, které si zařízení pamatuje. Hesla zde <strong>nejsou</strong> — pro hesla použij příkaz <code>wifi</code> (jen šifrované zálohy).</p>
+<table>
+<tr><th>Síť (SSID)</th><th>BSSID</th><th>Naposledy připojeno</th><th>Skrytá</th><th>Zabezpečení</th></tr>
+{% for n in networks %}
+<tr>
+<td>{{ n.ssid }}</td><td><code>{{ n.bssid }}</code></td><td>{{ n.last_joined }}</td>
+<td>{% if let Some(v) = n.hidden %}{% if v %}ano{% else %}ne{% endif %}{% endif %}</td>
+<td>{{ n.security }}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>

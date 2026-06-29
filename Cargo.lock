@@ -124,6 +124,7 @@ dependencies = [
  "clap",
  "csv",
  "flate2",
+ "plist",
  "rusqlite",
  "serde",
  "serde_json",

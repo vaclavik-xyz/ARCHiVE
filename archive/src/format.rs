@@ -219,6 +219,36 @@ pub fn accounts_html(items: &[crate::accounts::Account]) -> String {
     AccountsTemplate { accounts: items }.render().unwrap()
 }
 
+pub fn known_networks_csv(items: &[crate::known_networks::KnownNetwork]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["ssid", "bssid", "last_joined", "hidden", "security"]).unwrap();
+    for n in items {
+        wtr.write_record([
+            n.ssid.clone(),
+            n.bssid.clone(),
+            n.last_joined.clone(),
+            n.hidden.map(|v| v.to_string()).unwrap_or_default(),
+            n.security.clone(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn known_networks_json(items: &[crate::known_networks::KnownNetwork]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "known-networks.html")]
+struct KnownNetworksTemplate<'a> {
+    networks: &'a [crate::known_networks::KnownNetwork],
+}
+
+pub fn known_networks_html(items: &[crate::known_networks::KnownNetwork]) -> String {
+    KnownNetworksTemplate { networks: items }.render().unwrap()
+}
+
 pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([
