@@ -711,9 +711,10 @@ schema-less parser (`archive-core::carve`), then attributes each carved record t
 a store via heuristic signatures: `messages` (`sms.db`, anchored by a 36-char
 GUID), `calls` (`CallHistory.storedata`, anchored by a Cocoa-seconds REAL date),
 `contacts` (`AddressBook.sqlitedb` / `ABMultiValue`, softest: each value is
-classified into a name/org field, an email, a phone, or an AddressBook label and
-reassembled as `Name · Org — phone, email`; a lone deleted phone/email value is
-recovered with its label, `_$!<Mobile>!$_` → `(mobile)`), `notes`
+classified into a name/org field, an email, or a phone and reassembled as
+`Name · Org — phone, email`; a lone deleted phone/email value with no name is
+recovered too — labels live in a separate `ABMultiValueLabel` table, so a carved
+label literal is dropped as noise, not annotated onto a handle), `notes`
 (`NoteStore.sqlite`, title/snippet texts + Cocoa date — the body is gzipped
 protobuf and not recovered here), `calendar` (`Calendar.sqlitedb`, event title +
 location + earliest associated Cocoa date — schema-less carving cannot single out

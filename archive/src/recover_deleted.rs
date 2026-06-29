@@ -142,13 +142,12 @@ fn looks_addressy(s: &str) -> bool {
         && (s.contains('@') || s.bytes().filter(|b| b.is_ascii_digit()).count() >= 3)
 }
 
-/// AddressBook stores a multi-value's label as `_$!<Home>!$_`. Return the inner
-/// label, lower-cased (`home`/`work`/`mobile`/…), or `None` for any other text.
-/// Used to (a) keep label junk out of the recovered name and (b) annotate a
-/// recovered phone/email with its kind.
-fn clean_ab_label(s: &str) -> Option<String> {
-    let inner = s.strip_prefix("_$!<")?.strip_suffix(">!$_")?;
-    (!inner.is_empty()).then(|| inner.to_ascii_lowercase())
+/// Whether a text is an AddressBook label literal (`_$!<Home>!$_`). These appear
+/// in the separate `ABMultiValueLabel` table — a deleted phone/email row stores
+/// only an integer FK to it, not this string — so when one is carved we treat it
+/// as noise to keep out of the recovered name, never as contact content.
+fn is_ab_label(s: &str) -> bool {
+    s.len() > 8 && s.starts_with("_$!<") && s.ends_with(">!$_")
 }
 
 /// A text that looks like an email address (an `@` with a dotted domain after it).
@@ -300,11 +299,12 @@ fn calls_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
 
 /// AddressBook (`ABPerson` / `ABMultiValue`): the softest signature (no strong
 /// anchor). Rather than blindly joining every text, classify each value into a
-/// name/org field, an email, a phone, or an AddressBook label, then reassemble a
-/// structured contact: `Name · Org — phone, email`. A lone deleted phone/email
-/// value (an `ABMultiValue` row, no name) is now recovered too — annotated with
-/// its label (`_$!<Mobile>!$_` → `(mobile)`) — instead of dropped as "no
-/// alphabetic text". Still best-effort/noisier than the anchored stores.
+/// name/org field, an email, or a phone, then reassemble a structured contact:
+/// `Name · Org — phone, email`. A lone deleted phone/email value (an
+/// `ABMultiValue` row, no name) is now recovered too, instead of dropped as "no
+/// alphabetic text". Labels live in a separate `ABMultiValueLabel` table (an
+/// integer FK in the value row), so a carved label literal is treated as noise,
+/// not annotated onto a handle. Still best-effort/noisier than the anchored stores.
 fn contacts_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
     records
         .iter()
@@ -312,15 +312,11 @@ fn contacts_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
             if excluded_anchorless(r, live) {
                 return None;
             }
-            let (mut names, mut emails, mut phones, mut labels): (
-                Vec<&str>,
-                Vec<&str>,
-                Vec<&str>,
-                Vec<String>,
-            ) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            let (mut names, mut emails, mut phones): (Vec<&str>, Vec<&str>, Vec<&str>) =
+                (Vec::new(), Vec::new(), Vec::new());
             for t in r.values.iter().filter_map(as_text).filter(|t| !t.is_empty()) {
-                if let Some(lbl) = clean_ab_label(t) {
-                    labels.push(lbl);
+                if is_ab_label(t) {
+                    continue;
                 } else if looks_email(t) {
                     if !emails.contains(&t) {
                         emails.push(t);
@@ -336,16 +332,12 @@ fn contacts_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
             if names.is_empty() && emails.is_empty() && phones.is_empty() {
                 return None;
             }
-            // Reassemble the handles. A single phone in an `ABMultiValue` row
-            // carries exactly one label — annotate it; otherwise list handles plain
-            // (we can't reliably pair labels to values in misframed multi-value soup).
+            // Reassemble: name/org fields, then the contact handles (phones, then
+            // emails). We can't pair labels to values across the carved soup, so
+            // handles are listed plain.
             let mut handles: Vec<String> = Vec::new();
-            if phones.len() == 1 && emails.is_empty() && labels.len() == 1 {
-                handles.push(format!("{} ({})", phones[0], labels[0]));
-            } else {
-                handles.extend(phones.iter().map(|p| (*p).to_string()));
-                handles.extend(emails.iter().map(|e| (*e).to_string()));
-            }
+            handles.extend(phones.iter().map(|p| (*p).to_string()));
+            handles.extend(emails.iter().map(|e| (*e).to_string()));
             let name_part = names.join(" · ");
             let summary = match (name_part.is_empty(), handles.is_empty()) {
                 (false, false) => format!("{name_part} — {}", handles.join(", ")),
@@ -665,21 +657,23 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].summary, "Jan · Novák — +420776452878, jan@example.com");
 
-        // ABMultiValue row: a lone deleted phone with its label, no name — recovered
-        // now (the old "needs an alphabetic text" rule dropped it).
+        // ABMultiValue row in its real shape: record_id + label id (both integer
+        // FKs) + the phone value, no name — recovered now (the old "needs an
+        // alphabetic text" rule dropped it). The label literal lives in a separate
+        // ABMultiValueLabel table, so there is no (label) annotation.
         let phone_only = vec![rec(
             CarveSource::Unallocated,
             vec![
                 CarvedValue::Int(42), // record_id FK, ignored
+                CarvedValue::Int(3),  // label id FK → ABMultiValueLabel, ignored
                 CarvedValue::Text("+420776452878".into()),
-                CarvedValue::Text("_$!<Mobile>!$_".into()),
             ],
         )];
         let out = recover("contacts", &phone_only, &LiveKeys::default());
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].summary, "+420776452878 (mobile)");
+        assert_eq!(out[0].summary, "+420776452878");
 
-        // An AddressBook label with nothing else is noise → dropped.
+        // A carved AddressBook label literal with nothing else is noise → dropped.
         let label_only = vec![rec(CarveSource::Unallocated, vec![CarvedValue::Text("_$!<Work>!$_".into())])];
         assert!(recover("contacts", &label_only, &LiveKeys::default()).is_empty());
     }
