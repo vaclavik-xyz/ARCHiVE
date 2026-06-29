@@ -425,6 +425,27 @@ pub fn recover(store: &str, records: &[CarvedRecord], live: &LiveKeys) -> Vec<De
             }
         }
     }
+    // Truncation can also shorten the recovered fields themselves (the body was
+    // cut), so the partial and complete copies of one row carry *different*
+    // summaries and escape the exact-key dedup above. Drop a still-truncated row
+    // when a complete copy of the *same* row (same rowid, and whose summary begins
+    // with the truncated one — i.e. the truncated value is a genuine prefix)
+    // exists. The prefix guard avoids collapsing two distinct rows that merely
+    // share a reused rowid.
+    let complete: Vec<(i64, String)> = deduped
+        .iter()
+        .filter(|r| !r.truncated)
+        .filter_map(|r| r.rowid.map(|id| (id, r.summary.clone())))
+        .collect();
+    deduped.retain(|r| {
+        if !r.truncated {
+            return true;
+        }
+        match r.rowid {
+            Some(id) => !complete.iter().any(|(cid, csum)| *cid == id && csum.starts_with(&r.summary)),
+            None => true,
+        }
+    });
     deduped
 }
 
@@ -673,6 +694,26 @@ mod tests {
         let out = recover("messages", &[truncated, full], &LiveKeys::default());
         assert_eq!(out.len(), 1);
         assert!(!out[0].truncated);
+    }
+
+    #[test]
+    fn dedup_drops_truncated_prefix_of_complete_same_row() {
+        // Truncation shortened the body, so the two copies have different
+        // summaries; the partial body is a prefix of the complete one, same
+        // rowid → the truncated copy is dropped in favour of the complete one.
+        let g = "9B7E5F2A-1C3D-4E5F-8A9B-0C1D2E3F4A5B";
+        let partial = CarvedRecord { rowid: Some(7), source: CarveSource::Freelist, values: vec![CarvedValue::Text(g.into()), CarvedValue::Text("hello wor".into())], truncated: true };
+        let full = CarvedRecord { rowid: Some(7), source: CarveSource::Freeblock, values: vec![CarvedValue::Text(g.into()), CarvedValue::Text("hello world".into())], truncated: false };
+        let out = recover("messages", &[partial, full], &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].summary, "hello world");
+        assert!(!out[0].truncated);
+
+        // But a truncated row whose rowid has no complete counterpart is kept.
+        let lonely = CarvedRecord { rowid: Some(9), source: CarveSource::Freelist, values: vec![CarvedValue::Text(g.into()), CarvedValue::Text("orphan".into())], truncated: true };
+        let out = recover("messages", &[lonely], &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert!(out[0].truncated);
     }
 
     #[test]
