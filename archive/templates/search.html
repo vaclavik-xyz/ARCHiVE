@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Vyhledávání v záloze</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top}
+th{background:#f5f5f5}td.kind{white-space:nowrap}code{background:#f0f0f0;padding:1px 5px;border-radius:3px}
+.q{background:#fff3cd;padding:1px 4px;border-radius:3px}</style></head><body>
+<h1>Výsledky hledání „<span class="q">{{ query }}</span>" ({{ hits.len() }})</h1>
+{% if hits.is_empty() %}<p>Žádná shoda.</p>{% else %}
+<table>
+<tr><th>Čas</th><th>Zdroj</th><th>Záznam</th></tr>
+{% for h in hits %}
+<tr><td>{% if let Some(t) = h.timestamp.as_ref() %}{{ t }}{% endif %}</td>
+<td class="kind"><code>{{ h.store }}</code></td><td>{{ h.snippet }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+</body></html>

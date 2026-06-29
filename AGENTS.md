@@ -781,6 +781,27 @@ Use it to explain an unexpectedly-empty export: `drifted` means the schema moved
 `db_absent` means the data was never there. Read-only; never logs any row data,
 only schema names.
 
+### `search` — case-file search
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> search -q <TERM> -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html | pdf`; `-q`/`--query` is the term to find (a phone
+number, name, or keyword) and must be non-empty (else a usage error). Writes
+`<OUT>/search.<ext>`. Runs every in-process extractor, builds the unified timeline,
+and also loads the address book, then keeps the records whose one-line summary (or
+the contact's name/organisation/note/number/email) contains `TERM` as a
+case-insensitive substring. Each hit is `{ store (the source category: call,
+whatsapp, note, safari, contacts, …), timestamp (ISO 8601 UTC or null), snippet }`,
+timeline hits in chronological order followed by contact hits. **The match snippets
+are personal data and are written only to the output file** — never to stderr; the
+stdout envelope carries only `query` (the caller's own term), `matches` (the count),
+`outputs`, and `device`. Best-effort: it searches the salient summaries the timeline
+builds (message bodies, call numbers, titles, URLs, resolved names), so it answers
+"what mentions X" rather than performing a full-text index of every column.
+Read-only.
+
 ### `wifi` — recover saved Wi-Fi passwords
 
 ```

@@ -26,6 +26,7 @@ mod recover_deleted;
 mod reminders;
 mod safari;
 mod schema_check;
+mod search;
 mod sqlite_util;
 mod stats;
 mod timeline;
@@ -279,6 +280,16 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Case-file search: find one term across every in-process record (timeline)
+    /// and the address book. Case-insensitive substring.
+    Search {
+        /// The term to search for (phone, name, keyword).
+        #[arg(long, short = 'q')]
+        query: String,
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Recover saved Wi-Fi passwords from the keychain (encrypted backups only).
     Wifi {
         /// Output format: csv, json, html (no pdf — avoids a plaintext sidecar).
@@ -413,6 +424,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::AppFiles { app, format, all } => run_app_files(&cli, password.as_deref(), app, format, *all),
         Command::RecoverDeleted { format, store } => run_recover_deleted(&cli, password.as_deref(), format, store),
         Command::SchemaCheck { format } => run_schema_check(&cli, password.as_deref(), format),
+        Command::Search { query, format } => run_search(&cli, password.as_deref(), query, format),
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
         Command::KeychainInventory { format } => run_keychain_inventory(&cli, password.as_deref(), format),
@@ -1835,6 +1847,39 @@ fn run_stats(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
     }))
 }
 
+// Case-file search across every in-process record + the address book. Read-only.
+// Match snippets contain personal data, so they are written only to the output
+// file — never logged to stderr (only the count and the user's own query are).
+fn run_search(cli: &Cli, password: Option<&str>, query: &str, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "search")?;
+    if query.trim().is_empty() {
+        return Err(AppError::usage("--query must not be empty"));
+    }
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export search results"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let events = collect_timeline_events(&backup);
+    let contacts = opt_or_log(load_contacts(&backup), "contacts").unwrap_or_default();
+    let hits = search::search(&events, &contacts, query);
+
+    let rendered = match format {
+        Format::Csv => format::search_csv(&hits),
+        Format::Json => format::search_json(&hits),
+        Format::Html | Format::Pdf => format::search_html(&hits, query),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("search.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("search: {} match(es) for {query:?}", hits.len());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "search", "query": query, "matches": hits.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
 /// Read the first `n` bytes of a file (for magic-byte sniffing), tolerant of
 /// short files / open failures.
 fn file_head(path: &std::path::Path, n: usize) -> Vec<u8> {
@@ -2931,6 +2976,19 @@ mod cli_tests {
     fn schema_check_rejects_vcf() {
         let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "schema-check", "-f", "vcf"]).unwrap();
         let err = run_schema_check(&cli, None, "vcf").unwrap_err();
+        assert_eq!(err.kind, "usage");
+    }
+
+    #[test]
+    fn parses_search_query_and_format() {
+        let s = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "search", "-q", "novák", "-f", "json"]).unwrap();
+        assert!(matches!(s.command, Command::Search { ref query, ref format } if query == "novák" && format == "json"));
+    }
+
+    #[test]
+    fn search_rejects_empty_query() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "search", "-q", "  ", "-f", "json"]).unwrap();
+        let err = run_search(&cli, None, "  ", "json").unwrap_err();
         assert_eq!(err.kind, "usage");
     }
 

@@ -991,6 +991,32 @@ pub fn timeline_html(items: &[crate::timeline::Event]) -> String {
     TimelineTemplate { events: items }.render().unwrap()
 }
 
+// --- Case-file search -----------------------------------------------------
+
+pub fn search_csv(items: &[crate::search::SearchHit]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["store", "timestamp", "snippet"]).unwrap();
+    for h in items {
+        wtr.write_record([h.store.clone(), h.timestamp.clone().unwrap_or_default(), h.snippet.clone()]).unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn search_json(items: &[crate::search::SearchHit]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "search.html")]
+struct SearchTemplate<'a> {
+    hits: &'a [crate::search::SearchHit],
+    query: &'a str,
+}
+
+pub fn search_html(items: &[crate::search::SearchHit], query: &str) -> String {
+    SearchTemplate { hits: items, query }.render().unwrap()
+}
+
 // --- Recovered deleted records --------------------------------------------
 
 pub fn deleted_csv(items: &[crate::recover_deleted::DeletedRecord]) -> String {
