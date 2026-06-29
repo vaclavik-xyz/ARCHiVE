@@ -47,6 +47,9 @@ archive --backup <backup-dir> -o <out> bluetooth-devices -f html   # csv | json 
 # Recorded location history from the routined "Significant Locations" DB (usually excluded from standard backups)
 archive --backup <backup-dir> -o <out> significant-locations -f html   # csv | json | html | pdf
 
+# The user's custom keyboard words (LocalDictionary "Add to Dictionary" entries)
+archive --backup <backup-dir> -o <out> keyboard-lexicon -f html   # csv | json | html | pdf
+
 archive --backup <backup-dir> -o <out> voicemail -f json   # csv | json | html
 
 # Extract voicemail metadata + audio (raw .amr; pass --audio-format m4a|wav to transcode via ffmpeg)
@@ -157,6 +160,7 @@ written under `<out>/messages`.
 - [x] device-usage — csv, json, html, pdf: per-app foreground time + sessions from CoreDuet's `knowledgeC.db` (`/app/usage` stream); the store is often excluded from iOS 16+ backups, then reports an honest 0
 - [x] bluetooth-devices — csv, json, html, pdf: paired, classic and previously-seen Bluetooth devices (name, address, resolved identity address) from the LE `com.apple.MobileBluetooth.ledevices.{paired,other}.db` databases and the classic `com.apple.MobileBluetooth.devices.plist`; the DBs' last-seen/connection columns are device-relative counters (not a wall-clock epoch) and are deliberately not exported as dates
 - [x] significant-locations — csv, json, html, pdf: recorded location-fix history (timestamp, latitude/longitude, altitude, accuracy, speed) from the routined `Cache.sqlite`/`cloud.sqlite`/`local.sqlite` (`ZRTCLLOCATIONMO`) — the store behind iOS *Significant Locations*. The routined database lives under `Library/Caches`, which iOS excludes from ordinary iTunes/Finder backups, so this usually reports an honest 0; it still recovers history from full filesystem extractions that include the caches
+- [x] keyboard-lexicon — csv, json, html, pdf: the user's **custom** keyboard words from `Library/Keyboard/LocalDictionary` (the entries added via "Add to Dictionary"). Format-tolerant (property list, plain text, or a printable-run carve). This is the user-curated word list, *not* the learned statistical typing model (which is internal markers, not a recoverable vocabulary — see below); the file is empty on devices where the owner never added a custom word
 - [x] voicemail — csv, json, html (metadata) + audio extraction (`--audio`, raw `.amr` or ffmpeg `m4a`/`wav`)
 - [x] voice-memos — csv, json, html (metadata) + audio extraction (native copy by default, or ffmpeg `m4a`/`wav`)
 - [x] safari-history · safari-bookmarks · calendar — csv, json, html
@@ -197,12 +201,14 @@ because they cannot be recovered *correctly* from a standard encrypted
 iTunes/Finder backup — the project prefers an honest gap over code that emits
 misleading or unverifiable data:
 
-- **Keyboard learned-words lexicon** — the legacy clean word list
-  (`<lang>-dynamic-text.dat`) is gone on modern iOS; its replacement,
+- **Keyboard *learned* typing model** — the user's manually-added words *are*
+  recovered (see `keyboard-lexicon` above, from `LocalDictionary`), but the
+  *learned* model is not. The legacy clean learned-word list
+  (`<lang>-dynamic-text.dat`) is gone on modern iOS, and its replacement,
   `KeyboardDomain/Library/Keyboard/user_model_database.sqlite`, stores a
-  statistical typing model whose keys are internal markers
-  (`…tium.candidate/word/pattern/…`), **not** a recoverable vocabulary. There is
-  no clean lexicon to extract, so none is fabricated.
+  statistical model whose keys are internal markers
+  (`…tium.candidate/word/pattern/…`), **not** a recoverable vocabulary — so no
+  learned lexicon is fabricated from it.
 - **VPN / enterprise-Wi-Fi (802.1X/EAP) credentials** — these live in the
   keychain, but Apple's service markers for them could not be pinned down on the
   devices available for validation (which carry no VPN/EAP items), so any

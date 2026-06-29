@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Klávesnicová slova</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+ul{columns:3;-webkit-columns:3;column-gap:24px}li{margin:2px 0}
+code{font-family:ui-monospace,Menlo,monospace}</style></head><body>
+<h1>Vlastní klávesnicová slova ({{ words.len() }})</h1>
+<p>Slova, která uživatel přidal do klávesnicového slovníku („Přidat do slovníku").
+Není to naučený model psaní — jen ručně přidaná slova.</p>
+<ul>
+{% for w in words %}<li>{{ w.word }}</li>
+{% endfor %}</ul>
+</body></html>
