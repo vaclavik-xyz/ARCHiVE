@@ -173,17 +173,41 @@ pub fn from_whatsapp(items: &[crate::whatsapp::WaMessage]) -> Vec<Event> {
         .iter()
         .map(|m| {
             let arrow = if m.from_me { "→" } else { "←" };
-            // Prefer the resolved contact name (the `chat`/ZPARTNERNAME label may
-            // itself be a raw number); fall back to `chat` for own messages, where
-            // there is no sender to resolve.
-            let who = if m.contact_name.is_empty() { or_unknown(&m.chat) } else { m.contact_name.as_str() };
             Event::new(
                 m.date.clone(),
                 "whatsapp",
-                format!("{} {} {}", who, arrow, trunc(&m.text, 80)),
+                format!("{} {} {}", wa_label(&m.chat, &m.contact_name), arrow, trunc(&m.text, 80)),
             )
         })
         .collect()
+}
+
+/// A label with at least one alphabetic character is a real display name; one
+/// with none (digits, `+`, `@s.whatsapp.net`, …) is a raw phone/JID handle.
+fn is_display_label(s: &str) -> bool {
+    s.chars().any(|c| c.is_alphabetic())
+}
+
+/// Choose a WhatsApp timeline label, balancing two needs: replace a raw-number
+/// `chat` with the resolved contact name, but keep a real chat/group label and
+/// append the sender when both are meaningful (so group context survives).
+fn wa_label(chat: &str, contact_name: &str) -> String {
+    let chat = chat.trim();
+    let name = contact_name.trim();
+    if chat.is_empty() {
+        return or_unknown(name).to_string();
+    }
+    if !is_display_label(chat) {
+        // Raw number/JID: the resolved name is strictly better when present.
+        return if name.is_empty() { chat.to_string() } else { name.to_string() };
+    }
+    // `chat` is a real label (group or saved 1:1 name); keep it, and add the
+    // sender when it adds information.
+    if name.is_empty() || name == chat {
+        chat.to_string()
+    } else {
+        format!("{chat} · {name}")
+    }
 }
 
 pub fn from_reminders(items: &[crate::reminders::Reminder]) -> Vec<Event> {
@@ -318,6 +342,12 @@ mod tests {
         let ev = from_whatsapp(&[wa("420776112233", "Eva Malá", false)]);
         assert!(ev[0].summary.contains("Eva Malá"), "got {}", ev[0].summary);
         assert!(!ev[0].summary.contains("420776112233"));
+        // A real group label is KEPT, with the sender appended for context.
+        let grp = from_whatsapp(&[wa("Rodina", "Eva Malá", false)]);
+        assert!(grp[0].summary.contains("Rodina") && grp[0].summary.contains("Eva Malá"), "got {}", grp[0].summary);
+        // A saved 1:1 name equal to the resolved name is not duplicated.
+        let one = from_whatsapp(&[wa("Eva Malá", "Eva Malá", false)]);
+        assert_eq!(one[0].summary.matches("Eva Malá").count(), 1);
         // Own messages have no sender to resolve → fall back to the chat label.
         let mine = from_whatsapp(&[wa("Rodina", "", true)]);
         assert!(mine[0].summary.contains("Rodina"));
