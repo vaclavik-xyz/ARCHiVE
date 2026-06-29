@@ -1051,7 +1051,7 @@ stdout envelope:
     { "type": "data-usage", "file": "data-usage.html", "count": 413 },
     { "type": "device-usage", "file": "device-usage.html", "count": 87 },
     { "type": "bluetooth-devices", "file": "bluetooth-devices.html", "count": 1005 },
-    { "type": "significant-locations", "file": "significant-locations.html", "count": 0 }
+    { "type": "significant-locations", "file": "significant-locations.html", "count": 128 }
   ],
   "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
 }
