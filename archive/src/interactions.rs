@@ -91,9 +91,13 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<ContactInteractions>> {
         Ok(c) => c,
         Err(_) => return Ok(Vec::new()),
     };
-    // The sender link is the load-bearing column; without it there is nothing to
-    // group by. (`Z_PK` on ZCONTACTS is the primary key and always present.)
-    if !icols.contains("ZSENDER") {
+    // The sender link and its join target (`ZCONTACTS.Z_PK`) are the load-bearing
+    // columns; without either there is nothing to group by. `table_columns`
+    // returns an empty set for an absent table, so this guard also covers
+    // ZINTERACTIONS or ZCONTACTS being missing entirely — an unsupported schema
+    // yields an honest empty result rather than a "no such table" error on
+    // `prepare()`.
+    if !icols.contains("ZSENDER") || !ccols.contains("Z_PK") {
         return Ok(Vec::new());
     }
 
@@ -270,6 +274,29 @@ mod tests {
         .unwrap();
         drop(conn);
         assert!(parse(&db).unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_contacts_table_yields_empty_not_error() {
+        // ZINTERACTIONS exists with the sender column, but ZCONTACTS is absent.
+        // `table_columns` reports no columns for the missing table, so the join
+        // target Z_PK is absent and the parser must bail to an empty result —
+        // never reach `prepare()` and error with "no such table: ZCONTACTS".
+        let dir = std::env::temp_dir().join(format!("be-ix-noc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("interactionC.db");
+        let _ = std::fs::remove_file(&db);
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE ZINTERACTIONS (Z_PK INTEGER, ZSENDER INTEGER);
+             INSERT INTO ZINTERACTIONS VALUES (1, 1), (2, 1);",
+        )
+        .unwrap();
+        drop(conn);
+        let rows = parse(&db);
+        assert!(rows.is_ok(), "missing ZCONTACTS must not error");
+        assert!(rows.unwrap().is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 
