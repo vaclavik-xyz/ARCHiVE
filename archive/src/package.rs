@@ -1,8 +1,14 @@
 //! Bundle a directory of exports into a single **WinZip AES-256 encrypted** `.zip`
 //! for secure delivery — any standard zip tool opens it with the password. Used by
 //! the `package` command to wrap a prior `recover`/export output into one
-//! protected file. The whole archive is encrypted (per-entry AES-256), so neither
-//! the file contents nor a casual `unzip -l` leak data without the password.
+//! protected file.
+//!
+//! Scope of protection: each file's **contents** are AES-256 encrypted, so the data
+//! cannot be read without the password. As with any standard encrypted zip, the ZIP
+//! central directory is **not** encrypted — `unzip -l` still lists the entry names
+//! and sizes — so the filenames (which here are export/store names like
+//! `contacts.csv`) are visible, only their contents are not. Hiding the names too
+//! would require a non-standard container that ordinary zip tools could not open.
 
 use std::io;
 use std::path::Path;

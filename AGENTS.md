@@ -857,7 +857,10 @@ archive -o <OUT> package --source <DIR> --zip-password <PW>
 
 Bundles every file under `--source` (recursively, paths kept relative, sorted)
 into `<OUT>/archive-package.zip` as a **WinZip AES-256 encrypted** zip — any
-standard zip tool opens it with the password. It does **not** open the backup (a
+standard zip tool opens it with the password. The encryption covers each file's
+**contents**; as with any encrypted zip the central directory is not encrypted, so
+`unzip -l` still lists entry names and sizes (here the names are export/store names
+like `contacts.csv`) — only their contents are protected. It does **not** open the backup (a
 pure file operation; no `--backup`/`--password` needed), so it wraps a prior
 `recover`/export output for delivery. The encryption password comes from
 `--zip-password` or the `ARCHIVE_ZIP_PASSWORD` env var and is **required** (an
