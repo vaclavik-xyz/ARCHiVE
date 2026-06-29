@@ -1878,7 +1878,11 @@ fn collect_search_records(backup: &archive_core::Backup) -> Vec<search::SearchRe
             enrich::enrich_whatsapp(idx, &mut v);
         }
         let events = timeline::from_whatsapp(&v);
-        recs.extend(v.iter().zip(events.iter()).map(|(m, e)| search::SearchRecord::with_extra(e, &m.sender)));
+        // Fold in both the sender JID (incoming) and the chat JID (identifies the
+        // conversation for own messages, where `sender` is empty).
+        recs.extend(v.iter().zip(events.iter()).map(|(m, e)| {
+            search::SearchRecord::with_extra(e, &format!("{} {}", m.sender, m.chat_jid))
+        }));
     }
     recs
 }

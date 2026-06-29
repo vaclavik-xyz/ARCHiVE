@@ -1607,6 +1607,7 @@ mod tests {
     fn sample_wa() -> crate::whatsapp::WaMessage {
         crate::whatsapp::WaMessage {
             chat: "Jana".into(),
+            chat_jid: "420@s.whatsapp.net".into(),
             sender: "420@s.whatsapp.net".into(),
             from_me: false,
             date: "2020-01-06T10:40:00+00:00".into(),

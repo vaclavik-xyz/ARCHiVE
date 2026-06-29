@@ -19,6 +19,11 @@ const WA_DIR: &str = "whatsapp_media";
 pub struct WaMessage {
     /// Chat/contact display name (`ZPARTNERNAME`); empty when unknown.
     pub chat: String,
+    /// The chat partner's raw JID (`ZWACHATSESSION.ZCONTACTJID`, e.g.
+    /// `420…@s.whatsapp.net`); identifies the conversation even for own messages
+    /// where `sender` is empty. Empty when the column is absent.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub chat_jid: String,
     /// Sender JID (`ZFROMJID`); empty when from me / unknown.
     pub sender: String,
     /// Whether the message was sent by the backup's owner.
@@ -71,12 +76,14 @@ fn to_media_path(local: &str) -> String {
 pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<WaMessage>> {
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let cols = table_columns(&conn, "ZWAMESSAGE")?;
+    let scols = table_columns(&conn, "ZWACHATSESSION").unwrap_or_default();
     let text_sel = if cols.contains("ZTEXT") { "m.ZTEXT" } else { "NULL" };
     let from_me_sel = if cols.contains("ZISFROMME") { "m.ZISFROMME" } else { "NULL" };
     let from_jid_sel = if cols.contains("ZFROMJID") { "m.ZFROMJID" } else { "NULL" };
+    let chat_jid_sel = if scols.contains("ZCONTACTJID") { "s.ZCONTACTJID" } else { "NULL" };
 
     let sql = format!(
-        "SELECT s.ZPARTNERNAME, {from_jid_sel}, {from_me_sel}, m.ZMESSAGEDATE, {text_sel}, md.ZMEDIALOCALPATH \
+        "SELECT s.ZPARTNERNAME, {from_jid_sel}, {from_me_sel}, m.ZMESSAGEDATE, {text_sel}, md.ZMEDIALOCALPATH, {chat_jid_sel} \
          FROM ZWAMESSAGE m \
          LEFT JOIN ZWACHATSESSION s ON s.Z_PK = m.ZCHATSESSION \
          LEFT JOIN ZWAMEDIAITEM md ON md.Z_PK = m.ZMEDIAITEM \
@@ -90,9 +97,11 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<WaMessage>> {
         let date: Option<f64> = row.get(3)?;
         let text: Option<String> = row.get(4)?;
         let media: Option<String> = row.get(5)?;
+        let chat_jid: Option<String> = row.get(6)?;
         let from_me = from_me == Some(1);
         Ok(WaMessage {
             chat: chat.unwrap_or_default(),
+            chat_jid: chat_jid.unwrap_or_default(),
             // Sender is only meaningful for incoming messages.
             sender: if from_me { String::new() } else { sender.unwrap_or_default() },
             from_me,
@@ -203,7 +212,7 @@ mod tests {
         assert_ne!(output_name(1, "a.jpg"), output_name(2, "a.jpg"));
 
         let mut m = WaMessage {
-            chat: String::new(), sender: String::new(), from_me: false, date: String::new(),
+            chat: String::new(), chat_jid: String::new(), sender: String::new(), from_me: false, date: String::new(),
             text: String::new(), source_path: String::new(), media_file: Some("whatsapp_media/1_p.JPG".into()),
             contact_name: String::new(),
         };

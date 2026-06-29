@@ -271,7 +271,7 @@ pub const EXPECTATIONS: &[StoreSchema] = &[
                 required: &["ZMESSAGEDATE", "ZCHATSESSION", "ZMEDIAITEM"],
                 optional: &["ZTEXT", "ZISFROMME", "ZFROMJID"],
             },
-            TableNeed { table: "ZWACHATSESSION", table_optional: false, required: &["ZPARTNERNAME"], optional: &[] },
+            TableNeed { table: "ZWACHATSESSION", table_optional: false, required: &["ZPARTNERNAME"], optional: &["ZCONTACTJID"] },
             TableNeed { table: "ZWAMEDIAITEM", table_optional: false, required: &["ZMEDIALOCALPATH"], optional: &[] },
         ],
     },

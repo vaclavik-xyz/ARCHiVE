@@ -335,6 +335,7 @@ mod tests {
     fn whatsapp_timeline_prefers_resolved_contact_name() {
         let wa = |chat: &str, contact: &str, from_me: bool| crate::whatsapp::WaMessage {
             chat: chat.into(),
+            chat_jid: "420776112233@s.whatsapp.net".into(),
             sender: "420776112233@s.whatsapp.net".into(),
             from_me,
             date: "2021-01-01T00:00:00+00:00".into(),
