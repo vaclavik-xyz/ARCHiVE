@@ -965,8 +965,11 @@ only to the output file; they are **never logged** to stderr (progress prints a
 count). Decryption: crabapple decrypts the keychain file and
 exposes the protection-class keys; per-item keys are RFC3394-unwrapped and
 AES-256-GCM-decrypted in `archive-core`. Wi-Fi PSKs come from the `genp`
-AirPort items; website/app passwords have their own command (`passwords`).
-Certs and legacy AES-CBC items remain out of scope. Envelope: `count`, `outputs`,
+AirPort items; website/app passwords have their own command (`passwords`),
+certificates theirs (`certificates`), and VPN/EAP theirs (`vpn-creds`). Item
+format version 3 (AES-GCM) is the norm; **legacy version-1/2 (AES-CBC) items are
+also decrypted best-effort/experimental** by the same pipeline (zero IV, PKCS#7;
+a format mismatch safely yields nothing). Envelope: `count`, `outputs`,
 `device`, and a `note` flagging plaintext secrets. **Sensitive** — handle and
 transmit securely.
 

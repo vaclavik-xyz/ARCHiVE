@@ -44,7 +44,7 @@
 use std::collections::HashMap;
 
 use aes::Aes256;
-use aes::cipher::{BlockCipherEncrypt, KeyInit};
+use aes::cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
 use aes_kw::KwAes256;
 use plist::Value;
 use serde::Serialize;
@@ -61,7 +61,8 @@ const INET_KEY: &str = "inet";
 const CERT_KEY: &str = "cert";
 const KEYS_KEY: &str = "keys";
 
-/// Only version-3 (AES-GCM) items are supported; older CBC items are skipped.
+/// Item format version 3 uses AES-GCM (the modern format on every backup tested);
+/// versions 1 and 2 use legacy AES-CBC (very old iOS).
 const ITEM_VERSION_GCM: u32 = 3;
 
 /// AES-GCM authentication tag length (trailing 16 bytes of the payload; verified).
@@ -289,7 +290,12 @@ pub fn inventory(plist_bytes: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Vec<
                 continue;
             };
             let (version, protection_class) = item_header(blob).unwrap_or((0, 0));
-            let attrs = decrypt_item(blob, class_keys).map(|p| parse_der_attributes(&p));
+            // A decrypt that yields no parseable attributes (e.g. a wrong-format
+            // legacy-CBC item) is not counted as decrypted — consistent with
+            // `item_attributes` and keeping the census honest.
+            let attrs = decrypt_item(blob, class_keys)
+                .and_then(|p| parse_der_attributes(&p))
+                .filter(|a| !a.is_empty());
             let decrypted = attrs.is_some();
             let attrs = attrs.unwrap_or_default();
             let service = attr(&attrs, "srvr")
@@ -386,11 +392,15 @@ fn item_header(blob: &[u8]) -> Option<(u32, u32)> {
 }
 
 /// The decrypted DER attributes of one keychain item dict, or `None` when the
-/// item has no protected `v_Data` blob or it cannot be decrypted.
+/// item has no protected `v_Data` blob, it cannot be decrypted, or the decrypted
+/// bytes do not parse into **any** attributes. The last case is what makes the
+/// legacy-CBC path safe: a wrong key/format yields plaintext that is not a valid
+/// `SET OF SEQUENCE`, so it produces zero attributes and the item is treated as
+/// *undecrypted* — never a successful decrypt with empty/garbage fields.
 fn item_attributes(item: &Value, class_keys: &HashMap<u32, Vec<u8>>) -> Option<Vec<(String, Vec<u8>)>> {
     let blob = item.as_dictionary()?.get("v_Data")?.as_data()?;
     let plaintext = decrypt_item(blob, class_keys)?;
-    Some(parse_der_attributes(&plaintext))
+    parse_der_attributes(&plaintext).filter(|a| !a.is_empty())
 }
 
 /// Look up one decrypted attribute's value bytes by key.
@@ -416,18 +426,59 @@ fn utf8_nonempty(v: &[u8]) -> Option<String> {
 /// Decrypt one keychain item's protected blob to its DER attribute bytes.
 /// `None` when the version is unsupported, the class key is absent, the key wrap
 /// fails (e.g. a non-transferable ThisDeviceOnly class), or the blob is malformed.
+///
+/// Version 3 items (every backup tested) use AES-GCM. Versions 1/2 (very old iOS)
+/// use AES-CBC — handled **best-effort/experimental**: the header layout and the
+/// CBC convention (zero IV, PKCS#7 padding) are reconstructed from limited
+/// documentation and could not be validated against a real v1/2 backup, so a
+/// format mismatch safely yields garbage that the strict DER parser then rejects
+/// (the item is skipped, never mis-decoded into fabricated attributes). The v3
+/// path is unchanged.
 fn decrypt_item(blob: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Option<Vec<u8>> {
     let version = u32::from_le_bytes(blob.get(0..4)?.try_into().ok()?);
-    if version != ITEM_VERSION_GCM {
-        return None;
-    }
     let class = u32::from_le_bytes(blob.get(4..8)?.try_into().ok()?);
     let wrap_len = u32::from_le_bytes(blob.get(8..12)?.try_into().ok()?) as usize;
     let class_key = class_keys.get(&class)?;
     let wrapped = blob.get(12..12usize.checked_add(wrap_len)?)?;
     let ct = blob.get(12 + wrap_len..)?;
     let item_key = aes_kw_unwrap(class_key, wrapped)?;
-    apple_gcm_decrypt(&item_key, ct)
+    match version {
+        ITEM_VERSION_GCM => apple_gcm_decrypt(&item_key, ct),
+        1 | 2 => apple_cbc_decrypt(&item_key, ct),
+        _ => None,
+    }
+}
+
+/// Decrypt legacy (version 1/2) AES-256-CBC keychain ciphertext with a zero IV and
+/// PKCS#7 padding — the best-effort convention for old keychain items (see
+/// [`decrypt_item`]). `None` when the ciphertext is not a positive multiple of the
+/// block size or the padding is invalid (a wrong key/format then yields no item
+/// rather than garbage). Never panics.
+fn apple_cbc_decrypt(key32: &[u8], ct: &[u8]) -> Option<Vec<u8>> {
+    if ct.is_empty() || !ct.len().is_multiple_of(16) {
+        return None;
+    }
+    let cipher = Aes256::new_from_slice(key32).ok()?;
+    let mut prev = [0u8; 16]; // zero IV
+    let mut out = Vec::with_capacity(ct.len());
+    for chunk in ct.chunks_exact(16) {
+        let mut block = aes::cipher::array::Array::from(<[u8; 16]>::try_from(chunk).ok()?);
+        cipher.decrypt_block(&mut block);
+        for (b, p) in block.0.iter().zip(prev.iter()) {
+            out.push(b ^ p);
+        }
+        prev.copy_from_slice(chunk);
+    }
+    // PKCS#7 unpad: last byte = pad length in 1..=16, every padding byte equal.
+    let pad = *out.last()? as usize;
+    if pad == 0 || pad > 16 || pad > out.len() {
+        return None;
+    }
+    if out[out.len() - pad..].iter().any(|&b| b as usize != pad) {
+        return None;
+    }
+    out.truncate(out.len() - pad);
+    Some(out)
 }
 
 /// RFC 3394 unwrap of a 32-byte AES-256 per-item key. The unwrap validates the
@@ -507,10 +558,19 @@ fn blank_iv_gcm_tag(cipher: &Aes256, ct: &[u8]) -> [u8; 16] {
     tag
 }
 
-/// Minimal, bounds-checked ASN.1 DER reader for the decrypted keychain item: a
-/// `SET OF SEQUENCE { UTF8String key, value }`. Returns each `(key, value-content
-/// bytes)`. Never panics on malformed input.
-fn parse_der_attributes(der: &[u8]) -> Vec<(String, Vec<u8>)> {
+/// Strict, bounds-checked ASN.1 DER reader for a decrypted keychain item: a
+/// `SET OF SEQUENCE { UTF8String key, value }`. Returns `Some(attributes)` **only**
+/// when the bytes are exactly that structure — the SET consumes the whole input
+/// and every SEQUENCE is consumed exactly (a `UTF8String` key optionally followed
+/// by a single value TLV). Any structural deviation — wrong tag, a length that
+/// overruns or underruns its container, trailing bytes — yields `None`.
+///
+/// This strictness is what makes the experimental legacy-CBC path safe:
+/// version-3 plaintext is GCM-authenticated, so it is always a real, exact DER and
+/// parses; an unauthenticated CBC item decrypted with the wrong key/format almost
+/// never forms an exact SET OF SEQUENCE, so it is rejected here rather than
+/// surfaced with garbage fields. Never panics on malformed input.
+fn parse_der_attributes(der: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
     fn read_len(b: &[u8], i: &mut usize) -> Option<usize> {
         let first = *b.get(*i)?;
         *i += 1;
@@ -528,42 +588,51 @@ fn parse_der_attributes(der: &[u8]) -> Vec<(String, Vec<u8>)> {
         }
         Some(len)
     }
-    let mut out = Vec::new();
     if der.first() != Some(&0x31) {
-        return out;
+        return None;
     }
     let mut i = 1;
-    let Some(set_len) = read_len(der, &mut i) else { return out };
-    let end = i.saturating_add(set_len).min(der.len());
-    while i < end {
+    let set_len = read_len(der, &mut i)?;
+    let set_end = i.checked_add(set_len)?;
+    if set_end != der.len() {
+        return None; // the SET must span the whole plaintext, exactly
+    }
+    let mut out = Vec::new();
+    while i < set_end {
         if der.get(i) != Some(&0x30) {
-            break;
+            return None; // every element must be a SEQUENCE
         }
         i += 1;
-        let Some(seq_len) = read_len(der, &mut i) else { break };
-        let seq_end = i.saturating_add(seq_len).min(der.len());
+        let seq_len = read_len(der, &mut i)?;
+        let seq_end = i.checked_add(seq_len)?;
+        if seq_end > set_end {
+            return None;
+        }
+        // key: UTF8String (tag 0x0c).
         if der.get(i) != Some(&0x0c) {
-            i = seq_end;
-            continue;
+            return None;
         }
         i += 1;
-        let Some(klen) = read_len(der, &mut i) else { break };
-        let Some(kbytes) = der.get(i..i.saturating_add(klen)) else { break };
+        let klen = read_len(der, &mut i)?;
+        let kbytes = der.get(i..i.checked_add(klen)?)?;
         let key = String::from_utf8_lossy(kbytes).into_owned();
-        i = i.saturating_add(klen);
+        i += klen;
+        // value: an optional single TLV filling the rest of the sequence.
         let value = if i < seq_end {
-            i += 1; // value type tag
-            match read_len(der, &mut i) {
-                Some(vlen) => der.get(i..i.saturating_add(vlen)).unwrap_or(&[]).to_vec(),
-                None => Vec::new(),
-            }
+            i += 1; // value type tag (any)
+            let vlen = read_len(der, &mut i)?;
+            let vbytes = der.get(i..i.checked_add(vlen)?)?;
+            i += vlen;
+            vbytes.to_vec()
         } else {
             Vec::new()
         };
+        if i != seq_end {
+            return None; // the SEQUENCE must be consumed exactly
+        }
         out.push((key, value));
-        i = seq_end;
     }
-    out
+    Some(out)
 }
 
 #[cfg(test)]
@@ -1062,14 +1131,143 @@ mod tests {
         assert!(extract_network_credentials(b"", &keys).is_empty());
     }
 
+    // --- Legacy (version 1/2) AES-CBC items ---------------------------------
+
+    /// AES-256-CBC encrypt with a zero IV and PKCS#7 padding — the inverse of
+    /// `apple_cbc_decrypt`, used to build synthetic legacy items.
+    fn cbc_encrypt(key32: &[u8], plaintext: &[u8]) -> Vec<u8> {
+        let cipher = Aes256::new_from_slice(key32).unwrap();
+        let pad = 16 - (plaintext.len() % 16);
+        let mut padded = plaintext.to_vec();
+        padded.extend(std::iter::repeat_n(pad as u8, pad));
+        let mut prev = [0u8; 16];
+        let mut out = Vec::with_capacity(padded.len());
+        for chunk in padded.chunks_exact(16) {
+            let mut blk = [0u8; 16];
+            for i in 0..16 {
+                blk[i] = chunk[i] ^ prev[i];
+            }
+            let mut b = aes::cipher::array::Array::from(blk);
+            cipher.encrypt_block(&mut b);
+            out.extend_from_slice(&b.0);
+            prev.copy_from_slice(&b.0);
+        }
+        out
+    }
+
+    /// Build a legacy `version` (1 or 2) CBC item with the v3-style header layout.
+    fn make_cbc_item(version: u32, class_id: u32, class_key: &[u8], item_key: &[u8], attrs: &[(&str, &str)]) -> Value {
+        let der = build_der(attrs);
+        let ct = cbc_encrypt(item_key, &der);
+        let wrapped = kw_wrap(class_key, item_key);
+        let mut blob = Vec::new();
+        blob.extend(version.to_le_bytes());
+        blob.extend(class_id.to_le_bytes());
+        blob.extend((wrapped.len() as u32).to_le_bytes());
+        blob.extend(&wrapped);
+        blob.extend(&ct);
+        let mut d = Dictionary::new();
+        d.insert("v_Data".into(), Value::Data(blob));
+        Value::Dictionary(d)
+    }
+
+    #[test]
+    fn legacy_cbc_item_round_trips_through_wifi() {
+        // A version-2 AirPort item decrypts via the CBC path and surfaces like any
+        // other Wi-Fi credential — exercising decrypt_item end-to-end.
+        let item = make_cbc_item(2, CLASS, &CK, &IK, &[
+            ("svce", "AirPort"), ("acct", "OldNet"), ("agrp", "apple"), ("v_Data", "legacyPass"),
+        ]);
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        let got = extract_wifi(&keychain_plist(vec![item]), &keys);
+        assert_eq!(got, vec![WifiCredential { ssid: "OldNet".into(), password: "legacyPass".into() }]);
+    }
+
+    #[test]
+    fn legacy_version_1_also_decrypts() {
+        let item = make_cbc_item(1, CLASS, &CK, &IK, &[("svce", "AirPort"), ("acct", "V1Net"), ("agrp", "apple"), ("v_Data", "p1")]);
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        assert_eq!(extract_wifi(&keychain_plist(vec![item]), &keys).len(), 1);
+    }
+
+    #[test]
+    fn legacy_cbc_wrong_key_yields_no_item_not_garbage() {
+        // A wrong class key unwraps to the wrong item key; the CBC plaintext is then
+        // garbage whose PKCS#7 padding/DER almost never validates, so the item is
+        // safely skipped rather than mis-decoded into fabricated attributes.
+        let item = make_cbc_item(2, CLASS, &CK, &IK, &[("svce", "AirPort"), ("acct", "Net"), ("agrp", "apple"), ("v_Data", "pw")]);
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, [0x99; 32].to_vec()); // wrong KEK → wrong item key
+        assert!(extract_wifi(&keychain_plist(vec![item]), &keys).is_empty());
+    }
+
+    /// Build a legacy CBC item whose plaintext is arbitrary (not necessarily DER).
+    fn make_cbc_item_raw(version: u32, class_id: u32, class_key: &[u8], item_key: &[u8], plaintext: &[u8]) -> Value {
+        let ct = cbc_encrypt(item_key, plaintext);
+        let wrapped = kw_wrap(class_key, item_key);
+        let mut blob = Vec::new();
+        blob.extend(version.to_le_bytes());
+        blob.extend(class_id.to_le_bytes());
+        blob.extend((wrapped.len() as u32).to_le_bytes());
+        blob.extend(&wrapped);
+        blob.extend(&ct);
+        let mut d = Dictionary::new();
+        d.insert("v_Data".into(), Value::Data(blob));
+        Value::Dictionary(d)
+    }
+
+    #[test]
+    fn cbc_decrypt_to_non_der_is_not_a_successful_item() {
+        // CBC succeeds (valid padding) but the plaintext is not a DER SET, so it
+        // parses to zero attributes: the item is neither extracted nor counted as
+        // decrypted in the inventory census.
+        let item = make_cbc_item_raw(2, CLASS, &CK, &IK, b"this is plainly not a DER attribute set");
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        assert!(extract_wifi(&keychain_plist(vec![item.clone()]), &keys).is_empty());
+
+        // In the inventory the same item is present but `decrypted: false`.
+        let inv = inventory(&keychain_plist(vec![item]), &keys);
+        assert_eq!(inv.len(), 1);
+        assert!(!inv[0].decrypted, "a no-attribute decrypt must not count as decrypted");
+    }
+
+    #[test]
+    fn apple_cbc_decrypt_rejects_bad_length() {
+        // Non-block-multiple and empty ciphertext are rejected outright.
+        assert!(apple_cbc_decrypt(&IK, &[0u8; 17]).is_none());
+        assert!(apple_cbc_decrypt(&IK, &[0u8; 1]).is_none());
+        assert!(apple_cbc_decrypt(&IK, &[]).is_none());
+        // A valid round-trip is recovered (sanity for the helper itself).
+        let ct = cbc_encrypt(&IK, b"hello world");
+        assert_eq!(apple_cbc_decrypt(&IK, &ct).unwrap(), b"hello world");
+    }
+
     #[test]
     fn der_parser_reads_set_of_sequences() {
         let der = build_der(&[("svce", "AirPort"), ("acct", "MyNet")]);
-        let attrs = parse_der_attributes(&der);
+        let attrs = parse_der_attributes(&der).expect("well-formed DER");
         assert_eq!(attrs.len(), 2);
         assert_eq!(attrs[0], ("svce".to_string(), b"AirPort".to_vec()));
         assert_eq!(attrs[1], ("acct".to_string(), b"MyNet".to_vec()));
-        // Garbage DER yields nothing, no panic.
-        assert!(parse_der_attributes(&[0x31, 0x84, 0xff, 0xff, 0xff, 0xff]).is_empty());
+    }
+
+    #[test]
+    fn der_parser_rejects_malformed_and_partial() {
+        // A bogus length, non-SET input, trailing bytes, and a non-SEQUENCE element
+        // are all rejected (None), not silently accepted as partial attributes.
+        assert!(parse_der_attributes(&[0x31, 0x84, 0xff, 0xff, 0xff, 0xff]).is_none());
+        assert!(parse_der_attributes(b"not der").is_none());
+        assert!(parse_der_attributes(&[]).is_none());
+        // Well-formed SET but with one extra trailing byte → not consumed exactly.
+        let mut der = build_der(&[("svce", "AirPort")]);
+        der.push(0x00);
+        assert!(parse_der_attributes(&der).is_none());
+        // A SET whose single element is not a SEQUENCE.
+        assert!(parse_der_attributes(&[0x31, 0x03, 0x0c, 0x01, 0x41]).is_none());
+        // An empty SET is structurally valid but carries no attributes.
+        assert_eq!(parse_der_attributes(&[0x31, 0x00]), Some(vec![]));
     }
 }
