@@ -44,6 +44,9 @@ archive --backup <backup-dir> -o <out> device-usage -f html   # csv | json | htm
 # Paired + previously-seen Bluetooth devices (names, MAC addresses) from the system Bluetooth databases
 archive --backup <backup-dir> -o <out> bluetooth-devices -f html   # csv | json | html | pdf
 
+# Recorded location history from the routined "Significant Locations" DB (usually excluded from standard backups)
+archive --backup <backup-dir> -o <out> significant-locations -f html   # csv | json | html | pdf
+
 archive --backup <backup-dir> -o <out> voicemail -f json   # csv | json | html
 
 # Extract voicemail metadata + audio (raw .amr; pass --audio-format m4a|wav to transcode via ffmpeg)
@@ -153,6 +156,7 @@ written under `<out>/messages`.
 - [x] data-usage — csv, json, html, pdf: per-process cellular/Wi-Fi byte counters from `DataUsage.sqlite` (ZLIVEUSAGE aggregated per process)
 - [x] device-usage — csv, json, html, pdf: per-app foreground time + sessions from CoreDuet's `knowledgeC.db` (`/app/usage` stream); the store is often excluded from iOS 16+ backups, then reports an honest 0
 - [x] bluetooth-devices — csv, json, html, pdf: paired, classic and previously-seen Bluetooth devices (name, address, resolved identity address) from the LE `com.apple.MobileBluetooth.ledevices.{paired,other}.db` databases and the classic `com.apple.MobileBluetooth.devices.plist`; the DBs' last-seen/connection columns are device-relative counters (not a wall-clock epoch) and are deliberately not exported as dates
+- [x] significant-locations — csv, json, html, pdf: recorded location-fix history (timestamp, latitude/longitude, altitude, accuracy, speed) from the routined `Cache.sqlite`/`cloud.sqlite`/`local.sqlite` (`ZRTCLLOCATIONMO`) — the store behind iOS *Significant Locations*. The routined database lives under `Library/Caches`, which iOS excludes from ordinary iTunes/Finder backups, so this usually reports an honest 0; it still recovers history from full filesystem extractions that include the caches
 - [x] voicemail — csv, json, html (metadata) + audio extraction (`--audio`, raw `.amr` or ffmpeg `m4a`/`wav`)
 - [x] voice-memos — csv, json, html (metadata) + audio extraction (native copy by default, or ffmpeg `m4a`/`wav`)
 - [x] safari-history · safari-bookmarks · calendar — csv, json, html

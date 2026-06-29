@@ -329,6 +329,24 @@ pub const EXPECTATIONS: &[StoreSchema] = &[
         locations: &[("SysSharedContainerDomain-systemgroup.com.apple.bluetooth", "Library/Database/com.apple.MobileBluetooth.ledevices.other.db")],
         needs: &[TableNeed { table: "OtherDevices", table_optional: false, required: &["Address"], optional: &["Name", "ResolvedAddress"] }],
     },
+    StoreSchema {
+        command: "significant-locations",
+        // The routined location DB has used a few file names; all share the
+        // ZRTCLLOCATIONMO schema, so every candidate is tried and the first present
+        // one checked. Coordinates + timestamp guard the query (required); the rest
+        // are select-or-NULL (optional).
+        locations: &[
+            ("RootDomain", "Library/Caches/com.apple.routined/Cache.sqlite"),
+            ("RootDomain", "Library/Caches/com.apple.routined/cloud.sqlite"),
+            ("RootDomain", "Library/Caches/com.apple.routined/local.sqlite"),
+        ],
+        needs: &[TableNeed {
+            table: "ZRTCLLOCATIONMO",
+            table_optional: false,
+            required: &["ZLATITUDE", "ZLONGITUDE", "ZTIMESTAMP"],
+            optional: &["ZALTITUDE", "ZHORIZONTALACCURACY", "ZSPEED"],
+        }],
+    },
 ];
 
 #[cfg(test)]

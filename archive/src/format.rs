@@ -273,6 +273,37 @@ pub fn bluetooth_devices_html(items: &[crate::bluetooth::BluetoothDevice]) -> St
     BluetoothDevicesTemplate { devices: items }.render().unwrap()
 }
 
+pub fn significant_locations_csv(items: &[crate::significant_locations::LocationFix]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["timestamp", "latitude", "longitude", "altitude", "horizontal_accuracy", "speed"]).unwrap();
+    for f in items {
+        wtr.write_record([
+            f.timestamp.clone(),
+            f.latitude.to_string(),
+            f.longitude.to_string(),
+            f.altitude.to_string(),
+            f.horizontal_accuracy.to_string(),
+            f.speed.to_string(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn significant_locations_json(items: &[crate::significant_locations::LocationFix]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "significant-locations.html")]
+struct SignificantLocationsTemplate<'a> {
+    fixes: &'a [crate::significant_locations::LocationFix],
+}
+
+pub fn significant_locations_html(items: &[crate::significant_locations::LocationFix]) -> String {
+    SignificantLocationsTemplate { fixes: items }.render().unwrap()
+}
+
 pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([
