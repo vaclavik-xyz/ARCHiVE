@@ -521,6 +521,21 @@ machine secrets, not passwords — are excluded. Returns `count: 0` with a note 
 the backup has no keychain or no saved logins. **Sensitive** — handle and transmit
 securely.
 
+### `keychain-inventory` — non-secret keychain census
+
+```
+archive --backup <DIR> --password <PW> -o <OUT> keychain-inventory -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html | pdf` (**pdf allowed** — this output carries no
+secrets). Lists per-item metadata across the keychain `genp`/`inet`/`cert`/`keys`
+arrays: `{ array, service, account, access_group, protection_class, version,
+decrypted }` — **never** a password or secret value. `decrypted: false` ≈ a
+ThisDeviceOnly item not transferable in a portable backup. The envelope adds a
+`summary` of per-array totals and decrypted counts. Encrypted backups only;
+`count: 0` with a note otherwise. Useful to triage scope before exporting secrets
+with `wifi`/`passwords`.
+
 ### `recover` — one-shot customer package
 
 ```

@@ -72,6 +72,7 @@ archive --backup ~/Backup/<UDID> -o out timeline        -f html  # everything me
 archive --backup ~/Backup/<UDID> -o out recover-deleted -f html  # carve deleted rows (best-effort)
 archive --backup ~/Backup/<UDID> -o out wifi            -f html  # saved Wi-Fi passwords (encrypted backups)
 archive --backup ~/Backup/<UDID> -o out passwords       -f html  # saved website/app passwords (encrypted backups)
+archive --backup ~/Backup/<UDID> -o out keychain-inventory -f json  # keychain census: per-item metadata, NO secrets
 ```
 
 The `messages` command drives the `imessage-exporter` binary (built in the same

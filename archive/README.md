@@ -82,6 +82,9 @@ archive --backup <backup-dir> --password <pw> -o <out> wifi -f html
 
 # Recover saved website/app passwords from the keychain (ENCRYPTED backups only; plaintext)
 archive --backup <backup-dir> --password <pw> -o <out> passwords -f html
+
+# Keychain census: per-item metadata (service, account, group, class) with NO secrets
+archive --backup <backup-dir> --password <pw> -o <out> keychain-inventory -f html
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -122,4 +125,5 @@ written under `<out>/messages`.
 - [x] recover-deleted — csv, json, html: carve DELETED rows (messages/calls/contacts) from freed SQLite pages (+ WAL for messages) (best-effort)
 - [x] wifi — csv, json, html: recover saved Wi-Fi passwords from the keychain (encrypted backups only; passwords in plaintext)
 - [x] passwords — csv, json, html: recover saved website/app passwords from the keychain `inet` array (Safari/WebKit `com.apple.cfnetwork` + third-party app groups; Apple-internal keychain-sync items excluded); encrypted backups only, plaintext
+- [x] keychain-inventory — csv, json, html, pdf: non-secret census of the keychain (per-item service/account/group/protection-class/version across genp/inet/cert/keys; NO passwords) — triage scope before exporting secrets; encrypted backups only
 - [x] pdf output — `-f pdf` on every HTML-bearing command, rendered from the HTML via a headless browser

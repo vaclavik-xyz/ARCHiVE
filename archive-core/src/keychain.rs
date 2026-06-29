@@ -56,6 +56,11 @@ const GENP_KEY: &str = "genp";
 /// The keychain plist's internet-password array — Safari/app website logins.
 const INET_KEY: &str = "inet";
 
+/// The keychain plist's certificate and key arrays (no passwords; counted by the
+/// inventory census).
+const CERT_KEY: &str = "cert";
+const KEYS_KEY: &str = "keys";
+
 /// Only version-3 (AES-GCM) items are supported; older CBC items are skipped.
 const ITEM_VERSION_GCM: u32 = 3;
 
@@ -161,6 +166,75 @@ pub fn extract_passwords(plist_bytes: &[u8], class_keys: &HashMap<u32, Vec<u8>>)
 /// entitlement-enforced, so it cannot be forged by item content.
 fn is_user_credential_group(agrp: &str) -> bool {
     !agrp.is_empty() && (agrp == "com.apple.cfnetwork" || !agrp.starts_with("com.apple."))
+}
+
+/// One keychain item's NON-SECRET metadata for the inventory census. Deliberately
+/// carries no password/secret value — only enough to see what an item is.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct KeychainItemMeta {
+    /// Which keychain array the item is in: `genp`/`inet`/`cert`/`keys`.
+    pub array: String,
+    /// Service (`svce`) or server host (`srvr`) the item belongs to; may be empty.
+    pub service: String,
+    /// Account / username (`acct`); may be empty.
+    pub account: String,
+    /// Owning access group (`agrp`); identifies the app/owner. May be empty.
+    pub access_group: String,
+    /// Protection class id from the item header (7 = AfterFirstUnlock /
+    /// transferable; 10/11 = ThisDeviceOnly / not transferable in a portable backup).
+    pub protection_class: u32,
+    /// Item format version from the header (3 = AES-GCM; 1/2 = legacy AES-CBC).
+    pub version: u32,
+    /// Whether the item decrypted (false ≈ non-transferable ThisDeviceOnly, or an
+    /// unsupported format) — it then carries only header fields, no svce/acct/agrp.
+    pub decrypted: bool,
+}
+
+/// A non-secret census of the keychain: per-item metadata across the
+/// genp/inet/cert/keys arrays — service, account, access group, protection class,
+/// item version — but **never** a password or secret value. Useful to see scope
+/// before exporting secrets and to triage how many items are non-transferable
+/// (ThisDeviceOnly) and will not migrate. Total and panic-free.
+pub fn inventory(plist_bytes: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Vec<KeychainItemMeta> {
+    let Ok(root) = Value::from_reader(std::io::Cursor::new(plist_bytes)) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for array in [GENP_KEY, INET_KEY, CERT_KEY, KEYS_KEY] {
+        for item in items_array(&root, array) {
+            let Some(blob) = item.as_dictionary().and_then(|a| a.get("v_Data")).and_then(Value::as_data) else {
+                continue;
+            };
+            let (version, protection_class) = item_header(blob).unwrap_or((0, 0));
+            let attrs = decrypt_item(blob, class_keys).map(|p| parse_der_attributes(&p));
+            let decrypted = attrs.is_some();
+            let attrs = attrs.unwrap_or_default();
+            let service = attr(&attrs, "srvr")
+                .or_else(|| attr(&attrs, "svce"))
+                .and_then(utf8_nonempty)
+                .unwrap_or_default();
+            let account = attr(&attrs, "acct").and_then(utf8_nonempty).unwrap_or_default();
+            let access_group = attr(&attrs, "agrp").and_then(utf8_nonempty).unwrap_or_default();
+            out.push(KeychainItemMeta {
+                array: array.to_string(),
+                service,
+                account,
+                access_group,
+                protection_class,
+                version,
+                decrypted,
+            });
+        }
+    }
+    out
+}
+
+/// The (version, protection-class) header of a keychain item blob, without
+/// decrypting. `None` when the blob is too short.
+fn item_header(blob: &[u8]) -> Option<(u32, u32)> {
+    let version = u32::from_le_bytes(blob.get(0..4)?.try_into().ok()?);
+    let class = u32::from_le_bytes(blob.get(4..8)?.try_into().ok()?);
+    Some((version, class))
 }
 
 /// The decrypted DER attributes of one keychain item dict, or `None` when the
@@ -519,6 +593,46 @@ mod tests {
         let mut keys = HashMap::new();
         keys.insert(CLASS, CK.to_vec());
         assert!(extract_passwords(&keychain_plist_keyed(INET_KEY, vec![item]), &keys).is_empty());
+    }
+
+    #[test]
+    fn inventory_reports_metadata_without_secrets() {
+        let genp = make_item(CLASS, &CK, &IK, &[("svce", "AirPort"), ("acct", "Net"), ("agrp", "apple"), ("v_Data", "pw")]);
+        let inet = make_item(CLASS, &CK, &IK, &[("srvr", "example.com"), ("acct", "user"), ("agrp", "com.apple.cfnetwork"), ("v_Data", "secret")]);
+        // A ThisDeviceOnly (class 11) item whose class key is NOT in the map: the
+        // header is still read, but it never decrypts.
+        let sealed = make_item(11, &[0x99; 32], &IK, &[("svce", "X"), ("v_Data", "tdo")]);
+
+        let mut root = Dictionary::new();
+        root.insert(GENP_KEY.into(), Value::Array(vec![genp]));
+        root.insert(INET_KEY.into(), Value::Array(vec![inet, sealed]));
+        let mut buf = Vec::new();
+        plist::to_writer_binary(&mut buf, &Value::Dictionary(root)).unwrap();
+
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        let inv = inventory(&buf, &keys);
+        assert_eq!(inv.len(), 3);
+
+        let g = inv.iter().find(|m| m.array == "genp").unwrap();
+        assert_eq!(g.service, "AirPort");
+        assert_eq!(g.account, "Net");
+        assert!(g.decrypted);
+        assert_eq!((g.version, g.protection_class), (3, 7));
+
+        let i = inv.iter().find(|m| m.array == "inet" && m.decrypted).unwrap();
+        assert_eq!(i.service, "example.com");
+        assert_eq!(i.access_group, "com.apple.cfnetwork");
+
+        let s = inv.iter().find(|m| !m.decrypted).unwrap();
+        assert_eq!((s.version, s.protection_class), (3, 11));
+        assert_eq!(s.service, "");
+        assert_eq!(s.account, "");
+
+        // The metadata type carries no secret field — serialized JSON has no
+        // password/value/secret key.
+        let json = serde_json::to_string(&inv).unwrap();
+        assert!(!json.contains("password") && !json.contains("v_Data") && !json.contains("secret"));
     }
 
     #[test]

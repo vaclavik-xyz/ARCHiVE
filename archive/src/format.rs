@@ -804,6 +804,41 @@ pub fn passwords_html(items: &[archive_core::keychain::PasswordCredential]) -> S
     PasswordsTemplate { logins: items }.render().unwrap()
 }
 
+// --- Keychain inventory (no secrets) --------------------------------------
+
+pub fn keychain_inventory_csv(items: &[archive_core::keychain::KeychainItemMeta]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["array", "service", "account", "access_group", "protection_class", "version", "decrypted"])
+        .unwrap();
+    for m in items {
+        wtr.write_record([
+            m.array.clone(),
+            m.service.clone(),
+            m.account.clone(),
+            m.access_group.clone(),
+            m.protection_class.to_string(),
+            m.version.to_string(),
+            m.decrypted.to_string(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn keychain_inventory_json(items: &[archive_core::keychain::KeychainItemMeta]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "keychain-inventory.html")]
+struct KeychainInventoryTemplate<'a> {
+    items: &'a [archive_core::keychain::KeychainItemMeta],
+}
+
+pub fn keychain_inventory_html(items: &[archive_core::keychain::KeychainItemMeta]) -> String {
+    KeychainInventoryTemplate { items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
