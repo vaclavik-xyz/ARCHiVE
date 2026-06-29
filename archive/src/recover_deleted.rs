@@ -142,6 +142,36 @@ fn looks_addressy(s: &str) -> bool {
         && (s.contains('@') || s.bytes().filter(|b| b.is_ascii_digit()).count() >= 3)
 }
 
+/// AddressBook stores a multi-value's label as `_$!<Home>!$_`. Return the inner
+/// label, lower-cased (`home`/`work`/`mobile`/…), or `None` for any other text.
+/// Used to (a) keep label junk out of the recovered name and (b) annotate a
+/// recovered phone/email with its kind.
+fn clean_ab_label(s: &str) -> Option<String> {
+    let inner = s.strip_prefix("_$!<")?.strip_suffix(">!$_")?;
+    (!inner.is_empty()).then(|| inner.to_ascii_lowercase())
+}
+
+/// A text that looks like an email address (an `@` with a dotted domain after it).
+fn looks_email(s: &str) -> bool {
+    let len = s.chars().count();
+    if !(5..=254).contains(&len) || s.chars().any(char::is_whitespace) {
+        return false;
+    }
+    matches!((s.find('@'), s.rfind('.')), (Some(at), Some(dot)) if at > 0 && dot > at + 1 && dot + 1 < s.len())
+}
+
+/// A text that looks like a phone number: only digits and phone punctuation, with
+/// enough digits (≥7) to be a real number rather than a stray short integer (so a
+/// bare `12345` stays noise, while `+420776452878` and `776452878` are phones).
+fn looks_phone(s: &str) -> bool {
+    let len = s.chars().count();
+    if !(5..=40).contains(&len) || s.contains('@') {
+        return false;
+    }
+    let digits = s.bytes().filter(u8::is_ascii_digit).count();
+    digits >= 7 && s.chars().all(|c| c.is_ascii_digit() || " +-().".contains(c))
+}
+
 /// A text that looks like a browser URL — the (soft) anchor for Safari history.
 fn looks_url(s: &str) -> bool {
     (s.contains("://") || s.starts_with("www."))
@@ -268,9 +298,13 @@ fn calls_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
         .collect()
 }
 
-/// AddressBook `ABPerson`: the softest signature (no strong anchor). Keeps rows
-/// carrying at least one alphabetic text value (a name/organization) and joins
-/// the non-empty texts. Noisier than the others — labelled best-effort.
+/// AddressBook (`ABPerson` / `ABMultiValue`): the softest signature (no strong
+/// anchor). Rather than blindly joining every text, classify each value into a
+/// name/org field, an email, a phone, or an AddressBook label, then reassemble a
+/// structured contact: `Name · Org — phone, email`. A lone deleted phone/email
+/// value (an `ABMultiValue` row, no name) is now recovered too — annotated with
+/// its label (`_$!<Mobile>!$_` → `(mobile)`) — instead of dropped as "no
+/// alphabetic text". Still best-effort/noisier than the anchored stores.
 fn contacts_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
     records
         .iter()
@@ -278,17 +312,54 @@ fn contacts_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
             if excluded_anchorless(r, live) {
                 return None;
             }
-            let texts: Vec<&str> = r.values.iter().filter_map(as_text).filter(|t| !t.is_empty()).collect();
-            if texts.is_empty() || !texts.iter().any(|t| t.chars().any(char::is_alphabetic)) {
+            let (mut names, mut emails, mut phones, mut labels): (
+                Vec<&str>,
+                Vec<&str>,
+                Vec<&str>,
+                Vec<String>,
+            ) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            for t in r.values.iter().filter_map(as_text).filter(|t| !t.is_empty()) {
+                if let Some(lbl) = clean_ab_label(t) {
+                    labels.push(lbl);
+                } else if looks_email(t) {
+                    if !emails.contains(&t) {
+                        emails.push(t);
+                    }
+                } else if looks_phone(t) {
+                    if !phones.contains(&t) {
+                        phones.push(t);
+                    }
+                } else if t.chars().count() <= 64 && t.chars().any(char::is_alphabetic) && !names.contains(&t) {
+                    names.push(t);
+                }
+            }
+            if names.is_empty() && emails.is_empty() && phones.is_empty() {
                 return None;
             }
+            // Reassemble the handles. A single phone in an `ABMultiValue` row
+            // carries exactly one label — annotate it; otherwise list handles plain
+            // (we can't reliably pair labels to values in misframed multi-value soup).
+            let mut handles: Vec<String> = Vec::new();
+            if phones.len() == 1 && emails.is_empty() && labels.len() == 1 {
+                handles.push(format!("{} ({})", phones[0], labels[0]));
+            } else {
+                handles.extend(phones.iter().map(|p| (*p).to_string()));
+                handles.extend(emails.iter().map(|e| (*e).to_string()));
+            }
+            let name_part = names.join(" · ");
+            let summary = match (name_part.is_empty(), handles.is_empty()) {
+                (false, false) => format!("{name_part} — {}", handles.join(", ")),
+                (false, true) => name_part,
+                (true, false) => handles.join(", "),
+                (true, true) => return None,
+            };
             Some(DeletedRecord {
                 store: "contacts".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
                 truncated: r.truncated,
                 date: None,
-                summary: trunc(&texts.join(" · "), 200),
+                summary: trunc(&summary, 200),
             })
         })
         .collect()
@@ -576,6 +647,41 @@ mod tests {
         // A record with only digits (no alphabetic text) is dropped as noise.
         let noise = vec![rec(CarveSource::Unallocated, vec![CarvedValue::Text("12345".into())])];
         assert!(recover("contacts", &noise, &LiveKeys::default()).is_empty());
+    }
+
+    #[test]
+    fn contacts_signature_reassembles_fields() {
+        // ABPerson-ish row: name fields + a phone + an email reassembled in order.
+        let person = vec![rec(
+            CarveSource::Unallocated,
+            vec![
+                CarvedValue::Text("Jan".into()),
+                CarvedValue::Text("Novák".into()),
+                CarvedValue::Text("+420776452878".into()),
+                CarvedValue::Text("jan@example.com".into()),
+            ],
+        )];
+        let out = recover("contacts", &person, &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].summary, "Jan · Novák — +420776452878, jan@example.com");
+
+        // ABMultiValue row: a lone deleted phone with its label, no name — recovered
+        // now (the old "needs an alphabetic text" rule dropped it).
+        let phone_only = vec![rec(
+            CarveSource::Unallocated,
+            vec![
+                CarvedValue::Int(42), // record_id FK, ignored
+                CarvedValue::Text("+420776452878".into()),
+                CarvedValue::Text("_$!<Mobile>!$_".into()),
+            ],
+        )];
+        let out = recover("contacts", &phone_only, &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].summary, "+420776452878 (mobile)");
+
+        // An AddressBook label with nothing else is noise → dropped.
+        let label_only = vec![rec(CarveSource::Unallocated, vec![CarvedValue::Text("_$!<Work>!$_".into())])];
+        assert!(recover("contacts", &label_only, &LiveKeys::default()).is_empty());
     }
 
     #[test]
