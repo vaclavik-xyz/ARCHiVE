@@ -26,7 +26,7 @@ before **or** after the subcommand name, which is agent-friendly for programmati
 invocation.
 
 **PDF output:** the **in-process** export commands that list `html` (contacts,
-calls, accounts, known-networks, voicemail, voice-memos, safari-history/bookmarks,
+calls, accounts, known-networks, homescreen-layout, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
 whatsapp, timeline, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
@@ -129,6 +129,40 @@ Each call object: `number` (phone number, or an Apple ID/email for FaceTime),
 may be `null`), `call_type` (raw `ZCALLTYPE` integer, the honest backing for
 `video`; `null` when absent), `location` (or `null` when absent), `country` (or
 `null` when absent). No call history → `count: 0`, `outputs: []`, plus a `note`.
+
+### `homescreen-layout` — reconstruct the Home Screen layout
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> homescreen-layout -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html | pdf`. Reads SpringBoard's
+`HomeDomain/Library/SpringBoard/IconState.plist` (a normal backup file, so it
+works on **any** backup — no password needed) and writes
+`<OUT>/homescreen-layout.<ext>`. No file extraction.
+
+Output is a flat, ordered list of placed icons. Each `IconSlot`: `container`
+(`dock`, `page N` 1-based, or `folder:<name>`), `position` (0-based within the
+container; continuous across a folder's pages), `kind` (`app`, `webclip`,
+`folder`, `widget`, or `widget-stack`), `identifier` (bundle/display id; empty
+for an unnamed folder or a widget stack), `label` (folder title, app/web-clip
+caption, or — for a widget stack — the comma-joined bundle ids of its member
+widgets). Apps are commonly stored as bare bundle-id strings; folders expand one
+level deep (iOS does not nest folders); a widget stack's opaque UUID is hidden in
+favour of its member apps. Read leniently — unknown entries are skipped.
+
+stdout envelope:
+
+```json
+{
+  "ok": true, "command": "homescreen-layout", "count": 45,
+  "outputs": ["<OUT>/homescreen-layout.json"],
+  "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
+}
+```
+
+No `IconState.plist` in the backup → `count: 0` + a `note`; a present-but-unparseable
+plist → `count: 0` + a different `note`.
 
 ### `voicemail` — export voicemail metadata and audio
 
@@ -600,7 +634,8 @@ stdout envelope:
     { "type": "photos", "file": "photos.html", "count": 1240,
       "files": { "dir": "photos", "extracted": 1238, "missing": 2 } },
     { "type": "photos-recently-deleted", "file": "photos-recently-deleted.html", "count": 7,
-      "files": { "dir": "recently-deleted", "extracted": 7, "missing": 0 } }
+      "files": { "dir": "recently-deleted", "extracted": 7, "missing": 0 } },
+    { "type": "homescreen-layout", "file": "homescreen-layout.html", "count": 45 }
   ],
   "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
 }

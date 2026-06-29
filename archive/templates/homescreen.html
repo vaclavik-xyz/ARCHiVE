@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Rozložení plochy</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+h2{margin:18px 0 6px;font-size:15px;color:#333}
+.grid{display:flex;flex-wrap:wrap;gap:8px}
+.icon{width:150px;border:1px solid #ddd;border-radius:8px;padding:6px 8px;font-size:12px;word-break:break-all}
+.icon.folder{background:#eef3ff;border-color:#9bb8ff}
+.icon.webclip{background:#f0fff0}
+.k{color:#888;font-size:10px;text-transform:uppercase}
+.dock{background:#f5f5f5;border-radius:10px;padding:8px}</style></head><body>
+<h1>Rozložení domovské obrazovky ({{ count }} položek)</h1>
+{% for g in groups %}
+<h2>{{ g.name }}</h2>
+<div class="grid{% if g.name == "dock" %} dock{% endif %}">
+{% for s in g.icons %}
+<div class="icon {{ s.kind }}">
+<span class="k">{{ s.kind }}</span><br>
+{% if !s.label.is_empty() %}<b>{{ s.label }}</b><br>{% endif %}
+{% if !s.identifier.is_empty() %}{{ s.identifier }}{% endif %}
+</div>
+{% endfor %}
+</div>
+{% endfor %}
+</body></html>
