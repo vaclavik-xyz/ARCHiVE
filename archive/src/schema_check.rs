@@ -285,8 +285,10 @@ pub const EXPECTATIONS: &[StoreSchema] = &[
         // w.data_id`, `s.start_date`, `q.quantity`), so they are required-when-present
         // and a missing one would break `prepare()`.
         needs: &[
-            // workouts columns are all select-or-NULL, so none are required even when present.
-            TableNeed { table: "workouts", table_optional: true, required: &[], optional: &["data_id", "start_date", "end_date", "activity_type", "duration", "total_distance"] },
+            // workouts value columns are select-or-NULL, but `w.data_id` is the
+            // unconditional join key (`s.data_id = w.data_id`, `wa.owner_id =
+            // w.data_id`), so it is required when the table is present.
+            TableNeed { table: "workouts", table_optional: true, required: &["data_id"], optional: &["start_date", "end_date", "activity_type", "duration", "total_distance"] },
             TableNeed { table: "samples", table_optional: true, required: &["data_id", "start_date", "end_date"], optional: &["data_type"] },
             TableNeed { table: "quantity_samples", table_optional: true, required: &["data_id", "quantity"], optional: &[] },
         ],
