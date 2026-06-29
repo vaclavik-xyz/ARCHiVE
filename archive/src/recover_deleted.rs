@@ -99,7 +99,10 @@ fn max_cocoa_date(r: &CarvedRecord) -> Option<String> {
 }
 
 /// The smallest plausible Cocoa-seconds date among a record's values, as ISO
-/// 8601. Used for calendar events, whose start precedes the end/other dates.
+/// 8601. Used for calendar events: schema-less carving cannot single out the
+/// start column from end/created, so we report the *earliest* associated date —
+/// the closest honest proxy for when the event happened (its start, or the
+/// creation date when that is earlier).
 fn min_cocoa_date(r: &CarvedRecord) -> Option<String> {
     r.values
         .iter()
@@ -301,9 +304,9 @@ fn notes_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
 
 /// Calendar.sqlitedb (`CalendarItem`): the event title (`summary`) is plain text,
 /// `start_date` a Cocoa-seconds REAL, `location` more text. Anchors on the longest
-/// alphabetic title; attaches the location and the event date. The row holds
-/// several dates (start/end/created); the **earliest** plausible one approximates
-/// the start, so we report that rather than the end.
+/// alphabetic title; attaches the location and a date. The row holds several
+/// indistinguishable dates (start/end/created); we report the **earliest** as the
+/// most honest proxy for when the event was (see `min_cocoa_date`).
 fn calendar_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
     records
         .iter()
@@ -600,17 +603,21 @@ mod tests {
     }
 
     #[test]
-    fn calendar_reports_start_not_end_date() {
-        // A row carrying both a start and a (later) end date reports the start.
-        let start = 600_000_000.0; // 2020-01-06
-        let end = 631_000_000.0; // ~11 months later
+    fn calendar_reports_earliest_date_not_end() {
+        // Schema-less carving can't tell start from end/created, so the earliest
+        // plausible date is reported (never the later end). Here created < start
+        // < end, and the earliest (created) is what we surface.
+        let created = 600_000_000.0; // 2020-01-06
+        let start = 615_000_000.0; // ~5.5 months later
+        let end = 631_000_000.0; // later still
         let records = vec![rec_n(
             Some(4),
             CarveSource::Freelist,
-            vec![CarvedValue::Text("Dovolená".into()), CarvedValue::Real(end), CarvedValue::Real(start)],
+            vec![CarvedValue::Text("Dovolená".into()), CarvedValue::Real(end), CarvedValue::Real(start), CarvedValue::Real(created)],
         )];
         let out = recover("calendar", &records, &LiveKeys::default());
         assert_eq!(out.len(), 1);
+        // The earliest timestamp wins; crucially it is not the end date.
         assert!(out[0].date.as_deref().unwrap().starts_with("2020-01-06"));
     }
 

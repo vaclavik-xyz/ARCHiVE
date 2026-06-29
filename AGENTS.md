@@ -713,8 +713,9 @@ GUID), `calls` (`CallHistory.storedata`, anchored by a Cocoa-seconds REAL date),
 `contacts` (`AddressBook.sqlitedb`, name texts — softest), `notes`
 (`NoteStore.sqlite`, title/snippet texts + Cocoa date — the body is gzipped
 protobuf and not recovered here), `calendar` (`Calendar.sqlitedb`, event title +
-location + start date), and `safari` (`History.db`, a URL or a titled visit with
-a Cocoa visit date). Each output row is `{ store, source (freelist|freeblock|
+location + earliest associated Cocoa date — schema-less carving cannot single out
+the start column from end/created, so the earliest is reported), and `safari`
+(`History.db`, a URL or a titled visit with a Cocoa visit date). Each output row is `{ store, source (freelist|freeblock|
 unallocated|wal), rowid, date (ISO 8601 UTC or null), summary }`, sorted
 chronologically.
 
