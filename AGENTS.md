@@ -849,6 +849,23 @@ flags that a file's content changed, not what changed inside it. The envelope
 carries `summary: { added, removed, modified, unchanged }`, `outputs` and `device`.
 Read-only on both backups.
 
+### `package` — AES-256 encrypted zip of an export
+
+```
+archive -o <OUT> package --source <DIR> --zip-password <PW>
+```
+
+Bundles every file under `--source` (recursively, paths kept relative, sorted)
+into `<OUT>/archive-package.zip` as a **WinZip AES-256 encrypted** zip — any
+standard zip tool opens it with the password. It does **not** open the backup (a
+pure file operation; no `--backup`/`--password` needed), so it wraps a prior
+`recover`/export output for delivery. The encryption password comes from
+`--zip-password` or the `ARCHIVE_ZIP_PASSWORD` env var and is **required** (an
+empty one is a usage error) and **never logged** — only the file and byte counts
+are. If the output zip already lives under `--source`, it is skipped so the archive
+never contains itself. Envelope: `ok`, `command`, `encrypted: true`, `cipher:
+"AES-256"`, `files`, `bytes`, `outputs`.
+
 ### `wifi` — recover saved Wi-Fi passwords
 
 ```

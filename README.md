@@ -21,8 +21,8 @@ portable formats:
   one-shot `recover` package, deleted-record recovery (`recover-deleted`, SQLite
   carving), a `schema-check` that flags when a store's columns have drifted across
   iOS versions, a case-file `search` across every record, a combined SQLite
-  `db-export` for cross-store SQL, a file-level `diff` of two backups, Recently
-  Deleted photo/video recovery
+  `db-export` for cross-store SQL, a file-level `diff` of two backups, an
+  AES-256-encrypted `package` of the output, Recently Deleted photo/video recovery
   (`photos-recently-deleted`), saved Wi-Fi passwords (`wifi`) and website/app
   passwords (`passwords`) from the keychain, on-device `backup`
   capture, and a backup `integrity` check (agent-first JSON output)
@@ -89,6 +89,7 @@ archive --backup ~/Backup/<UDID> -o out schema-check     -f html  # do live DB s
 archive --backup ~/Backup/<UDID> -o out search -q "Jan"  -f html  # find a term across every record + the address book
 archive --backup ~/Backup/<UDID> -o out db-export                 # one queryable archive.sqlite for cross-store SQL
 archive --backup ~/Backup/<A> -o out diff --against ~/Backup/<B> -f html  # file-level diff of two backups
+archive -o out package --source out --zip-password <pw>           # AES-256 encrypted zip of the export dir
 archive --backup ~/Backup/<UDID> -o out wifi            -f html  # saved Wi-Fi passwords (encrypted backups)
 archive --backup ~/Backup/<UDID> -o out passwords       -f html  # saved website/app passwords (encrypted backups)
 archive --backup ~/Backup/<UDID> -o out keychain-inventory -f json  # keychain census: per-item metadata, NO secrets

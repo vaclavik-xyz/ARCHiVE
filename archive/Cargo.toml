@@ -16,3 +16,6 @@ askama = "=0.16.0"
 tempfile = "=3.27.0"
 flate2 = "=1.1.9"
 plist = "=1.9.0"
+# Standard WinZip AES-256 encrypted .zip for the `package` command (deflate +
+# aes-crypto only; default features trimmed to keep the dependency tree lean).
+zip = { version = "=2.4.2", default-features = false, features = ["deflate", "aes-crypto"] }
