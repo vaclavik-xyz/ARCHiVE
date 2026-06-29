@@ -53,14 +53,17 @@ pub fn safe_relpath(path: &str) -> Option<String> {
     // slip through as one opaque segment when this runs on (or processes a
     // manifest crafted for) Windows.
     let normalized = path.replace('\\', "/");
-    // Reject a drive-absolute prefix like `C:\…` / `C:/…`.
+    // Reject rooted (`/…`) and drive-absolute (`C:\…` / `C:/…`) paths outright,
+    // per the sanitizer contract — backup manifest paths are domain-relative.
+    if normalized.starts_with('/') {
+        return None;
+    }
     let bytes = normalized.as_bytes();
     if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
         return None;
     }
-    let trimmed = normalized.trim_start_matches('/');
     let mut parts = Vec::new();
-    for seg in trimmed.split('/') {
+    for seg in normalized.split('/') {
         match seg {
             "" | "." => continue,
             ".." => return None,
@@ -97,7 +100,7 @@ mod tests {
     #[test]
     fn safe_relpath_blocks_traversal_and_absolutes() {
         assert_eq!(safe_relpath("Documents/a/b.jpg"), Some("Documents/a/b.jpg".to_string()));
-        assert_eq!(safe_relpath("/Documents/a.jpg"), Some("Documents/a.jpg".to_string()));
+        assert_eq!(safe_relpath("/Documents/a.jpg"), None);
         assert_eq!(safe_relpath("a/./b.jpg"), Some("a/b.jpg".to_string()));
         assert_eq!(safe_relpath("../etc/passwd"), None);
         assert_eq!(safe_relpath("a/../../b"), None);
