@@ -22,6 +22,9 @@ pub const DOMAIN: &str = "AppDomainGroup-group.com.apple.coreduet";
 /// places across iOS versions.
 pub const CANDIDATES: &[(&str, &str)] = &[
     ("AppDomainGroup-group.com.apple.coreduet", "Library/Knowledge/knowledgeC.db"),
+    ("AppDomainGroup-group.com.apple.coreduet", "Library/CoreDuet/Knowledge/knowledgeC.db"),
+    ("AppDomainGroup-group.com.apple.coreduetd", "Library/Knowledge/knowledgeC.db"),
+    ("AppDomainGroup-group.com.apple.coreduetd", "Library/CoreDuet/Knowledge/knowledgeC.db"),
     ("HomeDomain", "Library/CoreDuet/Knowledge/knowledgeC.db"),
     ("HomeDomain", "Library/CoreDuet/knowledgeC.db"),
 ];
@@ -133,6 +136,15 @@ mod tests {
         assert_eq!(mk(90).total_human(), "1m");
         assert_eq!(mk(3661).total_human(), "1h 1m");
         assert_eq!(mk(7200).total_human(), "2h 0m");
+    }
+
+    #[test]
+    fn candidates_cover_known_coreduet_app_groups() {
+        let domains: Vec<&str> = CANDIDATES.iter().map(|(d, _)| *d).collect();
+        assert!(domains.contains(&"AppDomainGroup-group.com.apple.coreduet"));
+        assert!(domains.contains(&"AppDomainGroup-group.com.apple.coreduetd"));
+        // Every candidate path ends in the knowledge database file.
+        assert!(CANDIDATES.iter().all(|(_, p)| p.ends_with("knowledgeC.db")));
     }
 
     #[test]
