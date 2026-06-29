@@ -290,7 +290,12 @@ pub fn inventory(plist_bytes: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Vec<
                 continue;
             };
             let (version, protection_class) = item_header(blob).unwrap_or((0, 0));
-            let attrs = decrypt_item(blob, class_keys).map(|p| parse_der_attributes(&p));
+            // A decrypt that yields no parseable attributes (e.g. a wrong-format
+            // legacy-CBC item) is not counted as decrypted — consistent with
+            // `item_attributes` and keeping the census honest.
+            let attrs = decrypt_item(blob, class_keys)
+                .map(|p| parse_der_attributes(&p))
+                .filter(|a| !a.is_empty());
             let decrypted = attrs.is_some();
             let attrs = attrs.unwrap_or_default();
             let service = attr(&attrs, "srvr")
@@ -387,11 +392,16 @@ fn item_header(blob: &[u8]) -> Option<(u32, u32)> {
 }
 
 /// The decrypted DER attributes of one keychain item dict, or `None` when the
-/// item has no protected `v_Data` blob or it cannot be decrypted.
+/// item has no protected `v_Data` blob, it cannot be decrypted, or the decrypted
+/// bytes do not parse into **any** attributes. The last case is what makes the
+/// legacy-CBC path safe: a wrong key/format yields plaintext that is not a valid
+/// `SET OF SEQUENCE`, so it produces zero attributes and the item is treated as
+/// *undecrypted* — never a successful decrypt with empty/garbage fields.
 fn item_attributes(item: &Value, class_keys: &HashMap<u32, Vec<u8>>) -> Option<Vec<(String, Vec<u8>)>> {
     let blob = item.as_dictionary()?.get("v_Data")?.as_data()?;
     let plaintext = decrypt_item(blob, class_keys)?;
-    Some(parse_der_attributes(&plaintext))
+    let attrs = parse_der_attributes(&plaintext);
+    (!attrs.is_empty()).then_some(attrs)
 }
 
 /// Look up one decrypted attribute's value bytes by key.
@@ -1174,6 +1184,37 @@ mod tests {
         let mut keys = HashMap::new();
         keys.insert(CLASS, [0x99; 32].to_vec()); // wrong KEK → wrong item key
         assert!(extract_wifi(&keychain_plist(vec![item]), &keys).is_empty());
+    }
+
+    /// Build a legacy CBC item whose plaintext is arbitrary (not necessarily DER).
+    fn make_cbc_item_raw(version: u32, class_id: u32, class_key: &[u8], item_key: &[u8], plaintext: &[u8]) -> Value {
+        let ct = cbc_encrypt(item_key, plaintext);
+        let wrapped = kw_wrap(class_key, item_key);
+        let mut blob = Vec::new();
+        blob.extend(version.to_le_bytes());
+        blob.extend(class_id.to_le_bytes());
+        blob.extend((wrapped.len() as u32).to_le_bytes());
+        blob.extend(&wrapped);
+        blob.extend(&ct);
+        let mut d = Dictionary::new();
+        d.insert("v_Data".into(), Value::Data(blob));
+        Value::Dictionary(d)
+    }
+
+    #[test]
+    fn cbc_decrypt_to_non_der_is_not_a_successful_item() {
+        // CBC succeeds (valid padding) but the plaintext is not a DER SET, so it
+        // parses to zero attributes: the item is neither extracted nor counted as
+        // decrypted in the inventory census.
+        let item = make_cbc_item_raw(2, CLASS, &CK, &IK, b"this is plainly not a DER attribute set");
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        assert!(extract_wifi(&keychain_plist(vec![item.clone()]), &keys).is_empty());
+
+        // In the inventory the same item is present but `decrypted: false`.
+        let inv = inventory(&keychain_plist(vec![item]), &keys);
+        assert_eq!(inv.len(), 1);
+        assert!(!inv[0].decrypted, "a no-attribute decrypt must not count as decrypted");
     }
 
     #[test]
