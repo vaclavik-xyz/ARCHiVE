@@ -1909,6 +1909,7 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
             match name {
                 "contacts" => load_contacts(&backup).ok().flatten().map(|p| p.len()),
                 "calls" => load_calls(&backup).ok().flatten().map(|c| c.len()),
+                "accounts" => load_accounts(&backup).ok().flatten().map(|v| v.len()),
                 "voicemail" => load_voicemail(&backup).ok().flatten().map(|v| v.len()),
                 "voice-memos" => load_voice_memos(&backup).ok().flatten().map(|v| v.len()),
                 "safari-history" => load_safari_history(&backup).ok().flatten().map(|v| v.len()),
@@ -2021,6 +2022,27 @@ mod cli_tests {
         // `apps` is manifest-derived, not a data store: it must NOT be advertised
         // by inspect (keeps inspect/recover store coverage consistent).
         assert!(KNOWN_STORES.iter().all(|(n, ..)| *n != "apps"), "apps must not be a store");
+    }
+
+    #[test]
+    fn inspect_counts_every_supported_store() {
+        // Every store advertised as supported by inspect must have a count arm in
+        // run_inspect's `match name` (otherwise it reports `count: null`). This
+        // list mirrors that match — when adding a store, add it here AND add the
+        // matching `load_*` count arm.
+        let counted = [
+            "contacts", "calls", "accounts", "voicemail", "voice-memos",
+            "safari-history", "safari-bookmarks", "calendar", "notes", "photos",
+            "attachments", "whatsapp", "health", "reminders", "mail",
+        ];
+        for (name, supported, ..) in KNOWN_STORES {
+            if *supported {
+                assert!(
+                    counted.contains(name),
+                    "{name} is a supported store but has no inspect count arm"
+                );
+            }
+        }
     }
 
     #[test]
