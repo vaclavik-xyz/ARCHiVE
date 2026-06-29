@@ -20,17 +20,20 @@ use std::collections::HashSet;
 use serde::Serialize;
 
 /// One table an extractor depends on, split into hard-required and tolerated
-/// columns. `required` must be non-empty — a table listed here is one the
-/// extractor genuinely needs; tables read only via tolerated optional columns are
-/// not modelled.
+/// columns. A table whose `required` is empty is *informational-only*: the
+/// extractor tolerates it being absent entirely (e.g. Health), so it never drifts
+/// — its optional columns are still reported when missing.
 pub struct TableNeed {
     pub table: &'static str,
-    /// Columns whose absence breaks extraction (unconditional in the query, or an
-    /// early-return guard). SQLite's implicit `ROWID` is excluded — it is not a
-    /// declared column and never appears in `PRAGMA table_info`.
+    /// Columns whose absence breaks extraction: they appear unconditionally in the
+    /// SQL (so `prepare()` fails without them — note a LEFT JOIN still requires its
+    /// table and referenced columns to *exist*), or guard an early return. SQLite's
+    /// implicit `ROWID` is excluded — it is not a declared column and never appears
+    /// in `PRAGMA table_info`, yet joins/SELECTs can still reference it.
     pub required: &'static [&'static str],
-    /// Columns the extractor tolerates absent (gated with a NULL/COALESCE/skip
-    /// fallback). Reported when missing, but never cause drift.
+    /// Columns the extractor tolerates absent (gated with a `table_columns(...)`
+    /// check and a NULL/COALESCE/skip fallback). Reported when missing, but never
+    /// cause drift.
     pub optional: &'static [&'static str],
 }
 
@@ -48,7 +51,9 @@ pub struct StoreSchema {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TableReport {
     pub table: String,
-    /// `ok` | `missing_columns` (a required column is gone) | `table_absent`.
+    /// `ok` | `missing_columns` (a required column is gone — drift) | `table_absent`
+    /// (a required table is gone — drift) | `table_absent_optional` (an
+    /// informational-only table the extractor tolerates is gone — not drift).
     pub status: &'static str,
     /// Required columns not found in the live schema (drift-causing).
     pub missing_required: Vec<String>,
@@ -71,15 +76,16 @@ pub struct StoreReport {
 }
 
 /// Compare one table's columns against its actual column set. `actual` is `None`
-/// when the table does not exist (a `PRAGMA table_info` that returns no rows), in
-/// which case every column is reported missing and the status is `table_absent`
-/// (a required column is unsatisfiable, so the store is drifted).
+/// when the table does not exist (a `PRAGMA table_info` that returns no rows): a
+/// table with required columns is then `table_absent` (drift); an
+/// informational-only table (no required columns) is `table_absent_optional`
+/// (tolerated — not drift).
 pub fn check_table(need: &TableNeed, actual: Option<&HashSet<String>>) -> TableReport {
     let names = |cols: &[&'static str]| cols.iter().map(|c| (*c).to_string()).collect::<Vec<_>>();
     match actual {
         None => TableReport {
             table: need.table.into(),
-            status: "table_absent",
+            status: if need.required.is_empty() { "table_absent_optional" } else { "table_absent" },
             missing_required: names(need.required),
             missing_optional: names(need.optional),
         },
@@ -94,10 +100,15 @@ pub fn check_table(need: &TableNeed, actual: Option<&HashSet<String>>) -> TableR
     }
 }
 
-/// Roll per-table reports up into a store status: `ok` only if every table is `ok`
-/// (all required columns present); any `missing_columns`/`table_absent` is drift.
+/// Roll per-table reports up into a store status: `drifted` if any table lost a
+/// required column (`missing_columns`) or a required table (`table_absent`);
+/// otherwise `ok` (a tolerated `table_absent_optional` does not drift the store).
 pub fn store_status(tables: &[TableReport]) -> &'static str {
-    if tables.iter().all(|t| t.status == "ok") { "ok" } else { "drifted" }
+    if tables.iter().any(|t| t.status == "missing_columns" || t.status == "table_absent") {
+        "drifted"
+    } else {
+        "ok"
+    }
 }
 
 /// Every SQLite store the tool extracts from, with its load-bearing schema. Kept
@@ -111,9 +122,19 @@ pub const EXPECTATIONS: &[StoreSchema] = &[
     StoreSchema {
         command: "contacts",
         locations: &[("HomeDomain", "Library/AddressBook/AddressBook.sqlitedb")],
+        // contacts::parse uses fixed SQL with no table_columns gating, so every
+        // selected column and joined table must exist or prepare() fails — all are
+        // required. (Implicit ROWID, used only in joins, is excluded.)
         needs: &[
-            TableNeed { table: "ABPerson", required: &["ROWID"], optional: &["First", "Last", "Organization", "Note"] },
-            TableNeed { table: "ABMultiValue", required: &["record_id", "property"], optional: &["value", "label"] },
+            TableNeed { table: "ABPerson", required: &["First", "Last", "Organization", "Note"], optional: &[] },
+            TableNeed {
+                table: "ABMultiValue",
+                required: &["UID", "property", "value", "label", "record_id"],
+                optional: &[],
+            },
+            TableNeed { table: "ABMultiValueLabel", required: &["value"], optional: &[] },
+            TableNeed { table: "ABMultiValueEntry", required: &["key", "value", "parent_id"], optional: &[] },
+            TableNeed { table: "ABMultiValueEntryKey", required: &["value"], optional: &[] },
         ],
     },
     StoreSchema {
@@ -131,7 +152,7 @@ pub const EXPECTATIONS: &[StoreSchema] = &[
         needs: &[
             TableNeed {
                 table: "ZACCOUNT",
-                required: &["Z_PK", "ZACCOUNTTYPE"],
+                required: &["ZACCOUNTTYPE"], // the LEFT JOIN key; all value columns are select-or-NULL
                 optional: &["ZUSERNAME", "ZACCOUNTDESCRIPTION", "ZOWNINGBUNDLEID", "ZDATE", "ZACTIVE"],
             },
             TableNeed { table: "ZACCOUNTTYPE", required: &["Z_PK"], optional: &["ZACCOUNTTYPEDESCRIPTION", "ZIDENTIFIER"] },
@@ -191,47 +212,59 @@ pub const EXPECTATIONS: &[StoreSchema] = &[
                 required: &["summary", "start_date", "calendar_id"],
                 optional: &["end_date", "all_day"],
             },
-            TableNeed { table: "Calendar", required: &["ROWID"], optional: &["title"] },
+            // c.title is selected unconditionally; the join uses implicit ROWID.
+            TableNeed { table: "Calendar", required: &["title"], optional: &[] },
         ],
     },
     StoreSchema {
         command: "notes",
         locations: &[("AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite")],
-        needs: &[TableNeed {
-            table: "ZICCLOUDSYNCINGOBJECT",
-            required: &["ZNOTEDATA"],
-            optional: &["ZTITLE1", "ZSNIPPET", "ZCREATIONDATE", "ZMODIFICATIONDATE1", "ZFOLDER", "ZTITLE2"],
-        }],
+        needs: &[
+            TableNeed {
+                table: "ZICCLOUDSYNCINGOBJECT",
+                required: &["ZNOTEDATA"], // early-return guard
+                optional: &["ZTITLE1", "ZSNIPPET", "ZCREATIONDATE", "ZMODIFICATIONDATE1", "ZFOLDER", "ZTITLE2"],
+            },
+            // The body table + d.ZDATA are joined/selected unconditionally.
+            TableNeed { table: "ZICNOTEDATA", required: &["ZDATA"], optional: &[] },
+        ],
     },
     StoreSchema {
         command: "photos",
         locations: &[("CameraRollDomain", "Media/PhotoData/Photos.sqlite")],
         needs: &[TableNeed {
             table: "ZASSET",
-            required: &["Z_PK", "ZFILENAME", "ZDIRECTORY", "ZKIND"],
-            optional: &["ZDATECREATED", "ZADDEDDATE", "ZFAVORITE", "ZHIDDEN", "ZTRASHEDSTATE", "ZLATITUDE", "ZLONGITUDE"],
+            required: &["Z_PK", "ZFILENAME", "ZDIRECTORY"], // ZKIND is select-or-NULL
+            optional: &["ZKIND", "ZDATECREATED", "ZADDEDDATE", "ZFAVORITE", "ZHIDDEN", "ZTRASHEDSTATE", "ZLATITUDE", "ZLONGITUDE"],
         }],
     },
     StoreSchema {
         command: "whatsapp",
         locations: &[("AppDomainGroup-group.net.whatsapp.WhatsApp.shared", "ChatStorage.sqlite")],
-        needs: &[TableNeed {
-            table: "ZWAMESSAGE",
-            required: &["ZMESSAGEDATE"],
-            optional: &["ZTEXT", "ZISFROMME", "ZFROMJID", "ZCHATSESSION", "ZMEDIAITEM"],
-        }],
+        // The two LEFT JOINs and their selected columns are unconditional, so those
+        // tables/columns and the join keys must exist; only ZTEXT/ZISFROMME/ZFROMJID
+        // are select-or-NULL.
+        needs: &[
+            TableNeed {
+                table: "ZWAMESSAGE",
+                required: &["ZMESSAGEDATE", "ZCHATSESSION", "ZMEDIAITEM"],
+                optional: &["ZTEXT", "ZISFROMME", "ZFROMJID"],
+            },
+            TableNeed { table: "ZWACHATSESSION", required: &["ZPARTNERNAME"], optional: &[] },
+            TableNeed { table: "ZWAMEDIAITEM", required: &["ZMEDIALOCALPATH"], optional: &[] },
+        ],
     },
     StoreSchema {
         command: "health",
         locations: &[("HealthDomain", "Health/healthdb_secure.sqlite")],
+        // health::parse is fully schema-tolerant: a missing workouts/samples/
+        // quantity_samples table yields empty data, never an error. So none of its
+        // tables are required — they are informational-only (their optional columns
+        // are still reported when missing, but the store never drifts).
         needs: &[
-            TableNeed { table: "samples", required: &["data_id"], optional: &["data_type", "start_date", "end_date"] },
-            TableNeed {
-                table: "workouts",
-                required: &["data_id"],
-                optional: &["start_date", "end_date", "activity_type", "duration", "total_distance"],
-            },
-            TableNeed { table: "quantity_samples", required: &["data_id"], optional: &["quantity"] },
+            TableNeed { table: "workouts", required: &[], optional: &["data_id", "start_date", "end_date", "activity_type", "duration", "total_distance"] },
+            TableNeed { table: "samples", required: &[], optional: &["data_id", "data_type", "start_date", "end_date"] },
+            TableNeed { table: "quantity_samples", required: &[], optional: &["data_id", "quantity"] },
         ],
     },
     StoreSchema {
@@ -300,6 +333,17 @@ mod tests {
     }
 
     #[test]
+    fn informational_only_table_absent_is_not_drift() {
+        // A table with no required columns is tolerated absent (Health-style).
+        let info = TableNeed { table: "workouts", required: &[], optional: &["data_id", "start_date"] };
+        let r = check_table(&info, None);
+        assert_eq!(r.status, "table_absent_optional");
+        assert!(r.missing_required.is_empty());
+        assert_eq!(r.missing_optional, vec!["data_id".to_string(), "start_date".to_string()]);
+        assert_eq!(store_status(&[r]), "ok"); // does not drift the store
+    }
+
+    #[test]
     fn store_status_rolls_up() {
         let ok = TableReport { table: "a".into(), status: "ok", missing_required: vec![], missing_optional: vec![] };
         let bad = TableReport {
@@ -321,9 +365,9 @@ mod tests {
 
     #[test]
     fn expectations_are_well_formed() {
-        // Every expectation needs a location and at least one table; every table
-        // at least one REQUIRED column (an all-optional table can never drift and
-        // is a modelling mistake — omit it instead).
+        // Every expectation needs a location and at least one table; every table at
+        // least one column total (required for drift-bearing tables, or optional for
+        // informational-only ones — an entirely empty table is a modelling mistake).
         for s in EXPECTATIONS {
             assert!(!s.command.is_empty(), "empty command");
             assert!(!s.locations.is_empty(), "{} has no locations", s.command);
@@ -332,7 +376,12 @@ mod tests {
             }
             assert!(!s.needs.is_empty(), "{} has no tables", s.command);
             for n in s.needs {
-                assert!(!n.required.is_empty(), "{}.{} has no required columns", s.command, n.table);
+                assert!(
+                    !n.required.is_empty() || !n.optional.is_empty(),
+                    "{}.{} has no columns at all",
+                    s.command,
+                    n.table
+                );
             }
         }
     }
