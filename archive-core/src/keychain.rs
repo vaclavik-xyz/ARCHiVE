@@ -186,18 +186,28 @@ pub struct NetworkCredential {
 /// Classify a generic-password item as a VPN or enterprise-Wi-Fi (EAP) credential
 /// from its service/access-group markers, or `None` when it is neither. Personal
 /// Wi-Fi PSKs (`svce == "AirPort"`) are excluded — those are recovered by
-/// [`extract_wifi`]. The marker sets are documented Apple identifiers; this is a
-/// best-effort classifier (an unusual marker may be missed).
+/// [`extract_wifi`].
+///
+/// To avoid mislabelling unrelated secrets, **distinctive** markers
+/// (`ipsec`, `l2tp`, `ikev2`, `eapol`, …) match as substrings, but the short
+/// ambiguous marker `eap` matches only as a whole **token** (so `cheap`/`leap` do
+/// not trip it). The over-broad word `enterprise` is intentionally not a marker.
+/// Best-effort: an unusual marker may still be missed.
 fn classify_network_marker(svce: &str, agrp: &str) -> Option<&'static str> {
     if svce.eq_ignore_ascii_case("AirPort") {
         return None;
     }
     let hay = format!("{} {}", svce.to_lowercase(), agrp.to_lowercase());
-    const VPN: &[&str] = &["vpn", "ipsec", "l2tp", "pptp", "ikev2", "racoon"];
-    const EAP: &[&str] = &["eap", "802.1x", "8021x", "eapol", "enterprise"];
-    if VPN.iter().any(|m| hay.contains(m)) {
+    // Tokens are maximal alphanumeric runs (split on '.', '-', '_', space, '/', …).
+    let has_token = |needle: &str| {
+        hay.split(|c: char| !c.is_ascii_alphanumeric()).any(|t| t == needle)
+    };
+    // Distinctive enough that a raw substring match will not hit common words.
+    const VPN_SUBSTR: &[&str] = &["vpn", "ipsec", "l2tp", "pptp", "ikev2", "racoon", "openvpn", "wireguard", "anyconnect"];
+    const EAP_SUBSTR: &[&str] = &["eapol", "8021x", "802.1x"];
+    if VPN_SUBSTR.iter().any(|m| hay.contains(m)) {
         Some("vpn")
-    } else if EAP.iter().any(|m| hay.contains(m)) {
+    } else if EAP_SUBSTR.iter().any(|m| hay.contains(m)) || has_token("eap") {
         Some("eap")
     } else {
         None
@@ -982,10 +992,23 @@ mod tests {
         assert_eq!(classify_network_marker("MyCompany IPsec", ""), Some("vpn"));
         assert_eq!(classify_network_marker("eapol:en0", "apple"), Some("eap"));
         assert_eq!(classify_network_marker("Corp 802.1X", ""), Some("eap"));
+        assert_eq!(classify_network_marker("eap", "apple"), Some("eap")); // bare token
+        assert_eq!(classify_network_marker("auth.eap.network", ""), Some("eap")); // token between dots
         // Personal Wi-Fi PSKs are out of scope (handled by extract_wifi).
         assert_eq!(classify_network_marker("AirPort", "apple"), None);
         // An ordinary app secret is neither.
         assert_eq!(classify_network_marker("com.example.token", "com.example"), None);
+    }
+
+    #[test]
+    fn classify_network_marker_no_substring_false_positives() {
+        // "eap" must NOT trip on words that merely contain it.
+        assert_eq!(classify_network_marker("com.cheapskate.deals", "com.cheapskate"), None);
+        assert_eq!(classify_network_marker("LeapYear Planner", "com.leapyear.app"), None);
+        // "enterprise" is intentionally not a marker (too broad).
+        assert_eq!(classify_network_marker("Acme Enterprise Suite", "com.acme.enterprise"), None);
+        // A third-party token store is left alone.
+        assert_eq!(classify_network_marker("session-token", "com.vendor.app"), None);
     }
 
     #[test]
