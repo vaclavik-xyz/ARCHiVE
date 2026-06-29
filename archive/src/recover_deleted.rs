@@ -40,7 +40,7 @@ pub struct LiveKeys {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DeletedRecord {
     /// Which store the row was attributed to: `messages` | `calls` | `contacts`
-    /// | `notes` | `calendar` | `safari`.
+    /// | `notes` | `calendar` | `safari` | `photos`.
     pub store: String,
     /// Which free region it was carved from: `freelist` | `freeblock` | `unallocated` | `wal`.
     pub source: String,
@@ -147,6 +147,22 @@ fn looks_url(s: &str) -> bool {
     (s.contains("://") || s.starts_with("www."))
         && !s.chars().any(char::is_whitespace)
         && (6..=2048).contains(&s.chars().count())
+}
+
+/// Media-file extensions a Camera Roll asset's `ZFILENAME` ends with.
+const PHOTO_EXTS: &[&str] = &[
+    ".heic", ".heif", ".jpg", ".jpeg", ".png", ".gif", ".mov", ".mp4", ".m4v", ".dng", ".tiff", ".tif", ".aae", ".webp",
+];
+
+/// A text that looks like a Camera Roll filename — the anchor for a deleted
+/// `ZASSET` row (a media extension, no spaces, plausible length).
+fn looks_photo_filename(s: &str) -> bool {
+    let len = s.chars().count();
+    if !(5..=128).contains(&len) || s.chars().any(char::is_whitespace) {
+        return false;
+    }
+    let lower = s.to_ascii_lowercase();
+    PHOTO_EXTS.iter().any(|e| lower.ends_with(e))
 }
 
 /// sms.db `message`: anchored by a 36-char guid. The body is the longest
@@ -390,6 +406,31 @@ fn safari_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> 
         .collect()
 }
 
+/// Photos.sqlite (`ZASSET`): a deleted Camera Roll asset — recovered even after it
+/// was purged from "Recently Deleted". Anchored by a media `ZFILENAME`; the date
+/// is the earliest plausible Cocoa value (`ZDATECREATED`, when the photo was
+/// taken, precedes the added/modified dates). The pixels are usually gone, but the
+/// filename + capture date prove the asset existed.
+fn photos_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
+    records
+        .iter()
+        .filter_map(|r| {
+            if excluded_anchorless(r, live) {
+                return None;
+            }
+            let filename = r.values.iter().filter_map(as_text).find(|t| looks_photo_filename(t))?;
+            Some(DeletedRecord {
+                store: "photos".into(),
+                source: source_str(r.source).into(),
+                rowid: r.rowid,
+                date: min_cocoa_date(r),
+                truncated: r.truncated,
+                summary: trunc(filename, 120),
+            })
+        })
+        .collect()
+}
+
 /// Apply the signature for `store` to carved records, excluding rows still live
 /// in the database (`live`) — which filters out the live rows that WAL frame
 /// images inevitably contain — then drop near-duplicates (the same row often
@@ -402,6 +443,7 @@ pub fn recover(store: &str, records: &[CarvedRecord], live: &LiveKeys) -> Vec<De
         "notes" => notes_from(records, live),
         "calendar" => calendar_from(records, live),
         "safari" => safari_from(records, live),
+        "photos" => photos_from(records, live),
         _ => Vec::new(),
     };
     // De-duplicate rows that survived in several free regions, preferring a
@@ -658,6 +700,33 @@ mod tests {
         assert!(recover("calendar", &cal, &LiveKeys::default()).is_empty());
         let saf = vec![rec_n(None, CarveSource::Wal, vec![CarvedValue::Text("https://x.test/a".into())])];
         assert!(recover("safari", &saf, &LiveKeys::default()).is_empty());
+    }
+
+    #[test]
+    fn photos_signature_recovers_filename_and_capture_date() {
+        // A deleted ZASSET row: media filename + created/added dates; the
+        // earliest (created) date is reported.
+        let created = 600_000_000.0; // 2020-01-06
+        let added = 631_000_000.0;
+        let records = vec![rec_n(
+            Some(42),
+            CarveSource::Freelist,
+            vec![
+                CarvedValue::Text("DCIM/100APPLE".into()),
+                CarvedValue::Text("IMG_4242.HEIC".into()),
+                CarvedValue::Real(added),
+                CarvedValue::Real(created),
+            ],
+        )];
+        let out = recover("photos", &records, &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].store, "photos");
+        assert_eq!(out[0].summary, "IMG_4242.HEIC");
+        assert!(out[0].date.as_deref().unwrap().starts_with("2020-01-06"));
+
+        // A row with no media filename is not a photo asset → dropped.
+        let noise = vec![rec_n(Some(1), CarveSource::Freelist, vec![CarvedValue::Text("not a file".into())])];
+        assert!(recover("photos", &noise, &LiveKeys::default()).is_empty());
     }
 
     #[test]

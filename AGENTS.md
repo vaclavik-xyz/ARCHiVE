@@ -700,7 +700,7 @@ files → `count: 0` plus a `note` naming how many domains matched.
 ### `recover-deleted` — carve deleted SQLite rows
 
 ```
-archive --backup <DIR> [--password <PW>] -o <OUT> recover-deleted -f <FORMAT> [--store messages|calls|contacts|notes|calendar|safari|all]
+archive --backup <DIR> [--password <PW>] -o <OUT> recover-deleted -f <FORMAT> [--store messages|calls|contacts|notes|calendar|safari|photos|all]
 ```
 
 `FORMAT` is `csv | json | html`; `--store` defaults to `all` (an unknown value is
@@ -714,8 +714,11 @@ GUID), `calls` (`CallHistory.storedata`, anchored by a Cocoa-seconds REAL date),
 (`NoteStore.sqlite`, title/snippet texts + Cocoa date — the body is gzipped
 protobuf and not recovered here), `calendar` (`Calendar.sqlitedb`, event title +
 location + earliest associated Cocoa date — schema-less carving cannot single out
-the start column from end/created, so the earliest is reported), and `safari`
-(`History.db`, a URL or a titled visit with a Cocoa visit date). Each output row is `{ store, source (freelist|freeblock|
+the start column from end/created, so the earliest is reported), `safari`
+(`History.db`, a URL or a titled visit with a Cocoa visit date), and `photos`
+(`Photos.sqlite` `ZASSET`, a media `ZFILENAME` + the earliest/capture Cocoa date —
+recovers a deleted Camera Roll asset's identity even after it left "Recently
+Deleted", though the pixels are usually gone). Each output row is `{ store, source (freelist|freeblock|
 unallocated|wal), rowid, date (ISO 8601 UTC or null), summary, truncated }`,
 sorted chronologically. `truncated` is true when the carved cell ran past the
 available bytes (record-size cap or an overwritten tail), so its trailing columns
