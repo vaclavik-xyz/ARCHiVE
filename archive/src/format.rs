@@ -1346,6 +1346,31 @@ pub fn certificates_html(items: &[crate::certificates::CertificateInfo]) -> Stri
     CertificatesTemplate { certs: items }.render().unwrap()
 }
 
+// --- VPN / enterprise-Wi-Fi credentials (sensitive: plaintext secrets) -----
+
+pub fn vpn_creds_csv(items: &[archive_core::keychain::NetworkCredential]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["kind", "service", "account", "password"]).unwrap();
+    for c in items {
+        wtr.write_record([&c.kind, &c.service, &c.account, &c.password]).unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn vpn_creds_json(items: &[archive_core::keychain::NetworkCredential]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "vpn-creds.html")]
+struct VpnCredsTemplate<'a> {
+    creds: &'a [archive_core::keychain::NetworkCredential],
+}
+
+pub fn vpn_creds_html(items: &[archive_core::keychain::NetworkCredential]) -> String {
+    VpnCredsTemplate { creds: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

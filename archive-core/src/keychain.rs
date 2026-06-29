@@ -168,6 +168,75 @@ fn is_user_credential_group(agrp: &str) -> bool {
     !agrp.is_empty() && (agrp == "com.apple.cfnetwork" || !agrp.starts_with("com.apple."))
 }
 
+/// One recovered **network credential** — a VPN or enterprise-Wi-Fi (802.1X/EAP)
+/// password/secret from the keychain.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NetworkCredential {
+    /// What kind of credential the markers indicate: `vpn` or `eap`.
+    pub kind: String,
+    /// Service identifier (`svce`) the credential belongs to; may be empty.
+    pub service: String,
+    /// Account / username (`acct`); may be empty.
+    pub account: String,
+    /// The recovered secret (VPN password/shared-secret or EAP password) in
+    /// plaintext. Sensitive — callers must not log it.
+    pub password: String,
+}
+
+/// Classify a generic-password item as a VPN or enterprise-Wi-Fi (EAP) credential
+/// from its service/access-group markers, or `None` when it is neither. Personal
+/// Wi-Fi PSKs (`svce == "AirPort"`) are excluded — those are recovered by
+/// [`extract_wifi`]. The marker sets are documented Apple identifiers; this is a
+/// best-effort classifier (an unusual marker may be missed).
+fn classify_network_marker(svce: &str, agrp: &str) -> Option<&'static str> {
+    if svce.eq_ignore_ascii_case("AirPort") {
+        return None;
+    }
+    let hay = format!("{} {}", svce.to_lowercase(), agrp.to_lowercase());
+    const VPN: &[&str] = &["vpn", "ipsec", "l2tp", "pptp", "ikev2", "racoon"];
+    const EAP: &[&str] = &["eap", "802.1x", "8021x", "eapol", "enterprise"];
+    if VPN.iter().any(|m| hay.contains(m)) {
+        Some("vpn")
+    } else if EAP.iter().any(|m| hay.contains(m)) {
+        Some("eap")
+    } else {
+        None
+    }
+}
+
+/// Recover **VPN / enterprise-Wi-Fi (802.1X/EAP) credentials** from the keychain
+/// `genp` array. Each item decrypts via the same pipeline as the other
+/// extractors; items whose service/access-group markers indicate a VPN or EAP
+/// credential (and that carry a non-empty secret) are returned. Personal Wi-Fi
+/// PSKs and ordinary app/website logins are out of scope (see `extract_wifi` /
+/// `extract_passwords`). Total and panic-free.
+///
+/// **Best-effort:** the marker set is documented but could not be validated
+/// against a device that actually has such credentials, so coverage is not
+/// guaranteed. Sensitive: returned `password` fields are plaintext.
+pub fn extract_network_credentials(plist_bytes: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Vec<NetworkCredential> {
+    let Ok(root) = Value::from_reader(std::io::Cursor::new(plist_bytes)) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in items_array(&root, GENP_KEY) {
+        let Some(attrs) = item_attributes(item, class_keys) else {
+            continue;
+        };
+        let service = attr(&attrs, "svce").and_then(utf8_nonempty).unwrap_or_default();
+        let agrp = attr(&attrs, "agrp").and_then(utf8_nonempty).unwrap_or_default();
+        let Some(kind) = classify_network_marker(&service, &agrp) else {
+            continue;
+        };
+        let Some(password) = attr(&attrs, "v_Data").and_then(utf8_nonempty) else {
+            continue;
+        };
+        let account = attr(&attrs, "acct").and_then(utf8_nonempty).unwrap_or_default();
+        out.push(NetworkCredential { kind: kind.to_string(), service, account, password });
+    }
+    out
+}
+
 /// One keychain item's NON-SECRET metadata for the inventory census. Deliberately
 /// carries no password/secret value — only enough to see what an item is.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -903,6 +972,61 @@ mod tests {
         let keys: HashMap<u32, Vec<u8>> = HashMap::new();
         assert!(extract_certificates(b"not a plist", &keys).is_empty());
         assert!(extract_certificates(b"", &keys).is_empty());
+    }
+
+    // --- Network (VPN / EAP) credentials ------------------------------------
+
+    #[test]
+    fn classify_network_marker_buckets_vpn_eap_and_excludes_wifi() {
+        assert_eq!(classify_network_marker("com.apple.vpn.managed", "apple"), Some("vpn"));
+        assert_eq!(classify_network_marker("MyCompany IPsec", ""), Some("vpn"));
+        assert_eq!(classify_network_marker("eapol:en0", "apple"), Some("eap"));
+        assert_eq!(classify_network_marker("Corp 802.1X", ""), Some("eap"));
+        // Personal Wi-Fi PSKs are out of scope (handled by extract_wifi).
+        assert_eq!(classify_network_marker("AirPort", "apple"), None);
+        // An ordinary app secret is neither.
+        assert_eq!(classify_network_marker("com.example.token", "com.example"), None);
+    }
+
+    #[test]
+    fn extracts_vpn_and_eap_credentials_only() {
+        let vpn = make_item(CLASS, &CK, &IK, &[
+            ("svce", "com.apple.vpn.managed"), ("acct", "road-warrior"), ("agrp", "apple"), ("v_Data", "vpnSecret!"),
+        ]);
+        let eap = make_item(CLASS, &CK, &IK, &[
+            ("svce", "CorpWiFi-EAP"), ("acct", "jane.doe"), ("agrp", "apple"), ("v_Data", "eapPass"),
+        ]);
+        let airport = make_item(CLASS, &CK, &IK, &[
+            ("svce", "AirPort"), ("acct", "HomeNet"), ("agrp", "apple"), ("v_Data", "psk12345"),
+        ]);
+        let app = make_item(CLASS, &CK, &IK, &[
+            ("svce", "com.example.token"), ("acct", "u"), ("agrp", "com.example"), ("v_Data", "tok"),
+        ]);
+
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        let got = extract_network_credentials(&keychain_plist(vec![vpn, eap, airport, app]), &keys);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0], NetworkCredential { kind: "vpn".into(), service: "com.apple.vpn.managed".into(), account: "road-warrior".into(), password: "vpnSecret!".into() });
+        assert_eq!(got[1].kind, "eap");
+        assert_eq!(got[1].account, "jane.doe");
+        // AirPort PSK and the ordinary app secret are excluded.
+        assert!(got.iter().all(|c| c.service != "AirPort" && c.service != "com.example.token"));
+    }
+
+    #[test]
+    fn network_credential_without_secret_is_skipped() {
+        let item = make_item(CLASS, &CK, &IK, &[("svce", "com.apple.vpn"), ("agrp", "apple"), ("v_Data", "")]);
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        assert!(extract_network_credentials(&keychain_plist(vec![item]), &keys).is_empty());
+    }
+
+    #[test]
+    fn network_credentials_malformed_never_panic() {
+        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
+        assert!(extract_network_credentials(b"not a plist", &keys).is_empty());
+        assert!(extract_network_credentials(b"", &keys).is_empty());
     }
 
     #[test]

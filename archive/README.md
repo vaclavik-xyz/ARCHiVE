@@ -134,6 +134,9 @@ archive --backup <backup-dir> --password <pw> -o <out> keychain-inventory -f htm
 
 # X.509 certificates from the keychain → certificates.pem bundle + metadata (no private keys)
 archive --backup <backup-dir> --password <pw> -o <out> certificates -f html
+
+# Best-effort VPN / enterprise-Wi-Fi (802.1X/EAP) credentials from the keychain (ENCRYPTED backups only; plaintext)
+archive --backup <backup-dir> --password <pw> -o <out> vpn-creds -f html
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -192,6 +195,7 @@ written under `<out>/messages`.
 - [x] passwords — csv, json, html: recover saved website/app passwords from the keychain `inet` array (Safari/WebKit `com.apple.cfnetwork` + third-party app groups; Apple-internal keychain-sync items excluded); encrypted backups only, plaintext
 - [x] keychain-inventory — csv, json, html, pdf: non-secret census of the keychain (per-item service/account/group/protection-class/version across genp/inet/cert/keys; NO passwords) — triage scope before exporting secrets; encrypted backups only
 - [x] certificates — csv, json, html, pdf: recover X.509 certificates from the keychain `cert` array → a `certificates.pem` bundle plus a metadata table (subject/issuer CN, serial, validity, CA flag, and whether a matching private key makes it an identity); **public certificates only — no private key material is exported**. Encrypted backups only; certs stored under a *ThisDeviceOnly* protection class are not transferable in a portable backup and cannot be decrypted (then reports an honest 0)
+- [x] vpn-creds — csv, json, html: best-effort recovery of VPN and enterprise-Wi-Fi (802.1X/EAP) credentials from the keychain `genp` array, classified by documented service/access-group markers (`vpn`/`ipsec`/`l2tp`/`ikev2`/… and `eap`/`802.1x`/`eapol`/…); personal Wi-Fi PSKs (`wifi`) and ordinary logins (`passwords`) are out of scope. Encrypted backups only, plaintext secrets. **Best-effort:** the marker set is documented but could not be validated against a device that actually has such credentials, so coverage is not guaranteed (it returns an honest 0 on a device with none)
 - [x] pdf output — `-f pdf` on every HTML-bearing command, rendered from the HTML via a headless browser
 
 ## Deliberately not recovered (and why)
@@ -209,19 +213,20 @@ misleading or unverifiable data:
   statistical model whose keys are internal markers
   (`…tium.candidate/word/pattern/…`), **not** a recoverable vocabulary — so no
   learned lexicon is fabricated from it.
-- **VPN / enterprise-Wi-Fi (802.1X/EAP) credentials** — these live in the
-  keychain, but Apple's service markers for them could not be pinned down on the
-  devices available for validation (which carry no VPN/EAP items), so any
-  extractor would be unverifiable guesswork that might silently match nothing.
-  Personal-Wi-Fi PSKs are covered by `wifi`; website/app logins by `passwords`.
 - **Legacy AES-CBC keychain items** (format version 1/2, very old iOS) — modern
   backups contain only version-3 (AES-GCM) items, and no version-1/2 backup was
   available to validate a CBC decryption path against, so it is not shipped
   unverified.
 
+(VPN / enterprise-Wi-Fi 802.1X/EAP credentials are now recovered **best-effort**
+by `vpn-creds` — the marker set is documented but unvalidated against a device
+that actually has such items, so it is shipped with that caveat rather than left
+out.)
+
 Some shipped extractors are also commonly **empty on a standard backup** by
 design — they recover real data only from backups/extractions that include the
-relevant store: `significant-locations` (routined DB lives under
+relevant store: `vpn-creds` (the test device has no VPN/EAP items),
+`significant-locations` (routined DB lives under
 `Library/Caches`, excluded from backups), `device-usage` (`knowledgeC.db`, often
 excluded on iOS 16+), `certificates` (certs are frequently *ThisDeviceOnly* and
 not transferable), and `known-networks` (the plaintext SSID list moved to the

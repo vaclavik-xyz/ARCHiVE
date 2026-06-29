@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>VPN / podnikové Wi-Fi přihlašovací údaje</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}code{font-family:ui-monospace,Menlo,monospace}
+.warn{background:#fdecea;border:1px solid #f5c6cb;padding:8px 12px;border-radius:4px}
+.k{font-size:12px;padding:1px 6px;border-radius:3px;background:#eee}</style></head><body>
+<h1>VPN / podnikové Wi-Fi údaje ({{ creds.len() }})</h1>
+<p class="warn"><strong>Citlivé:</strong> hesla/tajemství níže jsou v <strong>otevřené podobě</strong>. Zacházej a přenášej bezpečně.</p>
+<table>
+<tr><th>Typ</th><th>Služba</th><th>Účet</th><th>Heslo / tajemství</th></tr>
+{% for c in creds %}
+<tr>
+<td><span class="k">{{ c.kind }}</span></td>
+<td>{{ c.service }}</td>
+<td>{{ c.account }}</td>
+<td><code>{{ c.password }}</code></td>
+</tr>
+{% endfor %}
+</table>
+</body></html>
