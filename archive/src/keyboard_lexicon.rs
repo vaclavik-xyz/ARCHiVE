@@ -49,26 +49,27 @@ pub fn parse(bytes: &[u8]) -> Vec<LexiconWord> {
     words.into_iter().map(|word| LexiconWord { word }).collect()
 }
 
-/// Extract strings from a property list: an array of strings, or a dict (its
-/// string keys and string values). `None` when the bytes are not a plist.
+/// Extract the word strings from a property list. The canonical `LocalDictionary`
+/// shape is an **array of strings**; a wrapper dict (e.g. `{ "words": [...] }`) is
+/// also handled by descending into its **values**. Dictionary **keys** are never
+/// treated as words — they are container/metadata names (`words`, language codes,
+/// schema fields), not user-added vocabulary. Returns `Some` (possibly empty)
+/// whenever the bytes parse as a plist, so a property list is never re-scanned by
+/// the binary carve; `None` only when the bytes are not a plist at all.
 fn from_plist(bytes: &[u8]) -> Option<Vec<String>> {
     let value = Value::from_reader(Cursor::new(bytes)).ok()?;
     let mut out = Vec::new();
-    collect_strings(&value, &mut out);
+    collect_word_strings(&value, &mut out);
     Some(out)
 }
 
-/// Recursively gather every string in a plist value (arrays, dict keys + values).
-fn collect_strings(v: &Value, out: &mut Vec<String>) {
+/// Recursively gather strings from arrays and dict **values** (never keys).
+fn collect_word_strings(v: &Value, out: &mut Vec<String>) {
     match v {
         Value::String(s) => out.push(s.clone()),
-        Value::Array(a) => a.iter().for_each(|e| collect_strings(e, out)),
-        Value::Dictionary(d) => {
-            for (k, val) in d.iter() {
-                out.push(k.clone());
-                collect_strings(val, out);
-            }
-        }
+        Value::Array(a) => a.iter().for_each(|e| collect_word_strings(e, out)),
+        // Descend into values only — keys are container/metadata names, not words.
+        Value::Dictionary(d) => d.values().for_each(|val| collect_word_strings(val, out)),
         _ => {}
     }
 }
@@ -155,14 +156,18 @@ mod tests {
     }
 
     #[test]
-    fn parses_plist_dict_layout() {
+    fn parses_plist_wrapper_dict_values_not_keys() {
+        // A wrapper dict { "words": [...] }: the array values are recovered, but the
+        // container key "words" (metadata, not a user word) must NOT be.
         let mut d = plist::Dictionary::new();
         d.insert("words".into(), Value::Array(vec![Value::String("foo".into()), Value::String("bar".into())]));
+        d.insert("schemaVersion".into(), Value::Integer(3.into()));
         let mut buf = Vec::new();
         Value::Dictionary(d).to_writer_xml(&mut buf).unwrap();
         let got: Vec<String> = parse(&buf).into_iter().map(|w| w.word).collect();
-        // The dict key "words" plus the two values are all collected.
-        assert!(got.contains(&"foo".to_string()) && got.contains(&"bar".to_string()) && got.contains(&"words".to_string()));
+        assert!(got.contains(&"foo".to_string()) && got.contains(&"bar".to_string()));
+        assert!(!got.contains(&"words".to_string()), "container key must not be a word");
+        assert!(!got.contains(&"schemaVersion".to_string()));
     }
 
     #[test]
