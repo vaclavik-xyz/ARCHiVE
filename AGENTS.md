@@ -28,7 +28,7 @@ invocation.
 **PDF output:** the **in-process** export commands that list `html` (contacts,
 calls, accounts, known-networks, homescreen-layout, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
-whatsapp, timeline, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
+whatsapp, timeline, stats, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
 with `--chrome-path`; a missing browser is a usage error, exit 1), with the JSON
 envelope unchanged (`outputs` points at the `.pdf`). `messages -f pdf` is produced
@@ -518,6 +518,37 @@ extractors, not a data store — like `apps`, it is **not** listed by `inspect`
 and **not** part of `recover`. `messages` (conversation text, exported out of
 process) and `apps` (not an event stream) are excluded. Envelope: `ok`,
 `command`, `count` (total events), `outputs`, `device`.
+
+### `stats` — activity dashboard
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> stats -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html | pdf`. Writes `<OUT>/stats.<ext>`. Aggregates the
+same event stream as `timeline` (it shares the collector) into per-category
+statistics: for each `kind`, the event `count` and the `earliest` / `latest`
+dated event (ISO 8601 UTC), sorted by descending count. Also reports the grand
+`total_events` and the overall `earliest` / `latest` span. Undated events are
+counted but excluded from ranges; a category whose records carry no usable date
+shows empty ranges. Because it reports the data verbatim, outlier dates (e.g. a
+sentinel calendar date, or a future recurring event) appear as-is and are
+localized to their category rather than silently dropped — useful for spotting
+anomalies. A **view** over the extractors, like `timeline`: **not** listed by
+`inspect` and **not** part of `recover`.
+
+stdout envelope (the export file holds the full per-category table; the envelope
+carries the headline figures):
+
+```json
+{
+  "ok": true, "command": "stats",
+  "total_events": 40198, "categories": 7,
+  "earliest": "2009-06-13T...", "latest": "2029-12-26T...",
+  "outputs": ["<OUT>/stats.json"],
+  "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
+}
+```
 
 ### `recover-deleted` — carve deleted SQLite rows
 

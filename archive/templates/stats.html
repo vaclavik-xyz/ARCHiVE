@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Statistiky zálohy</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;min-width:540px}td,th{border:1px solid #ddd;padding:5px 10px;text-align:left}
+th{background:#f5f5f5}td.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.total{font-weight:bold;background:#fafafa}.span{color:#555;margin:6px 0 16px}</style></head><body>
+<h1>Statistiky zálohy</h1>
+<p class="span">Celkem <b>{{ stats.total_events }}</b> událostí
+{% if !stats.earliest.is_empty() %}· rozsah {{ stats.earliest }} → {{ stats.latest }}{% endif %}</p>
+<table>
+<tr><th>Kategorie</th><th>Počet</th><th>Nejstarší</th><th>Nejnovější</th></tr>
+{% for c in stats.categories %}
+<tr><td>{{ c.category }}</td><td class="n">{{ c.count }}</td>
+<td>{% if c.earliest.is_empty() %}—{% else %}{{ c.earliest }}{% endif %}</td>
+<td>{% if c.latest.is_empty() %}—{% else %}{{ c.latest }}{% endif %}</td></tr>
+{% endfor %}
+<tr class="total"><td>Celkem</td><td class="n">{{ stats.total_events }}</td>
+<td>{% if stats.earliest.is_empty() %}—{% else %}{{ stats.earliest }}{% endif %}</td>
+<td>{% if stats.latest.is_empty() %}—{% else %}{{ stats.latest }}{% endif %}</td></tr>
+</table>
+</body></html>

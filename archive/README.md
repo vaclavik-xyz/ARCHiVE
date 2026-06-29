@@ -81,6 +81,9 @@ archive --backup <backup-dir> -o <out> apps -f json
 # Unified chronological timeline merging every in-process extractor
 archive --backup <backup-dir> -o <out> timeline -f html
 
+# Activity dashboard: per-category event counts + date ranges (a view over the timeline)
+archive --backup <backup-dir> -o <out> stats -f html   # csv | json | html | pdf
+
 # Recover DELETED rows by carving freed SQLite pages/WAL (best-effort)
 archive --backup <backup-dir> -o <out> recover-deleted -f html   # --store messages|calls|contacts|all
 
@@ -131,6 +134,7 @@ written under `<out>/messages`.
 - [x] mail — csv, json, html: local/POP3 `.emlx` messages (best-effort; usually absent on iOS)
 - [x] apps — csv, json, html: installed third-party app bundle ids (manifest-derived)
 - [x] timeline — csv, json, html: every in-process extractor merged into one chronological stream
+- [x] stats — csv, json, html, pdf: activity dashboard (per-category event counts + date ranges; a view over the timeline)
 - [x] recover-deleted — csv, json, html: carve DELETED rows (messages/calls/contacts) from freed SQLite pages (+ WAL for messages) (best-effort)
 - [x] wifi — csv, json, html: recover saved Wi-Fi passwords from the keychain (encrypted backups only; passwords in plaintext)
 - [x] passwords — csv, json, html: recover saved website/app passwords from the keychain `inet` array (Safari/WebKit `com.apple.cfnetwork` + third-party app groups; Apple-internal keychain-sync items excluded); encrypted backups only, plaintext
