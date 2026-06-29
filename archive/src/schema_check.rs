@@ -312,23 +312,22 @@ pub const EXPECTATIONS: &[StoreSchema] = &[
             optional: &[],
         }],
     },
+    // The two LE Bluetooth databases are separate files, each holding its own
+    // device table. They are modelled as two independent stores so each present DB
+    // is validated against its own required table — a single store would only check
+    // whichever file is present first and miss drift in the other (the classic
+    // devices plist is not SQLite, so it is out of scope here). `Address` is the
+    // extractor's early-return guard (absent → empty); `Name`/`ResolvedAddress` are
+    // `table_columns(...)`-gated, so they are optional.
     StoreSchema {
         command: "bluetooth-devices",
-        // Two separate LE databases, each holding a single device table with an
-        // identical schema. schema-check opens the first present file and checks
-        // both tables against it, so each table is `table_optional`: whichever DB is
-        // present, its table is validated and the other's absence is tolerated (not
-        // drift). The classic devices plist is not SQLite, so it is out of scope here.
-        locations: &[
-            ("SysSharedContainerDomain-systemgroup.com.apple.bluetooth", "Library/Database/com.apple.MobileBluetooth.ledevices.paired.db"),
-            ("SysSharedContainerDomain-systemgroup.com.apple.bluetooth", "Library/Database/com.apple.MobileBluetooth.ledevices.other.db"),
-        ],
-        // `Address` is the extractor's early-return guard (absent → empty); `Name` /
-        // `ResolvedAddress` are `table_columns(...)`-gated, so they are optional.
-        needs: &[
-            TableNeed { table: "PairedDevices", table_optional: true, required: &["Address"], optional: &["Name", "ResolvedAddress"] },
-            TableNeed { table: "OtherDevices", table_optional: true, required: &["Address"], optional: &["Name", "ResolvedAddress"] },
-        ],
+        locations: &[("SysSharedContainerDomain-systemgroup.com.apple.bluetooth", "Library/Database/com.apple.MobileBluetooth.ledevices.paired.db")],
+        needs: &[TableNeed { table: "PairedDevices", table_optional: false, required: &["Address"], optional: &["Name", "ResolvedAddress"] }],
+    },
+    StoreSchema {
+        command: "bluetooth-devices",
+        locations: &[("SysSharedContainerDomain-systemgroup.com.apple.bluetooth", "Library/Database/com.apple.MobileBluetooth.ledevices.other.db")],
+        needs: &[TableNeed { table: "OtherDevices", table_optional: false, required: &["Address"], optional: &["Name", "ResolvedAddress"] }],
     },
 ];
 
@@ -419,19 +418,23 @@ mod tests {
     }
 
     #[test]
-    fn bluetooth_store_is_modelled_as_two_optional_tables() {
-        let bt = EXPECTATIONS.iter().find(|s| s.command == "bluetooth-devices").expect("bluetooth-devices store");
-        assert_eq!(bt.locations.len(), 2, "both LE databases are candidate locations");
-        let tables: Vec<&str> = bt.needs.iter().map(|n| n.table).collect();
-        assert!(tables.contains(&"PairedDevices") && tables.contains(&"OtherDevices"));
-        // Each table tolerates absence (only one lives in each DB) but requires
-        // Address when present — mirroring the extractor's early-return guard.
-        for n in bt.needs {
-            assert!(n.table_optional, "{} must tolerate absence", n.table);
+    fn bluetooth_is_two_independent_stores_each_validating_its_db() {
+        // Each LE database is its own store so it is validated against its own
+        // required table — not collapsed into one store that only checks the first
+        // present file.
+        let bt: Vec<&StoreSchema> = EXPECTATIONS.iter().filter(|s| s.command == "bluetooth-devices").collect();
+        assert_eq!(bt.len(), 2, "paired and other DBs are separate stores");
+        let mut tables: Vec<&str> = bt.iter().map(|s| s.needs[0].table).collect();
+        tables.sort_unstable();
+        assert_eq!(tables, ["OtherDevices", "PairedDevices"]);
+        for s in bt {
+            assert_eq!(s.locations.len(), 1, "one DB per store");
+            let n = &s.needs[0];
+            // The table is required: a present DB missing its table is real drift.
+            assert!(!n.table_optional);
             assert_eq!(n.required, &["Address"]);
+            assert_eq!(store_status(&[check_table(n, None)]), "drifted");
         }
-        // Absent in the file actually checked → tolerated, not drift.
-        assert_eq!(store_status(&[check_table(&bt.needs[1], None)]), "ok");
     }
 
     #[test]
