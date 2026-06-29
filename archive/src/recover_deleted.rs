@@ -395,7 +395,7 @@ fn safari_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> 
 /// images inevitably contain — then drop near-duplicates (the same row often
 /// survives in more than one free region).
 pub fn recover(store: &str, records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
-    let mut out = match store {
+    let out = match store {
         "messages" => messages_from(records, live),
         "calls" => calls_from(records, live),
         "contacts" => contacts_from(records, live),
@@ -404,9 +404,28 @@ pub fn recover(store: &str, records: &[CarvedRecord], live: &LiveKeys) -> Vec<De
         "safari" => safari_from(records, live),
         _ => Vec::new(),
     };
-    let mut seen = std::collections::HashSet::new();
-    out.retain(|r| seen.insert((r.rowid, r.summary.clone(), r.date.clone())));
-    out
+    // De-duplicate rows that survived in several free regions, preferring a
+    // complete copy: a later non-truncated duplicate upgrades an earlier
+    // truncated one, so a row is never reported partial when a full copy was also
+    // recovered. First-seen order is preserved (the caller sorts by date).
+    let mut index: std::collections::HashMap<(Option<i64>, String, Option<String>), usize> =
+        std::collections::HashMap::new();
+    let mut deduped: Vec<DeletedRecord> = Vec::new();
+    for r in out {
+        let key = (r.rowid, r.summary.clone(), r.date.clone());
+        match index.get(&key) {
+            Some(&i) => {
+                if deduped[i].truncated && !r.truncated {
+                    deduped[i] = r;
+                }
+            }
+            None => {
+                index.insert(key, deduped.len());
+                deduped.push(r);
+            }
+        }
+    }
+    deduped
 }
 
 #[cfg(test)]
@@ -642,6 +661,18 @@ mod tests {
         // A different (genuinely deleted) URL is kept.
         let gone = vec![rec_n(Some(3), CarveSource::Freelist, vec![CarvedValue::Text("https://gone.example.com/x".into())])];
         assert_eq!(recover("safari", &gone, &live).len(), 1);
+    }
+
+    #[test]
+    fn dedup_prefers_complete_copy_over_truncated() {
+        let g = "9B7E5F2A-1C3D-4E5F-8A9B-0C1D2E3F4A5B";
+        let vals = || vec![CarvedValue::Text(g.into()), CarvedValue::Text("same body".into())];
+        // The truncated copy is seen first; the later complete copy upgrades it.
+        let truncated = CarvedRecord { rowid: Some(7), source: CarveSource::Freelist, values: vals(), truncated: true };
+        let full = CarvedRecord { rowid: Some(7), source: CarveSource::Freeblock, values: vals(), truncated: false };
+        let out = recover("messages", &[truncated, full], &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert!(!out[0].truncated);
     }
 
     #[test]
