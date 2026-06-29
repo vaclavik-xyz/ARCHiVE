@@ -691,6 +691,15 @@ fn run_data_usage(cli: &Cli, password: Option<&str>, format: &str) -> Result<ser
             "note": "this backup has no DataUsage.sqlite", "device": device
         }));
     };
+    if items.is_empty() {
+        // Present but empty, or a schema we can't aggregate (no ZLIVEUSAGE/
+        // ZPROCESS/ZHASPROCESS) — say so rather than write a misleading file.
+        return Ok(serde_json::json!({
+            "ok": true, "command": "data-usage", "count": 0, "outputs": [],
+            "note": "DataUsage.sqlite has no per-process usage rows (empty, or an unsupported schema)",
+            "device": device
+        }));
+    }
 
     let rendered = match format {
         Format::Csv => format::data_usage_csv(&items),

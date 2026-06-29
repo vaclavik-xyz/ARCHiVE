@@ -30,26 +30,22 @@ pub struct DataUsage {
     /// Wi-Fi bytes received / sent (summed across windows).
     pub wifi_in: i64,
     pub wifi_out: i64,
+    /// Total cellular / Wi-Fi bytes (in + out); precomputed so every output
+    /// format (incl. JSON) carries them.
+    pub wwan_total: i64,
+    pub wifi_total: i64,
     /// First / last usage-window timestamp, ISO 8601 UTC; empty when unknown.
     pub first_seen: String,
     pub last_seen: String,
 }
 
 impl DataUsage {
-    /// Total cellular bytes (in + out).
-    pub fn wwan_total(&self) -> i64 {
-        self.wwan_in + self.wwan_out
-    }
-    /// Total Wi-Fi bytes (in + out).
-    pub fn wifi_total(&self) -> i64 {
-        self.wifi_in + self.wifi_out
-    }
     /// Human-readable cellular / Wi-Fi totals for the HTML view.
     pub fn wwan_human(&self) -> String {
-        human_bytes(self.wwan_total())
+        human_bytes(self.wwan_total)
     }
     pub fn wifi_human(&self) -> String {
-        human_bytes(self.wifi_total())
+        human_bytes(self.wifi_total)
     }
 }
 
@@ -117,13 +113,17 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<DataUsage>> {
         let wifi_out: f64 = row.get(5)?;
         let first: Option<f64> = row.get(6)?;
         let last: Option<f64> = row.get(7)?;
+        let (wwan_in, wwan_out) = (wwan_in.round() as i64, wwan_out.round() as i64);
+        let (wifi_in, wifi_out) = (wifi_in.round() as i64, wifi_out.round() as i64);
         Ok(DataUsage {
             process: process.unwrap_or_default(),
             bundle: bundle.unwrap_or_default(),
-            wwan_in: wwan_in.round() as i64,
-            wwan_out: wwan_out.round() as i64,
-            wifi_in: wifi_in.round() as i64,
-            wifi_out: wifi_out.round() as i64,
+            wwan_in,
+            wwan_out,
+            wifi_in,
+            wifi_out,
+            wwan_total: wwan_in + wwan_out,
+            wifi_total: wifi_in + wifi_out,
             first_seen: first.and_then(cocoa_to_iso).unwrap_or_default(),
             last_seen: last.and_then(cocoa_to_iso).unwrap_or_default(),
         })
@@ -165,8 +165,8 @@ mod tests {
         assert_eq!(rows[0].bundle, "com.apple.mobilesafari");
         assert_eq!(rows[0].wifi_in, 1000);
         assert_eq!(rows[0].wifi_out, 500);
-        assert_eq!(rows[0].wifi_total(), 1500);
-        assert_eq!(rows[0].wwan_total(), 0);
+        assert_eq!(rows[0].wifi_total, 1500);
+        assert_eq!(rows[0].wwan_total, 0);
 
         let media = &rows[1];
         assert_eq!(media.process, "mediaserverd");
@@ -175,6 +175,20 @@ mod tests {
         assert_eq!(media.wwan_out, 200);
         assert_eq!(media.first_seen, "2020-01-06T10:40:00+00:00");
         assert_eq!(media.last_seen, "2020-01-06T10:41:40+00:00"); // +100s
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn json_includes_precomputed_totals() {
+        let dir = std::env::temp_dir().join(format!("be-du-json-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("DataUsage.sqlite");
+        let _ = std::fs::remove_file(&db);
+        make_db(&db);
+        let rows = parse(&db).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&rows).unwrap()).unwrap();
+        assert_eq!(v[0]["wifi_total"], 1500);
+        assert_eq!(v[0]["wwan_total"], 0);
         std::fs::remove_dir_all(&dir).ok();
     }
 

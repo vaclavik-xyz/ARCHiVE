@@ -612,8 +612,8 @@ pub fn data_usage_csv(items: &[crate::data_usage::DataUsage]) -> String {
             d.wwan_out.to_string(),
             d.wifi_in.to_string(),
             d.wifi_out.to_string(),
-            d.wwan_total().to_string(),
-            d.wifi_total().to_string(),
+            d.wwan_total.to_string(),
+            d.wifi_total.to_string(),
             d.first_seen.clone(),
             d.last_seen.clone(),
         ])
