@@ -20,6 +20,7 @@ mod known_networks;
 mod mail;
 mod messages;
 mod notes;
+mod package;
 mod pdf;
 mod photos;
 mod photos_deleted;
@@ -312,6 +313,16 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Bundle a directory of exports into one AES-256 encrypted zip for delivery
+    /// (`<out>/archive-package.zip`).
+    Package {
+        /// The directory to package (e.g. a prior `recover`/export output dir).
+        #[arg(long)]
+        source: std::path::PathBuf,
+        /// Zip encryption password (or set `ARCHIVE_ZIP_PASSWORD`); required.
+        #[arg(long)]
+        zip_password: Option<String>,
+    },
     /// Recover saved Wi-Fi passwords from the keychain (encrypted backups only).
     Wifi {
         /// Output format: csv, json, html (no pdf — avoids a plaintext sidecar).
@@ -449,6 +460,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Search { query, format, redact } => run_search(&cli, password.as_deref(), query, format, *redact),
         Command::DbExport => run_db_export(&cli, password.as_deref()),
         Command::Diff { against, format } => run_diff(&cli, password.as_deref(), against, format),
+        Command::Package { source, zip_password } => run_package(&cli, source, zip_password.as_deref()),
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
         Command::KeychainInventory { format } => run_keychain_inventory(&cli, password.as_deref(), format),
@@ -2061,6 +2073,38 @@ fn run_diff(cli: &Cli, password: Option<&str>, against: &std::path::Path, format
     }))
 }
 
+// Bundle a directory of exports into one AES-256 encrypted zip. Does not open the
+// backup — a pure file operation over `--source`. The zip password comes from
+// `--zip-password` or `ARCHIVE_ZIP_PASSWORD` and is never logged (only file/byte
+// counts are printed).
+fn run_package(cli: &Cli, source: &std::path::Path, zip_password: Option<&str>) -> Result<serde_json::Value, AppError> {
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to write the package"))?;
+    let pw = zip_password
+        .map(str::to_string)
+        .or_else(|| std::env::var("ARCHIVE_ZIP_PASSWORD").ok())
+        .filter(|p| !p.is_empty())
+        .ok_or_else(|| AppError::usage("a zip password is required (pass --zip-password or set ARCHIVE_ZIP_PASSWORD)"))?;
+    if !source.is_dir() {
+        return Err(AppError::usage(format!("--source must be an existing directory: {}", source.display())));
+    }
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let zip_path = out.join("archive-package.zip");
+    let summary = package::package_dir(source, &zip_path, &pw).map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!(
+        "package: {} file(s), {} byte(s) -> {} (AES-256 encrypted)",
+        summary.files,
+        summary.bytes,
+        zip_path.display()
+    );
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "package", "encrypted": true, "cipher": "AES-256",
+        "files": summary.files, "bytes": summary.bytes,
+        "outputs": [zip_path.to_string_lossy()]
+    }))
+}
+
 /// Read the first `n` bytes of a file (for magic-byte sniffing), tolerant of
 /// short files / open failures.
 fn file_head(path: &std::path::Path, n: usize) -> Vec<u8> {
@@ -3200,6 +3244,21 @@ mod cli_tests {
     fn parses_diff_against_and_format() {
         let d = Cli::try_parse_from(["archive", "--backup", "/a", "-o", "/o", "diff", "--against", "/b", "-f", "json"]).unwrap();
         assert!(matches!(d.command, Command::Diff { ref against, ref format } if against == std::path::Path::new("/b") && format == "json"));
+    }
+
+    #[test]
+    fn parses_package_source_and_password() {
+        let p = Cli::try_parse_from(["archive", "-o", "/o", "package", "--source", "/case", "--zip-password", "pw"]).unwrap();
+        assert!(matches!(p.command, Command::Package { ref source, ref zip_password }
+            if source == std::path::Path::new("/case") && zip_password.as_deref() == Some("pw")));
+    }
+
+    #[test]
+    fn package_rejects_missing_source_dir() {
+        // With a password supplied, a non-existent source is a clean usage error.
+        let cli = Cli::try_parse_from(["archive", "-o", "/o", "package", "--source", "/no/such/dir", "--zip-password", "pw"]).unwrap();
+        let err = run_package(&cli, std::path::Path::new("/no/such/dir"), Some("pw")).unwrap_err();
+        assert_eq!(err.kind, "usage");
     }
 
     #[test]

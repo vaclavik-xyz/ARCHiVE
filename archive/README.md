@@ -111,6 +111,9 @@ archive --backup <backup-dir> -o <out> db-export
 # Diff two backups at the file level: which manifest files were added/removed/changed between A and B
 archive --backup <backup-A> -o <out> diff --against <backup-B> -f html   # csv | json | html | pdf
 
+# Package a prior export directory into one AES-256 encrypted zip for delivery
+archive -o <out> package --source <export-dir> --zip-password <pw>   # or set ARCHIVE_ZIP_PASSWORD
+
 # Recover saved Wi-Fi passwords from the keychain (ENCRYPTED backups only)
 archive --backup <backup-dir> --password <pw> -o <out> wifi -f html
 
@@ -169,6 +172,7 @@ written under `<out>/messages`.
 - [x] search — csv, json, html, pdf: case-file search of one term across every in-process record (the unified timeline) and the address book; match snippets go only to the output file (never stderr), the JSON envelope carries just the count
 - [x] db-export — one queryable `archive.sqlite` consolidating the unified timeline plus structured contacts/calls/whatsapp tables, for cross-store SQL (joins, time ranges, LIKE); the JSON envelope carries only per-table row counts
 - [x] diff — csv, json, html, pdf: file-level diff of two backups (`--backup` A vs `--against` B), flagging manifest files added/removed/modified (logical size changed); manifest sizes make it work for encrypted backups; envelope carries the added/removed/modified/unchanged counts
+- [x] package — bundle a prior export directory into one **WinZip AES-256 encrypted** `archive-package.zip` for secure delivery (password via `--zip-password` or `ARCHIVE_ZIP_PASSWORD`, never logged); any standard zip tool opens it with the password
 - [x] wifi — csv, json, html: recover saved Wi-Fi passwords from the keychain (encrypted backups only; passwords in plaintext)
 - [x] passwords — csv, json, html: recover saved website/app passwords from the keychain `inet` array (Safari/WebKit `com.apple.cfnetwork` + third-party app groups; Apple-internal keychain-sync items excluded); encrypted backups only, plaintext
 - [x] keychain-inventory — csv, json, html, pdf: non-secret census of the keychain (per-item service/account/group/protection-class/version across genp/inet/cert/keys; NO passwords) — triage scope before exporting secrets; encrypted backups only
