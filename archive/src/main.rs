@@ -264,7 +264,8 @@ enum Command {
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
-        /// Which store(s) to carve: messages | calls | contacts | all.
+        /// Which store(s) to carve: messages | calls | contacts | notes |
+        /// calendar | safari | all.
         #[arg(long, default_value = "all")]
         store: String,
     },
@@ -1410,6 +1411,9 @@ fn live_keys(db_path: &std::path::Path, store: &str) -> recover_deleted::LiveKey
         "messages" => message_live_keys(&conn, &mut keys),
         "calls" => rowid_live_keys(&conn, "SELECT Z_PK FROM ZCALLRECORD", &mut keys.rowids),
         "contacts" => rowid_live_keys(&conn, "SELECT ROWID FROM ABPerson", &mut keys.rowids),
+        "notes" => rowid_live_keys(&conn, "SELECT Z_PK FROM ZICCLOUDSYNCINGOBJECT", &mut keys.rowids),
+        "calendar" => rowid_live_keys(&conn, "SELECT ROWID FROM CalendarItem", &mut keys.rowids),
+        "safari" => rowid_live_keys(&conn, "SELECT ROWID FROM history_visits", &mut keys.rowids),
         _ => Ok(()),
     };
     keys
@@ -1441,6 +1445,9 @@ const CARVE_STORES: &[(&str, &str, &str)] = &[
     ("messages", "HomeDomain", "Library/SMS/sms.db"),
     ("calls", "HomeDomain", "Library/CallHistoryDB/CallHistory.storedata"),
     ("contacts", "HomeDomain", "Library/AddressBook/AddressBook.sqlitedb"),
+    ("notes", "AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
+    ("calendar", "HomeDomain", "Library/Calendar/Calendar.sqlitedb"),
+    ("safari", "AppDomain-com.apple.mobilesafari", "Library/Safari/History.db"),
 ];
 
 fn run_recover_deleted(cli: &Cli, password: Option<&str>, format: &str, store: &str) -> Result<serde_json::Value, AppError> {
@@ -1451,7 +1458,7 @@ fn run_recover_deleted(cli: &Cli, password: Option<&str>, format: &str, store: &
         "all" => CARVE_STORES.iter().collect(),
         s => match CARVE_STORES.iter().find(|(name, ..)| *name == s) {
             Some(entry) => vec![entry],
-            None => return Err(AppError::usage(format!("unknown store `{s}` (use messages, calls, contacts, all)"))),
+            None => return Err(AppError::usage(format!("unknown store `{s}` (use messages, calls, contacts, notes, calendar, safari, all)"))),
         },
     };
     let backup = open_backup(cli, password)?;
