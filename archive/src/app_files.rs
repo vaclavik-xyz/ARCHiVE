@@ -49,7 +49,16 @@ pub fn safe_relpath(path: &str) -> Option<String> {
     if path.is_empty() {
         return None;
     }
-    let trimmed = path.trim_start_matches('/');
+    // Treat backslash as a separator too, so a Windows-style `..\..\x` cannot
+    // slip through as one opaque segment when this runs on (or processes a
+    // manifest crafted for) Windows.
+    let normalized = path.replace('\\', "/");
+    // Reject a drive-absolute prefix like `C:\…` / `C:/…`.
+    let bytes = normalized.as_bytes();
+    if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
+        return None;
+    }
+    let trimmed = normalized.trim_start_matches('/');
     let mut parts = Vec::new();
     for seg in trimmed.split('/') {
         match seg {
@@ -94,6 +103,11 @@ mod tests {
         assert_eq!(safe_relpath("a/../../b"), None);
         assert_eq!(safe_relpath(""), None);
         assert_eq!(safe_relpath("/"), None);
+        // Backslash separators and drive prefixes must not escape either.
+        assert_eq!(safe_relpath("..\\etc\\passwd"), None);
+        assert_eq!(safe_relpath("a\\..\\b"), None);
+        assert_eq!(safe_relpath("C:\\Windows\\x"), None);
+        assert_eq!(safe_relpath("Documents\\a\\b.jpg"), Some("Documents/a/b.jpg".to_string()));
     }
 
     #[test]
