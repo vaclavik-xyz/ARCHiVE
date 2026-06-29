@@ -8,6 +8,7 @@ mod datetime;
 mod device_backup;
 mod format;
 mod health;
+mod known_networks;
 mod mail;
 mod messages;
 mod notes;
@@ -69,6 +70,13 @@ enum Command {
     /// Export configured accounts (Apple ID, Google, Exchange, …); metadata only,
     /// no passwords.
     Accounts {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// Export remembered Wi-Fi networks (SSID list, no passwords); works on any
+    /// backup. For passwords use `wifi` (encrypted backups only).
+    KnownNetworks {
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
@@ -284,6 +292,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Contacts { format } => run_contacts(&cli, password.as_deref(), format),
         Command::Calls { format } => run_calls(&cli, password.as_deref(), format),
         Command::Accounts { format } => run_accounts(&cli, password.as_deref(), format),
+        Command::KnownNetworks { format } => run_known_networks(&cli, password.as_deref(), format),
         Command::Voicemail { format, audio, audio_format } => {
             run_voicemail(&cli, password.as_deref(), format, *audio, audio_format.as_deref())
         }
@@ -469,6 +478,71 @@ fn run_accounts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
 
     Ok(serde_json::json!({
         "ok": true, "command": "accounts", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+/// Fetch and parse the saved Wi-Fi networks plist. Probes the candidate paths in
+/// order; returns the first that yields networks, else `Some(empty)` if a plist
+/// exists but lists none, else `Ok(None)` when no plist is present.
+fn load_known_networks(
+    backup: &archive_core::Backup,
+) -> Result<Option<Vec<known_networks::KnownNetwork>>, AppError> {
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let mut found_file = false;
+    for path in known_networks::PATHS {
+        let tmp = scratch.path().join("wifi.plist");
+        let Some(file) = backup
+            .fetch(known_networks::DOMAIN, path, &tmp)
+            .map_err(|e| AppError::other(e.to_string()))?
+        else {
+            continue;
+        };
+        found_file = true;
+        let bytes = std::fs::read(&file).map_err(|e| AppError::other(e.to_string()))?;
+        let nets = known_networks::parse(&bytes);
+        if !nets.is_empty() {
+            return Ok(Some(nets));
+        }
+    }
+    Ok(found_file.then(Vec::new))
+}
+
+fn run_known_networks(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "known-networks")?;
+    let out = cli
+        .out
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--out is required to export known networks"))?;
+
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let items = load_known_networks(&backup)?.unwrap_or_default();
+    if items.is_empty() {
+        // On iOS 16+ the plaintext saved-networks list is typically empty (the
+        // inventory moved to the keychain). Distinguish that from older backups
+        // and point users to `wifi` for keychain-derived SSIDs+passwords.
+        return Ok(serde_json::json!({
+            "ok": true, "command": "known-networks", "count": 0, "outputs": [],
+            "note": "no saved networks in the plaintext Wi-Fi plist (empty on iOS 16+, where the list moved to the keychain — use `wifi` on an encrypted backup to recover SSIDs and passwords)",
+            "device": device
+        }));
+    }
+
+    let rendered = match format {
+        Format::Csv => format::known_networks_csv(&items),
+        Format::Json => format::known_networks_json(&items),
+        Format::Html | Format::Pdf => format::known_networks_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("known-networks.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("Wrote {} known network(s) to {}", items.len(), out_file.display());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "known-networks", "count": items.len(),
         "outputs": [out_file.to_string_lossy()], "device": device
     }))
 }
@@ -1562,6 +1636,9 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     if let Some(items) = opt_or_log(load_accounts(&backup), "accounts") {
         rec.add("accounts", "Účty", "accounts.html", format::accounts_html(&items), items.len(), None)?;
     }
+    if let Some(items) = opt_or_log(load_known_networks(&backup), "known-networks") {
+        rec.add("known-networks", "Wi-Fi sítě", "known-networks.html", format::known_networks_html(&items), items.len(), None)?;
+    }
     if let Some(mut items) = opt_or_log(load_voicemail(&backup), "voicemail") {
         let media = if no_files {
             None
@@ -1846,6 +1923,10 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("contacts", true, "HomeDomain", "Library/AddressBook/AddressBook.sqlitedb"),
     ("calls", true, "HomeDomain", "Library/CallHistoryDB/CallHistory.storedata"),
     ("accounts", true, "HomeDomain", "Library/Accounts/Accounts3.sqlite"),
+    // Known Wi-Fi networks live at one of several plist paths (version-dependent),
+    // so presence is detected specially in `run_inspect`; this path is the
+    // preferred one and is not used directly for `has`.
+    ("known-networks", true, known_networks::DOMAIN, ""),
     ("voicemail", true, "HomeDomain", "Library/Voicemail/voicemail.db"),
     ("voice-memos", true, "AppDomainGroup-group.com.apple.VoiceMemos", "Recordings/CloudRecordings.db"),
     ("safari-history", true, "AppDomain-com.apple.mobilesafari", "Library/Safari/History.db"),
@@ -1896,6 +1977,15 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 .map_err(|e| AppError::other(e.to_string()))?
                 .iter()
                 .any(|p| p.to_lowercase().ends_with(".emlx"))
+        } else if name == "known-networks" {
+            let mut any = false;
+            for p in known_networks::PATHS {
+                if backup.has(known_networks::DOMAIN, p).map_err(|e| AppError::other(e.to_string()))? {
+                    any = true;
+                    break;
+                }
+            }
+            any
         } else {
             backup
                 .has(domain, path)
@@ -1910,6 +2000,7 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "contacts" => load_contacts(&backup).ok().flatten().map(|p| p.len()),
                 "calls" => load_calls(&backup).ok().flatten().map(|c| c.len()),
                 "accounts" => load_accounts(&backup).ok().flatten().map(|v| v.len()),
+                "known-networks" => load_known_networks(&backup).ok().flatten().map(|v| v.len()),
                 "voicemail" => load_voicemail(&backup).ok().flatten().map(|v| v.len()),
                 "voice-memos" => load_voice_memos(&backup).ok().flatten().map(|v| v.len()),
                 "safari-history" => load_safari_history(&backup).ok().flatten().map(|v| v.len()),
@@ -2031,7 +2122,7 @@ mod cli_tests {
         // list mirrors that match — when adding a store, add it here AND add the
         // matching `load_*` count arm.
         let counted = [
-            "contacts", "calls", "accounts", "voicemail", "voice-memos",
+            "contacts", "calls", "accounts", "known-networks", "voicemail", "voice-memos",
             "safari-history", "safari-bookmarks", "calendar", "notes", "photos",
             "attachments", "whatsapp", "health", "reminders", "mail",
         ];

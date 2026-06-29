@@ -26,9 +26,9 @@ before **or** after the subcommand name, which is agent-friendly for programmati
 invocation.
 
 **PDF output:** the **in-process** export commands that list `html` (contacts,
-calls, accounts, voicemail, voice-memos, safari-history/bookmarks, calendar,
-reminders, mail, notes, photos, attachments, whatsapp, timeline, recover-deleted,
-health, apps) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
+calls, accounts, known-networks, voicemail, voice-memos, safari-history/bookmarks,
+calendar, reminders, mail, notes, photos, attachments, whatsapp, timeline,
+recover-deleted, health, apps) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
 with `--chrome-path`; a missing browser is a usage error, exit 1), with the JSON
 envelope unchanged (`outputs` points at the `.pdf`). `messages -f pdf` is produced

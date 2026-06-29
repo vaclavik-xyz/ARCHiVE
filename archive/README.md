@@ -27,6 +27,10 @@ archive --backup <backup-dir> -o <out> calls     -f json   # csv | json | html
 
 # Configured accounts (Apple ID, Google, Exchange, IMAP, CalDAV/CardDAV, …); metadata only, no passwords
 archive --backup <backup-dir> -o <out> accounts  -f json   # csv | json | html
+
+# Remembered Wi-Fi networks (SSID list, no passwords); works on any backup, but the
+# plaintext list is usually empty on iOS 16+ (use `wifi` for keychain SSIDs+passwords)
+archive --backup <backup-dir> -o <out> known-networks -f json   # csv | json | html
 archive --backup <backup-dir> -o <out> voicemail -f json   # csv | json | html
 
 # Extract voicemail metadata + audio (raw .amr; pass --audio-format m4a|wav to transcode via ffmpeg)
@@ -95,6 +99,7 @@ written under `<out>/messages`.
 - [x] contacts — csv, json, vcf, html (incl. postal addresses)
 - [x] calls — csv, json, html
 - [x] accounts — csv, json, html: configured accounts (Apple ID, Google, Exchange, …) from `Accounts3.sqlite`; metadata only, no passwords
+- [x] known-networks — csv, json, html: remembered Wi-Fi SSIDs (no passwords) from `com.apple.wifi*.plist`; works on any backup, but the plaintext list is usually empty on iOS 16+ (the inventory moved to the keychain — see `wifi`)
 - [x] voicemail — csv, json, html (metadata) + audio extraction (`--audio`, raw `.amr` or ffmpeg `m4a`/`wav`)
 - [x] voice-memos — csv, json, html (metadata) + audio extraction (native copy by default, or ffmpeg `m4a`/`wav`)
 - [x] safari-history · safari-bookmarks · calendar — csv, json, html
