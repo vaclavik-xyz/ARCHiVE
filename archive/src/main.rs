@@ -7,6 +7,7 @@ mod backup_diff;
 mod bluetooth;
 mod calendar;
 mod calls;
+mod certificates;
 mod contacts;
 mod data_usage;
 mod datetime;
@@ -351,6 +352,13 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Recover X.509 certificates from the keychain as a PEM bundle + metadata
+    /// (encrypted backups only). Public certificates only — no private keys.
+    Certificates {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Run every extractor into <out>/ and write a customer index.html package.
     Recover {
         /// Skip large media extraction (metadata + HTML only).
@@ -473,6 +481,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
         Command::KeychainInventory { format } => run_keychain_inventory(&cli, password.as_deref(), format),
+        Command::Certificates { format } => run_certificates(&cli, password.as_deref(), format),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
@@ -1867,6 +1876,44 @@ fn run_keychain_inventory(cli: &Cli, password: Option<&str>, format: &str) -> Re
     Ok(serde_json::json!({
         "ok": true, "command": "keychain-inventory", "count": items.len(),
         "outputs": [out_file.to_string_lossy()], "summary": summary, "device": device
+    }))
+}
+
+fn run_certificates(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    // Certificates are public (no secret key material), so pdf is allowed.
+    let format = export_format(format, "certificates")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export certificates"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let items = backup.certificates().map_err(|e| AppError::other(e.to_string()))?;
+    if items.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "certificates", "count": 0, "outputs": [],
+            "note": "no certificates recovered (the keychain is included only in ENCRYPTED backups; certificates are commonly stored under a ThisDeviceOnly protection class whose keys are not transferable in a portable backup, so they cannot be decrypted)",
+            "device": device
+        }));
+    }
+
+    let infos: Vec<certificates::CertificateInfo> = items.iter().map(certificates::describe).collect();
+    // Always write the PEM bundle alongside the metadata table.
+    let pem_file = out.join("certificates.pem");
+    std::fs::write(&pem_file, certificates::to_pem_bundle(&items)).map_err(|e| AppError::other(e.to_string()))?;
+
+    let rendered = match format {
+        Format::Csv => format::certificates_csv(&infos),
+        Format::Json => format::certificates_json(&infos),
+        Format::Html | Format::Pdf => format::certificates_html(&infos),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let meta_file = out.join(format!("certificates.{}", format.extension()));
+    write_or_pdf(&meta_file, &rendered, format, cli.chrome_path.as_deref())?;
+    let identities = infos.iter().filter(|c| c.has_private_key).count();
+    eprintln!("Recovered {} certificate(s) ({identities} with a private key) to {} (+ certificates.pem)", infos.len(), meta_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "certificates", "count": infos.len(), "identities": identities,
+        "outputs": [meta_file.to_string_lossy(), pem_file.to_string_lossy()], "device": device
     }))
 }
 
@@ -3338,6 +3385,14 @@ mod cli_tests {
         // It is advertised as a supported store for inspect/recover.
         let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "bluetooth-devices").unwrap();
         assert!(s.1);
+    }
+
+    #[test]
+    fn parses_certificates() {
+        let c = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "certificates", "-f", "json"]).unwrap();
+        assert!(matches!(c.command, Command::Certificates { format } if format == "json"));
+        // Keychain-derived (encrypted-only), so it is NOT a recover/inspect store.
+        assert!(KNOWN_STORES.iter().all(|(n, ..)| *n != "certificates"));
     }
 
     #[test]

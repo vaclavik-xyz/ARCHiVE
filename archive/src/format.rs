@@ -1256,6 +1256,42 @@ pub fn keychain_inventory_html(items: &[archive_core::keychain::KeychainItemMeta
     KeychainInventoryTemplate { items }.render().unwrap()
 }
 
+// --- Certificates (public X.509; PEM bundle written separately) ------------
+
+pub fn certificates_csv(items: &[crate::certificates::CertificateInfo]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["label", "subject", "issuer", "serial", "not_before", "not_after", "is_ca", "has_private_key"])
+        .unwrap();
+    for c in items {
+        wtr.write_record([
+            c.label.clone(),
+            c.subject.clone(),
+            c.issuer.clone(),
+            c.serial.clone(),
+            c.not_before.clone(),
+            c.not_after.clone(),
+            c.is_ca.to_string(),
+            c.has_private_key.to_string(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn certificates_json(items: &[crate::certificates::CertificateInfo]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "certificates.html")]
+struct CertificatesTemplate<'a> {
+    certs: &'a [crate::certificates::CertificateInfo],
+}
+
+pub fn certificates_html(items: &[crate::certificates::CertificateInfo]) -> String {
+    CertificatesTemplate { certs: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
