@@ -134,7 +134,17 @@ pub fn enrich_whatsapp(idx: &ContactIndex, items: &mut [crate::whatsapp::WaMessa
         if !m.contact_name.is_empty() {
             continue;
         }
-        let handle = if m.sender.is_empty() { m.chat_jid.as_str() } else { m.sender.as_str() };
+        // Own (`from_me`) messages have an empty sender; fall back to the chat
+        // peer's JID — but only for one-to-one chats. A group chat JID (`…@g.us`)
+        // is a numeric group id; treating it as a phone number could mis-match a
+        // contact's trailing digits, so own group messages stay unenriched.
+        let handle = if !m.sender.is_empty() {
+            m.sender.as_str()
+        } else if !m.chat_jid.ends_with("@g.us") {
+            m.chat_jid.as_str()
+        } else {
+            ""
+        };
         if let Some(name) = idx.resolve(handle) {
             m.contact_name = name.to_string();
         }
@@ -200,6 +210,12 @@ mod tests {
         enrich_whatsapp(&idx, &mut msgs);
         assert_eq!(msgs[0].contact_name, "Eva Malá");
         assert_eq!(msgs[1].contact_name, "Eva Malá");
+
+        // An own message in a GROUP chat must not be enriched from the group id,
+        // even though "776112233" would match Eva's number.
+        let mut group = vec![wa(true, "", "776112233@g.us")];
+        enrich_whatsapp(&idx, &mut group);
+        assert_eq!(group[0].contact_name, "");
     }
 
     #[test]
