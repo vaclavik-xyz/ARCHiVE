@@ -173,7 +173,10 @@ pub fn from_whatsapp(items: &[crate::whatsapp::WaMessage]) -> Vec<Event> {
         .iter()
         .map(|m| {
             let arrow = if m.from_me { "→" } else { "←" };
-            let who = if m.chat.is_empty() { or_unknown(&m.contact_name) } else { m.chat.as_str() };
+            // Prefer the resolved contact name (the `chat`/ZPARTNERNAME label may
+            // itself be a raw number); fall back to `chat` for own messages, where
+            // there is no sender to resolve.
+            let who = if m.contact_name.is_empty() { or_unknown(&m.chat) } else { m.contact_name.as_str() };
             Event::new(
                 m.date.clone(),
                 "whatsapp",
@@ -297,6 +300,27 @@ mod tests {
         assert_eq!(mevents.len(), 1);
         assert_eq!(mevents[0].timestamp, "");
         assert!(finalize(mevents).is_empty(), "undated mail dropped from timeline");
+    }
+
+    #[test]
+    fn whatsapp_timeline_prefers_resolved_contact_name() {
+        let wa = |chat: &str, contact: &str, from_me: bool| crate::whatsapp::WaMessage {
+            chat: chat.into(),
+            sender: "420776112233@s.whatsapp.net".into(),
+            from_me,
+            date: "2021-01-01T00:00:00+00:00".into(),
+            text: "ahoj".into(),
+            source_path: String::new(),
+            media_file: None,
+            contact_name: contact.into(),
+        };
+        // A raw-number chat label is overridden by the resolved contact name.
+        let ev = from_whatsapp(&[wa("420776112233", "Eva Malá", false)]);
+        assert!(ev[0].summary.contains("Eva Malá"), "got {}", ev[0].summary);
+        assert!(!ev[0].summary.contains("420776112233"));
+        // Own messages have no sender to resolve → fall back to the chat label.
+        let mine = from_whatsapp(&[wa("Rodina", "", true)]);
+        assert!(mine[0].summary.contains("Rodina"));
     }
 
     #[test]
