@@ -186,6 +186,39 @@ pub fn calls_html(calls: &[crate::calls::Call]) -> String {
     CallsTemplate { calls }.render().unwrap()
 }
 
+pub fn accounts_csv(items: &[crate::accounts::Account]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["account_type", "type_identifier", "description", "username", "bundle_id", "date", "active"])
+        .unwrap();
+    for a in items {
+        wtr.write_record([
+            a.account_type.clone(),
+            a.type_identifier.clone(),
+            a.description.clone(),
+            a.username.clone(),
+            a.bundle_id.clone(),
+            a.date.clone(),
+            a.active.map(|v| v.to_string()).unwrap_or_default(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn accounts_json(items: &[crate::accounts::Account]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "accounts.html")]
+struct AccountsTemplate<'a> {
+    accounts: &'a [crate::accounts::Account],
+}
+
+pub fn accounts_html(items: &[crate::accounts::Account]) -> String {
+    AccountsTemplate { accounts: items }.render().unwrap()
+}
+
 pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([

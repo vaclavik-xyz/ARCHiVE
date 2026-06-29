@@ -1,3 +1,4 @@
+mod accounts;
 mod audio;
 mod attachments;
 mod calendar;
@@ -61,6 +62,13 @@ enum Command {
     },
     /// Export call history.
     Calls {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// Export configured accounts (Apple ID, Google, Exchange, …); metadata only,
+    /// no passwords.
+    Accounts {
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
@@ -275,6 +283,7 @@ fn run() -> Result<serde_json::Value, AppError> {
     match &cli.command {
         Command::Contacts { format } => run_contacts(&cli, password.as_deref(), format),
         Command::Calls { format } => run_calls(&cli, password.as_deref(), format),
+        Command::Accounts { format } => run_accounts(&cli, password.as_deref(), format),
         Command::Voicemail { format, audio, audio_format } => {
             run_voicemail(&cli, password.as_deref(), format, *audio, audio_format.as_deref())
         }
@@ -416,6 +425,50 @@ fn run_calls(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
 
     Ok(serde_json::json!({
         "ok": true, "command": "calls", "count": calls.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+fn load_accounts(backup: &archive_core::Backup) -> Result<Option<Vec<accounts::Account>>, AppError> {
+    load_store(
+        backup,
+        "HomeDomain",
+        "Library/Accounts/Accounts3.sqlite",
+        "Accounts3.sqlite",
+        accounts::parse,
+    )
+}
+
+fn run_accounts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "accounts")?;
+    let out = cli
+        .out
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--out is required to export accounts"))?;
+
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let Some(items) = load_accounts(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "accounts", "count": 0, "outputs": [],
+            "note": "this backup has no accounts store", "device": device
+        }));
+    };
+
+    let rendered = match format {
+        Format::Csv => format::accounts_csv(&items),
+        Format::Json => format::accounts_json(&items),
+        Format::Html | Format::Pdf => format::accounts_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("accounts.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("Wrote {} account(s) to {}", items.len(), out_file.display());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "accounts", "count": items.len(),
         "outputs": [out_file.to_string_lossy()], "device": device
     }))
 }
@@ -1165,6 +1218,9 @@ fn run_timeline(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     if let Some(v) = opt_or_log(load_calls(&backup), "calls") {
         events.extend(timeline::from_calls(&v));
     }
+    if let Some(v) = opt_or_log(load_accounts(&backup), "accounts") {
+        events.extend(timeline::from_accounts(&v));
+    }
     if let Some(v) = opt_or_log(load_voicemail(&backup), "voicemail") {
         events.extend(timeline::from_voicemail(&v));
     }
@@ -1503,6 +1559,9 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     if let Some(items) = opt_or_log(load_calls(&backup), "calls") {
         rec.add("calls", "Hovory", "calls.html", format::calls_html(&items), items.len(), None)?;
     }
+    if let Some(items) = opt_or_log(load_accounts(&backup), "accounts") {
+        rec.add("accounts", "Účty", "accounts.html", format::accounts_html(&items), items.len(), None)?;
+    }
     if let Some(mut items) = opt_or_log(load_voicemail(&backup), "voicemail") {
         let media = if no_files {
             None
@@ -1786,6 +1845,7 @@ fn inspect_json(device: serde_json::Value, stores: &[StoreStatus]) -> serde_json
 const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("contacts", true, "HomeDomain", "Library/AddressBook/AddressBook.sqlitedb"),
     ("calls", true, "HomeDomain", "Library/CallHistoryDB/CallHistory.storedata"),
+    ("accounts", true, "HomeDomain", "Library/Accounts/Accounts3.sqlite"),
     ("voicemail", true, "HomeDomain", "Library/Voicemail/voicemail.db"),
     ("voice-memos", true, "AppDomainGroup-group.com.apple.VoiceMemos", "Recordings/CloudRecordings.db"),
     ("safari-history", true, "AppDomain-com.apple.mobilesafari", "Library/Safari/History.db"),

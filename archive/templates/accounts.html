@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Účty</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}.off td{color:#999}</style></head><body>
+<h1>Účty ({{ accounts.len() }})</h1>
+<p>Účty nakonfigurované na zařízení. Hesla zde nejsou (jsou v keychainu) — seznam slouží jako podklad pro opětovné přidání účtů na novém telefonu.</p>
+<table>
+<tr><th>Typ</th><th>Popis</th><th>Uživatel</th><th>Aplikace</th><th>Přidáno</th><th>Aktivní</th></tr>
+{% for a in accounts %}
+<tr{% if let Some(false) = a.active %} class="off"{% endif %}>
+<td>{{ a.account_type }}</td><td>{{ a.description }}</td><td>{{ a.username }}</td>
+<td>{{ a.bundle_id }}</td><td>{{ a.date }}</td>
+<td>{% if let Some(v) = a.active %}{% if v %}ano{% else %}ne{% endif %}{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>

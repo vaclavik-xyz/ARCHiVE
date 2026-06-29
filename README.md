@@ -12,7 +12,8 @@ portable formats:
 - **`archive`** — a full iOS-backup **recovery toolset**: contacts, calls,
   voicemail, voice memos, Safari, calendar, notes, photos & videos, message
   attachments, WhatsApp, iMessage/SMS/RCS transcripts, Health, Reminders, Mail,
-  an installed-app inventory, and a unified chronological `timeline` — plus a
+  an installed-app inventory, a configured-accounts inventory, and a unified
+  chronological `timeline` — plus a
   one-shot `recover` package, deleted-record recovery (`recover-deleted`, SQLite
   carving), saved Wi-Fi passwords (`wifi`, from the keychain), on-device `backup`
   capture, and a backup `integrity` check (agent-first JSON output)
@@ -50,6 +51,7 @@ archive -o out backup                                   # writes out/<UDID>/
 # Per data type (csv | json | vcf | html; media types extract files by default)
 archive --backup ~/Backup/<UDID> -o out contacts        -f vcf   # incl. postal addresses
 archive --backup ~/Backup/<UDID> -o out calls           -f json
+archive --backup ~/Backup/<UDID> -o out accounts        -f json  # configured accounts (Apple ID, Google, Exchange, …)
 archive --backup ~/Backup/<UDID> -o out voicemail       -f json --audio
 archive --backup ~/Backup/<UDID> -o out voice-memos     -f html
 archive --backup ~/Backup/<UDID> -o out safari-history  -f json

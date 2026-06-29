@@ -244,6 +244,27 @@ pub fn make_reminders(path: &Path) {
     .unwrap();
 }
 
+/// Build a minimal real `Accounts3.sqlite` (Core Data): an active iCloud account
+/// (cocoa `ZDATE`), an active Google/Gmail account owned by a third-party bundle,
+/// and an inactive iCloud-type account with no username/description/date (so the
+/// type-join fallback and empty-field handling are exercised).
+pub fn make_accounts(path: &Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE ZACCOUNTTYPE (Z_PK INTEGER PRIMARY KEY, ZACCOUNTTYPEDESCRIPTION TEXT, ZIDENTIFIER TEXT);
+         CREATE TABLE ZACCOUNT (Z_PK INTEGER PRIMARY KEY, ZACCOUNTTYPE INTEGER, ZACTIVE INTEGER,
+            ZDATE REAL, ZIDENTIFIER TEXT, ZACCOUNTDESCRIPTION TEXT, ZUSERNAME TEXT, ZOWNINGBUNDLEID TEXT);
+         INSERT INTO ZACCOUNTTYPE VALUES
+            (1, 'iCloud', 'com.apple.account.iCloud'),
+            (2, 'Google', 'com.google.account');
+         INSERT INTO ZACCOUNT (Z_PK, ZACCOUNTTYPE, ZACTIVE, ZDATE, ZIDENTIFIER, ZACCOUNTDESCRIPTION, ZUSERNAME, ZOWNINGBUNDLEID) VALUES
+            (1, 1, 1, 600000000.0, 'uuid-1', 'iCloud', 'jane@icloud.com', NULL),
+            (2, 2, 1, 600000100.0, 'uuid-2', 'Gmail', 'jane@gmail.com', 'com.google.Gmail'),
+            (3, 1, 0, NULL, 'uuid-3', NULL, NULL, NULL);",
+    )
+    .unwrap();
+}
+
 /// Build a minimal real Voice Memos `CloudRecordings.db` (`ZCLOUDRECORDING`):
 /// a titled memo and an untitled one. `ZDATE` is the Cocoa/2001 epoch.
 pub fn make_voicememos(path: &Path) {
