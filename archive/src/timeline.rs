@@ -57,6 +57,20 @@ pub fn from_calls(calls: &[crate::calls::Call]) -> Vec<Event> {
         .collect()
 }
 
+pub fn from_accounts(items: &[crate::accounts::Account]) -> Vec<Event> {
+    items
+        .iter()
+        .map(|a| {
+            let who = if a.username.is_empty() { or_unknown(&a.description) } else { &a.username };
+            Event::new(
+                a.date.clone(),
+                "account",
+                format!("added {} account ({})", a.account_type, who),
+            )
+        })
+        .collect()
+}
+
 pub fn from_voicemail(items: &[crate::voicemail::Voicemail]) -> Vec<Event> {
     items
         .iter()
