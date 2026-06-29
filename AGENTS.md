@@ -26,7 +26,7 @@ before **or** after the subcommand name, which is agent-friendly for programmati
 invocation.
 
 **PDF output:** the **in-process** export commands that list `html` (contacts,
-calls, accounts, known-networks, homescreen-layout, voicemail, voice-memos, safari-history/bookmarks,
+calls, accounts, known-networks, homescreen-layout, data-usage, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
 whatsapp, timeline, stats, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
@@ -175,6 +175,34 @@ stdout envelope:
 
 No `IconState.plist` in the backup → `count: 0` + a `note`; a present-but-unparseable
 plist → `count: 0` + a different `note`.
+
+### `data-usage` — per-process network data usage
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> data-usage -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html | pdf`. Writes `<OUT>/data-usage.<ext>`.
+Reads `WirelessDomain/Library/Databases/DataUsage.sqlite` and aggregates the
+`ZLIVEUSAGE` time-windowed counters per `ZPROCESS`, sorted by total bytes
+descending. Each row: `process` (`ZPROCNAME`), `bundle` (`ZBUNDLENAME`; empty
+when unrecorded), `wwan_in` / `wwan_out` (cellular bytes) and `wifi_in` /
+`wifi_out` (Wi-Fi bytes) summed across windows, plus `first_seen` / `last_seen`
+(ISO 8601 UTC). CSV/JSON also carry `wwan_total` / `wifi_total`. Note: on many
+devices only the cellular counters are populated (Wi-Fi columns read 0) — that is
+the database's own behaviour, reported verbatim. Schema-tolerant: a missing
+counter column degrades to 0, and an absent/foreign-key-less database yields
+`count: 0` + a `note`.
+
+stdout envelope:
+
+```json
+{
+  "ok": true, "command": "data-usage", "count": 413,
+  "outputs": ["<OUT>/data-usage.json"],
+  "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
+}
+```
 
 ### `voicemail` — export voicemail metadata and audio
 
@@ -680,7 +708,8 @@ stdout envelope:
       "files": { "dir": "photos", "extracted": 1238, "missing": 2 } },
     { "type": "photos-recently-deleted", "file": "photos-recently-deleted.html", "count": 7,
       "files": { "dir": "recently-deleted", "extracted": 7, "missing": 0 } },
-    { "type": "homescreen-layout", "file": "homescreen-layout.html", "count": 45 }
+    { "type": "homescreen-layout", "file": "homescreen-layout.html", "count": 45 },
+    { "type": "data-usage", "file": "data-usage.html", "count": 413 }
   ],
   "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
 }

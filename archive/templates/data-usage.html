@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Datový provoz</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}td.n{text-align:right;font-variant-numeric:tabular-nums}.b{color:#888;font-size:11px}</style></head><body>
+<h1>Datový provoz podle procesu ({{ items.len() }})</h1>
+<p class="b">Součty bajtů z <code>DataUsage.sqlite</code> (ZLIVEUSAGE agregováno na proces). „in/out" = přijato/odesláno.</p>
+<table>
+<tr><th>Proces</th><th>Bundle</th><th>Mobilní data</th><th>Wi-Fi</th><th>Od</th><th>Do</th></tr>
+{% for d in items %}
+<tr>
+<td>{{ d.process }}</td><td>{{ d.bundle }}</td>
+<td class="n">{{ d.wwan_human() }}<br><span class="b">{{ d.wwan_in }} / {{ d.wwan_out }} B</span></td>
+<td class="n">{{ d.wifi_human() }}<br><span class="b">{{ d.wifi_in }} / {{ d.wifi_out }} B</span></td>
+<td>{{ d.first_seen }}</td><td>{{ d.last_seen }}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>
