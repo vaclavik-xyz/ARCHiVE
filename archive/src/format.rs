@@ -597,6 +597,45 @@ pub fn stats_html(s: &crate::stats::Stats) -> String {
     StatsTemplate { stats: s }.render().unwrap()
 }
 
+pub fn data_usage_csv(items: &[crate::data_usage::DataUsage]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record([
+        "process", "bundle", "wwan_in", "wwan_out", "wifi_in", "wifi_out",
+        "wwan_total", "wifi_total", "first_seen", "last_seen",
+    ])
+    .unwrap();
+    for d in items {
+        wtr.write_record([
+            d.process.clone(),
+            d.bundle.clone(),
+            d.wwan_in.to_string(),
+            d.wwan_out.to_string(),
+            d.wifi_in.to_string(),
+            d.wifi_out.to_string(),
+            d.wwan_total.to_string(),
+            d.wifi_total.to_string(),
+            d.first_seen.clone(),
+            d.last_seen.clone(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn data_usage_json(items: &[crate::data_usage::DataUsage]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "data-usage.html")]
+struct DataUsageTemplate<'a> {
+    items: &'a [crate::data_usage::DataUsage],
+}
+
+pub fn data_usage_html(items: &[crate::data_usage::DataUsage]) -> String {
+    DataUsageTemplate { items }.render().unwrap()
+}
+
 pub fn attachments_csv(items: &[crate::attachments::Attachment]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record(["name", "mime_type", "created", "total_bytes", "file"]).unwrap();
