@@ -44,6 +44,9 @@ archive --backup <backup-dir> -o <out> device-usage -f html   # csv | json | htm
 # Paired + previously-seen Bluetooth devices (names, MAC addresses) from the system Bluetooth databases
 archive --backup <backup-dir> -o <out> bluetooth-devices -f html   # csv | json | html | pdf
 
+# Recorded location history from the routined "Significant Locations" DB (usually excluded from standard backups)
+archive --backup <backup-dir> -o <out> significant-locations -f html   # csv | json | html | pdf
+
 archive --backup <backup-dir> -o <out> voicemail -f json   # csv | json | html
 
 # Extract voicemail metadata + audio (raw .amr; pass --audio-format m4a|wav to transcode via ffmpeg)
@@ -153,6 +156,7 @@ written under `<out>/messages`.
 - [x] data-usage — csv, json, html, pdf: per-process cellular/Wi-Fi byte counters from `DataUsage.sqlite` (ZLIVEUSAGE aggregated per process)
 - [x] device-usage — csv, json, html, pdf: per-app foreground time + sessions from CoreDuet's `knowledgeC.db` (`/app/usage` stream); the store is often excluded from iOS 16+ backups, then reports an honest 0
 - [x] bluetooth-devices — csv, json, html, pdf: paired, classic and previously-seen Bluetooth devices (name, address, resolved identity address) from the LE `com.apple.MobileBluetooth.ledevices.{paired,other}.db` databases and the classic `com.apple.MobileBluetooth.devices.plist`; the DBs' last-seen/connection columns are device-relative counters (not a wall-clock epoch) and are deliberately not exported as dates
+- [x] significant-locations — csv, json, html, pdf: recorded location-fix history (timestamp, latitude/longitude, altitude, accuracy, speed) from the routined `Cache.sqlite`/`cloud.sqlite`/`local.sqlite` (`ZRTCLLOCATIONMO`) — the store behind iOS *Significant Locations*. The routined database lives under `Library/Caches`, which iOS excludes from ordinary iTunes/Finder backups, so this usually reports an honest 0; it still recovers history from full filesystem extractions that include the caches
 - [x] voicemail — csv, json, html (metadata) + audio extraction (`--audio`, raw `.amr` or ffmpeg `m4a`/`wav`)
 - [x] voice-memos — csv, json, html (metadata) + audio extraction (native copy by default, or ffmpeg `m4a`/`wav`)
 - [x] safari-history · safari-bookmarks · calendar — csv, json, html
@@ -185,3 +189,35 @@ written under `<out>/messages`.
 - [x] keychain-inventory — csv, json, html, pdf: non-secret census of the keychain (per-item service/account/group/protection-class/version across genp/inet/cert/keys; NO passwords) — triage scope before exporting secrets; encrypted backups only
 - [x] certificates — csv, json, html, pdf: recover X.509 certificates from the keychain `cert` array → a `certificates.pem` bundle plus a metadata table (subject/issuer CN, serial, validity, CA flag, and whether a matching private key makes it an identity); **public certificates only — no private key material is exported**. Encrypted backups only; certs stored under a *ThisDeviceOnly* protection class are not transferable in a portable backup and cannot be decrypted (then reports an honest 0)
 - [x] pdf output — `-f pdf` on every HTML-bearing command, rendered from the HTML via a headless browser
+
+## Deliberately not recovered (and why)
+
+A few forensic artifacts were evaluated and **intentionally left unimplemented**
+because they cannot be recovered *correctly* from a standard encrypted
+iTunes/Finder backup — the project prefers an honest gap over code that emits
+misleading or unverifiable data:
+
+- **Keyboard learned-words lexicon** — the legacy clean word list
+  (`<lang>-dynamic-text.dat`) is gone on modern iOS; its replacement,
+  `KeyboardDomain/Library/Keyboard/user_model_database.sqlite`, stores a
+  statistical typing model whose keys are internal markers
+  (`…tium.candidate/word/pattern/…`), **not** a recoverable vocabulary. There is
+  no clean lexicon to extract, so none is fabricated.
+- **VPN / enterprise-Wi-Fi (802.1X/EAP) credentials** — these live in the
+  keychain, but Apple's service markers for them could not be pinned down on the
+  devices available for validation (which carry no VPN/EAP items), so any
+  extractor would be unverifiable guesswork that might silently match nothing.
+  Personal-Wi-Fi PSKs are covered by `wifi`; website/app logins by `passwords`.
+- **Legacy AES-CBC keychain items** (format version 1/2, very old iOS) — modern
+  backups contain only version-3 (AES-GCM) items, and no version-1/2 backup was
+  available to validate a CBC decryption path against, so it is not shipped
+  unverified.
+
+Some shipped extractors are also commonly **empty on a standard backup** by
+design — they recover real data only from backups/extractions that include the
+relevant store: `significant-locations` (routined DB lives under
+`Library/Caches`, excluded from backups), `device-usage` (`knowledgeC.db`, often
+excluded on iOS 16+), `certificates` (certs are frequently *ThisDeviceOnly* and
+not transferable), and `known-networks` (the plaintext SSID list moved to the
+keychain on iOS 16+). Each reports an honest `count: 0` with an explanatory note
+rather than failing.

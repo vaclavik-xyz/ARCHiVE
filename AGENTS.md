@@ -26,7 +26,7 @@ before **or** after the subcommand name, which is agent-friendly for programmati
 invocation.
 
 **PDF output:** the **in-process** export commands that list `html` (contacts,
-calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, bluetooth-devices, voicemail, voice-memos, safari-history/bookmarks,
+calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, bluetooth-devices, significant-locations, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
 whatsapp, timeline, stats, app-databases, app-files, recover-deleted, health, apps, keychain-inventory, certificates) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
@@ -261,6 +261,34 @@ stdout envelope:
 {
   "ok": true, "command": "bluetooth-devices", "count": 1005, "named": 5,
   "outputs": ["<OUT>/bluetooth-devices.json"],
+  "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
+}
+```
+
+### `significant-locations` — recorded location history
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> significant-locations -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html | pdf`. Writes
+`<OUT>/significant-locations.<ext>`. Reads the routined location store (probing
+`RootDomain` `Library/Caches/com.apple.routined/{Cache,cloud,local}.sqlite`) and
+returns each `ZRTCLLOCATIONMO` fix newest-first: `{ timestamp (ISO 8601 UTC),
+latitude, longitude, altitude, horizontal_accuracy, speed }` (a negative accuracy
+or speed marks an unknown value). This is the data behind iOS *Significant
+Locations*. Schema-tolerant: a missing table/column yields empty. A **store**
+(listed by `inspect`, included in `recover` when non-empty). **Availability:** the
+routined database lives under `Library/Caches`, which iOS **excludes from ordinary
+iTunes/Finder backups**, so this normally returns `count: 0` with a `note`; it
+still recovers history from full filesystem extractions that include the caches.
+
+stdout envelope:
+
+```json
+{
+  "ok": true, "command": "significant-locations", "count": 0,
+  "outputs": [], "note": "no location history recovered — …Library/Caches…",
   "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
 }
 ```
@@ -794,7 +822,7 @@ archive --backup <DIR> [--password <PW>] -o <OUT> schema-check -f <FORMAT>
 `FORMAT` is `csv | json | html | pdf`; writes `<OUT>/schema-check.<ext>`. For every
 SQLite store the tool extracts from (contacts, calls, accounts, data-usage,
 voicemail, voice-memos, safari-history, safari-bookmarks, calendar, notes, photos,
-whatsapp, health, device-usage, bluetooth-devices), it resolves the database from the manifest —
+whatsapp, health, device-usage, bluetooth-devices, significant-locations), it resolves the database from the manifest —
 trying each candidate location in order for stores whose DB moved across iOS
 versions (device-usage probes all six `knowledgeC.db` paths) — opens it
 **read-only**, and compares the live columns (`PRAGMA table_info`) against what that
@@ -1022,7 +1050,8 @@ stdout envelope:
     { "type": "homescreen-layout", "file": "homescreen-layout.html", "count": 45 },
     { "type": "data-usage", "file": "data-usage.html", "count": 413 },
     { "type": "device-usage", "file": "device-usage.html", "count": 87 },
-    { "type": "bluetooth-devices", "file": "bluetooth-devices.html", "count": 1005 }
+    { "type": "bluetooth-devices", "file": "bluetooth-devices.html", "count": 1005 },
+    { "type": "significant-locations", "file": "significant-locations.html", "count": 128 }
   ],
   "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
 }

@@ -33,6 +33,7 @@ mod reminders;
 mod safari;
 mod schema_check;
 mod search;
+mod significant_locations;
 mod sqlite_util;
 mod stats;
 mod timeline;
@@ -122,6 +123,13 @@ enum Command {
     /// Paired and previously-seen Bluetooth devices (names + MAC addresses) from
     /// the system Bluetooth databases.
     BluetoothDevices {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// Recorded location history from the routined "Significant Locations"
+    /// database (usually excluded from standard backups).
+    SignificantLocations {
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
@@ -447,6 +455,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::DataUsage { format } => run_data_usage(&cli, password.as_deref(), format),
         Command::DeviceUsage { format } => run_device_usage(&cli, password.as_deref(), format),
         Command::BluetoothDevices { format } => run_bluetooth_devices(&cli, password.as_deref(), format),
+        Command::SignificantLocations { format } => run_significant_locations(&cli, password.as_deref(), format),
         Command::Voicemail { format, audio, audio_format } => {
             run_voicemail(&cli, password.as_deref(), format, *audio, audio_format.as_deref())
         }
@@ -798,6 +807,67 @@ fn run_bluetooth_devices(cli: &Cli, password: Option<&str>, format: &str) -> Res
 
     Ok(serde_json::json!({
         "ok": true, "command": "bluetooth-devices", "count": items.len(), "named": named,
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+/// Fetch and parse the routined location history. Probes the candidate database
+/// paths in order; returns the first that yields fixes, else `Some(empty)` if a
+/// database exists but lists none, else `Ok(None)` when none are present.
+fn load_significant_locations(
+    backup: &archive_core::Backup,
+) -> Result<Option<Vec<significant_locations::LocationFix>>, AppError> {
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let mut found_file = false;
+    for path in significant_locations::PATHS {
+        let tmp = scratch.path().join("routined.sqlite");
+        let Some(db) = backup
+            .fetch(significant_locations::DOMAIN, path, &tmp)
+            .map_err(|e| AppError::other(e.to_string()))?
+        else {
+            continue;
+        };
+        found_file = true;
+        let fixes = significant_locations::parse(&db).map_err(|e| AppError::other(e.to_string()))?;
+        if !fixes.is_empty() {
+            return Ok(Some(fixes));
+        }
+    }
+    Ok(found_file.then(Vec::new))
+}
+
+fn run_significant_locations(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "significant-locations")?;
+    let out = cli
+        .out
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--out is required to export significant locations"))?;
+
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let items = load_significant_locations(&backup)?.unwrap_or_default();
+    if items.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "significant-locations", "count": 0, "outputs": [],
+            "note": "no location history recovered — the routined store lives under Library/Caches, which iOS excludes from ordinary iTunes/Finder backups (recoverable only from a full filesystem extraction that includes the caches)",
+            "device": device
+        }));
+    }
+
+    let rendered = match format {
+        Format::Csv => format::significant_locations_csv(&items),
+        Format::Json => format::significant_locations_json(&items),
+        Format::Html | Format::Pdf => format::significant_locations_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("significant-locations.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("Wrote {} location fix(es) to {}", items.len(), out_file.display());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "significant-locations", "count": items.len(),
         "outputs": [out_file.to_string_lossy()], "device": device
     }))
 }
@@ -2814,6 +2884,11 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     {
         rec.add("bluetooth-devices", "Bluetooth zařízení", "bluetooth-devices.html", format::bluetooth_devices_html(&items), items.len(), None)?;
     }
+    if let Some(items) = opt_or_log(load_significant_locations(&backup), "significant-locations")
+        && !items.is_empty()
+    {
+        rec.add("significant-locations", "Historie polohy", "significant-locations.html", format::significant_locations_html(&items), items.len(), None)?;
+    }
     if let Some(mut items) = opt_or_log(load_voicemail(&backup), "voicemail") {
         if let Some(idx) = &cidx {
             enrich::enrich_voicemail(idx, &mut items);
@@ -3145,6 +3220,9 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     // Bluetooth devices live across two LE databases and a classic plist; presence
     // is detected specially in `run_inspect` by probing all of them.
     ("bluetooth-devices", true, bluetooth::DOMAIN, ""),
+    // The routined location store has a few candidate file names; presence is
+    // detected specially in `run_inspect` by probing significant_locations::PATHS.
+    ("significant-locations", true, significant_locations::DOMAIN, ""),
     ("voicemail", true, "HomeDomain", "Library/Voicemail/voicemail.db"),
     ("voice-memos", true, "AppDomainGroup-group.com.apple.VoiceMemos", "Recordings/CloudRecordings.db"),
     ("safari-history", true, "AppDomain-com.apple.mobilesafari", "Library/Safari/History.db"),
@@ -3226,6 +3304,15 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 any = backup.has(bluetooth::DOMAIN, p).map_err(|e| AppError::other(e.to_string()))?;
             }
             any
+        } else if name == "significant-locations" {
+            let mut any = false;
+            for p in significant_locations::PATHS {
+                if backup.has(significant_locations::DOMAIN, p).map_err(|e| AppError::other(e.to_string()))? {
+                    any = true;
+                    break;
+                }
+            }
+            any
         } else {
             backup
                 .has(domain, path)
@@ -3245,6 +3332,7 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "data-usage" => load_data_usage(&backup).ok().flatten().map(|v| v.len()),
                 "device-usage" => load_device_usage(&backup).ok().flatten().map(|v| v.len()),
                 "bluetooth-devices" => load_bluetooth_devices(&backup).ok().flatten().map(|v| v.len()),
+                "significant-locations" => load_significant_locations(&backup).ok().flatten().map(|v| v.len()),
                 "voicemail" => load_voicemail(&backup).ok().flatten().map(|v| v.len()),
                 "voice-memos" => load_voice_memos(&backup).ok().flatten().map(|v| v.len()),
                 "safari-history" => load_safari_history(&backup).ok().flatten().map(|v| v.len()),
@@ -3388,6 +3476,14 @@ mod cli_tests {
     }
 
     #[test]
+    fn parses_significant_locations() {
+        let s = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "significant-locations", "-f", "json"]).unwrap();
+        assert!(matches!(s.command, Command::SignificantLocations { format } if format == "json"));
+        let st = KNOWN_STORES.iter().find(|(n, ..)| *n == "significant-locations").unwrap();
+        assert!(st.1);
+    }
+
+    #[test]
     fn parses_certificates() {
         let c = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "certificates", "-f", "json"]).unwrap();
         assert!(matches!(c.command, Command::Certificates { format } if format == "json"));
@@ -3467,7 +3563,7 @@ mod cli_tests {
         // list mirrors that match — when adding a store, add it here AND add the
         // matching `load_*` count arm.
         let counted = [
-            "contacts", "calls", "accounts", "known-networks", "homescreen-layout", "data-usage", "device-usage", "bluetooth-devices", "voicemail", "voice-memos",
+            "contacts", "calls", "accounts", "known-networks", "homescreen-layout", "data-usage", "device-usage", "bluetooth-devices", "significant-locations", "voicemail", "voice-memos",
             "safari-history", "safari-bookmarks", "calendar", "notes", "photos",
             "photos-recently-deleted", "attachments", "whatsapp", "health", "reminders", "mail",
         ];
