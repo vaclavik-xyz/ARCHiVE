@@ -202,10 +202,14 @@ fn classify_network_marker(svce: &str, agrp: &str) -> Option<&'static str> {
     let has_token = |needle: &str| {
         hay.split(|c: char| !c.is_ascii_alphanumeric()).any(|t| t == needle)
     };
-    // Distinctive enough that a raw substring match will not hit common words.
-    const VPN_SUBSTR: &[&str] = &["vpn", "ipsec", "l2tp", "pptp", "ikev2", "racoon", "openvpn", "wireguard", "anyconnect"];
+    // Multi-character, distinctive markers are safe to match as substrings — they
+    // will not appear inside unrelated app/service names.
+    const VPN_SUBSTR: &[&str] = &["ipsec", "l2tp", "pptp", "ikev2", "racoon", "openvpn", "wireguard", "anyconnect"];
     const EAP_SUBSTR: &[&str] = &["eapol", "8021x", "802.1x"];
-    if VPN_SUBSTR.iter().any(|m| hay.contains(m)) {
+    // The short markers `vpn` and `eap` match only as whole tokens, so an
+    // unrelated `com.vendor.vpnclient` / `notavpn-token` / `cheap` secret is not
+    // mislabelled and its plaintext over-exported.
+    if VPN_SUBSTR.iter().any(|m| hay.contains(m)) || has_token("vpn") {
         Some("vpn")
     } else if EAP_SUBSTR.iter().any(|m| hay.contains(m)) || has_token("eap") {
         Some("eap")
@@ -1009,6 +1013,12 @@ mod tests {
         assert_eq!(classify_network_marker("Acme Enterprise Suite", "com.acme.enterprise"), None);
         // A third-party token store is left alone.
         assert_eq!(classify_network_marker("session-token", "com.vendor.app"), None);
+        // "vpn" only matches as a whole token, so these unrelated secrets are NOT
+        // exported as VPN credentials.
+        assert_eq!(classify_network_marker("notavpn-token", "com.vendor.app"), None);
+        assert_eq!(classify_network_marker("auth", "com.vendor.vpnclient"), None);
+        // A genuine bare `vpn` token is still detected.
+        assert_eq!(classify_network_marker("corp.vpn.gateway", ""), Some("vpn"));
     }
 
     #[test]
