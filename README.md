@@ -16,7 +16,8 @@ portable formats:
   network list (`known-networks`), the Home Screen layout
   (`homescreen-layout`), per-process network `data-usage`, a unified
   chronological `timeline`, an activity `stats` dashboard, a per-app database
-  recoverability report (`app-databases`) — plus a
+  recoverability report (`app-databases`), per-app document/media extraction
+  (`app-files`) — plus a
   one-shot `recover` package, deleted-record recovery (`recover-deleted`, SQLite
   carving), Recently Deleted photo/video recovery
   (`photos-recently-deleted`), saved Wi-Fi passwords (`wifi`) and website/app
@@ -79,6 +80,7 @@ archive --backup ~/Backup/<UDID> -o out apps            -f json  # installed app
 archive --backup ~/Backup/<UDID> -o out timeline        -f html  # everything merged chronologically
 archive --backup ~/Backup/<UDID> -o out stats           -f html  # activity dashboard: per-category counts + date ranges
 archive --backup ~/Backup/<UDID> -o out app-databases   -f html  # per-app DB recoverability: readable SQLite vs encrypted/other
+archive --backup ~/Backup/<UDID> -o out app-files --app viber -f html  # extract an app's media (add --all for every file)
 archive --backup ~/Backup/<UDID> -o out recover-deleted -f html  # carve deleted rows (best-effort)
 archive --backup ~/Backup/<UDID> -o out wifi            -f html  # saved Wi-Fi passwords (encrypted backups)
 archive --backup ~/Backup/<UDID> -o out passwords       -f html  # saved website/app passwords (encrypted backups)

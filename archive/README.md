@@ -93,6 +93,9 @@ archive --backup <backup-dir> -o <out> stats -f html   # csv | json | html | pdf
 # Per-app database recoverability: readable plain SQLite (with table count) vs encrypted/other
 archive --backup <backup-dir> -o <out> app-databases -f html   # csv | json | html | pdf
 
+# Extract a named app's document/media files (use when the message DB is excluded/encrypted)
+archive --backup <backup-dir> -o <out> app-files --app viber -f html   # media only; add --all for every file
+
 # Recover DELETED rows by carving freed SQLite pages/WAL (best-effort)
 archive --backup <backup-dir> -o <out> recover-deleted -f html   # --store messages|calls|contacts|all
 
@@ -147,6 +150,7 @@ written under `<out>/messages`.
 - [x] timeline — csv, json, html: every in-process extractor merged into one chronological stream
 - [x] stats — csv, json, html, pdf: activity dashboard (per-category event counts + date ranges; a view over the timeline)
 - [x] app-databases — csv, json, html, pdf: per-app database recoverability report (readable plain SQLite + table count vs encrypted/Core-Data/other); shows that many third-party messaging apps keep no readable store in the backup
+- [x] app-files — csv, json, html, pdf: extract a named app's document/media files from its `AppDomain-…`/`AppDomainGroup-…` containers (media only by default, `--all` for every file); recovers the photos/videos/voice messages that survive even when the message DB is excluded
 - [x] recover-deleted — csv, json, html: carve DELETED rows (messages/calls/contacts) from freed SQLite pages (+ WAL for messages) (best-effort)
 - [x] wifi — csv, json, html: recover saved Wi-Fi passwords from the keychain (encrypted backups only; passwords in plaintext)
 - [x] passwords — csv, json, html: recover saved website/app passwords from the keychain `inet` array (Safari/WebKit `com.apple.cfnetwork` + third-party app groups; Apple-internal keychain-sync items excluded); encrypted backups only, plaintext

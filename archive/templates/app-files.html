@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Soubory aplikace {{ app }}</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+.gallery{display:flex;flex-wrap:wrap;gap:10px}
+.item{width:180px;font-size:11px;word-break:break-all}
+.item img{width:180px;height:180px;object-fit:cover;border:1px solid #ddd;display:block}
+.cap{color:#666;margin-top:2px}.b{color:#888}</style></head><body>
+<h1>Soubory aplikace {{ app }} ({{ rows.len() }})</h1>
+<div class="gallery">
+{% for r in rows %}
+<div class="item">
+{% if r.f.category == "image" %}<a href="{{ r.f.file }}"><img src="{{ r.f.file }}" loading="lazy" alt="{{ r.f.path }}"></a>
+{% else if r.f.category == "video" %}<a href="{{ r.f.file }}">▶ {{ r.f.path }}</a>
+{% else if r.f.category == "audio" %}<audio controls src="{{ r.f.file }}"></audio>
+{% else %}<a href="{{ r.f.file }}">{{ r.f.path }}</a>
+{% endif %}
+<div class="cap">{{ r.f.category }} · {{ r.size }}<br><span class="b">{{ r.f.path }}</span></div>
+</div>
+{% endfor %}
+</div>
+</body></html>
