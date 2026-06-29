@@ -1863,6 +1863,11 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         // Recently Deleted: a dedicated recovery view (own folder + estimated
         // purge dates). `items` is consumed here as the photos section is done.
         let mut trashed = photos_deleted::filter_trashed(items);
+        // These were just extracted into photos/; reset `file` so this section's
+        // links and media counts reflect only the recently-deleted/ extraction.
+        for t in &mut trashed {
+            t.file = None;
+        }
         if !trashed.is_empty() {
             let media = if no_files {
                 None
