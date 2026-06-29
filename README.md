@@ -13,7 +13,8 @@ portable formats:
   voicemail, voice memos, Safari, calendar, notes, photos & videos, message
   attachments, WhatsApp, iMessage/SMS/RCS transcripts, Health, Reminders, Mail,
   an installed-app inventory, a configured-accounts inventory, a saved Wi-Fi
-  network list (`known-networks`), and a unified chronological `timeline` — plus a
+  network list (`known-networks`), the Home Screen layout
+  (`homescreen-layout`), and a unified chronological `timeline` — plus a
   one-shot `recover` package, deleted-record recovery (`recover-deleted`, SQLite
   carving), Recently Deleted photo/video recovery
   (`photos-recently-deleted`), saved Wi-Fi passwords (`wifi`) and website/app
@@ -55,6 +56,7 @@ archive --backup ~/Backup/<UDID> -o out contacts        -f vcf   # incl. postal 
 archive --backup ~/Backup/<UDID> -o out calls           -f json
 archive --backup ~/Backup/<UDID> -o out accounts        -f json  # configured accounts (Apple ID, Google, Exchange, …)
 archive --backup ~/Backup/<UDID> -o out known-networks  -f json  # saved Wi-Fi SSIDs, no passwords (often empty on iOS 16+)
+archive --backup ~/Backup/<UDID> -o out homescreen-layout -f html # home screen layout: pages, dock, folders, widgets
 archive --backup ~/Backup/<UDID> -o out voicemail       -f json --audio
 archive --backup ~/Backup/<UDID> -o out voice-memos     -f html
 archive --backup ~/Backup/<UDID> -o out safari-history  -f json

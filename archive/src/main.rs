@@ -8,6 +8,7 @@ mod datetime;
 mod device_backup;
 mod format;
 mod health;
+mod homescreen;
 mod known_networks;
 mod mail;
 mod messages;
@@ -78,6 +79,13 @@ enum Command {
     /// Export remembered Wi-Fi networks (SSID list, no passwords); works on any
     /// backup. For passwords use `wifi` (encrypted backups only).
     KnownNetworks {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// Reconstruct the Home Screen layout (pages, dock, folders) from
+    /// SpringBoard's IconState.plist; works on any backup.
+    HomescreenLayout {
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
@@ -318,6 +326,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Calls { format } => run_calls(&cli, password.as_deref(), format),
         Command::Accounts { format } => run_accounts(&cli, password.as_deref(), format),
         Command::KnownNetworks { format } => run_known_networks(&cli, password.as_deref(), format),
+        Command::HomescreenLayout { format } => run_homescreen(&cli, password.as_deref(), format),
         Command::Voicemail { format, audio, audio_format } => {
             run_voicemail(&cli, password.as_deref(), format, *audio, audio_format.as_deref())
         }
@@ -573,6 +582,61 @@ fn run_known_networks(cli: &Cli, password: Option<&str>, format: &str) -> Result
 
     Ok(serde_json::json!({
         "ok": true, "command": "known-networks", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+fn load_homescreen(
+    backup: &archive_core::Backup,
+) -> Result<Option<Vec<homescreen::IconSlot>>, AppError> {
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    let tmp = scratch.path().join("IconState.plist");
+    let Some(file) = backup
+        .fetch(homescreen::DOMAIN, homescreen::PATH, &tmp)
+        .map_err(|e| AppError::other(e.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let bytes = std::fs::read(&file).map_err(|e| AppError::other(e.to_string()))?;
+    Ok(Some(homescreen::parse(&bytes)))
+}
+
+fn run_homescreen(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "homescreen-layout")?;
+    let out = cli
+        .out
+        .as_deref()
+        .ok_or_else(|| AppError::usage("--out is required to export the home screen layout"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let Some(items) = load_homescreen(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "homescreen-layout", "count": 0, "outputs": [],
+            "note": "this backup has no IconState.plist (home screen layout)", "device": device
+        }));
+    };
+    if items.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "homescreen-layout", "count": 0, "outputs": [],
+            "note": "home screen layout could not be parsed (unexpected IconState.plist shape)",
+            "device": device
+        }));
+    }
+
+    let rendered = match format {
+        Format::Csv => format::homescreen_csv(&items),
+        Format::Json => format::homescreen_json(&items),
+        Format::Html | Format::Pdf => format::homescreen_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("homescreen-layout.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("Wrote {} icon slot(s) to {}", items.len(), out_file.display());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "homescreen-layout", "count": items.len(),
         "outputs": [out_file.to_string_lossy()], "device": device
     }))
 }
@@ -1813,6 +1877,11 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     if let Some(items) = opt_or_log(load_known_networks(&backup), "known-networks") {
         rec.add("known-networks", "Wi-Fi sítě", "known-networks.html", format::known_networks_html(&items), items.len(), None)?;
     }
+    if let Some(items) = opt_or_log(load_homescreen(&backup), "homescreen-layout")
+        && !items.is_empty()
+    {
+        rec.add("homescreen-layout", "Rozložení plochy", "homescreen-layout.html", format::homescreen_html(&items), items.len(), None)?;
+    }
     if let Some(mut items) = opt_or_log(load_voicemail(&backup), "voicemail") {
         let media = if no_files {
             None
@@ -2130,6 +2199,7 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     // so presence is detected specially in `run_inspect`; this path is the
     // preferred one and is not used directly for `has`.
     ("known-networks", true, known_networks::DOMAIN, ""),
+    ("homescreen-layout", true, homescreen::DOMAIN, homescreen::PATH),
     ("voicemail", true, "HomeDomain", "Library/Voicemail/voicemail.db"),
     ("voice-memos", true, "AppDomainGroup-group.com.apple.VoiceMemos", "Recordings/CloudRecordings.db"),
     ("safari-history", true, "AppDomain-com.apple.mobilesafari", "Library/Safari/History.db"),
@@ -2206,6 +2276,7 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "calls" => load_calls(&backup).ok().flatten().map(|c| c.len()),
                 "accounts" => load_accounts(&backup).ok().flatten().map(|v| v.len()),
                 "known-networks" => load_known_networks(&backup).ok().flatten().map(|v| v.len()),
+                "homescreen-layout" => load_homescreen(&backup).ok().flatten().map(|v| v.len()),
                 "voicemail" => load_voicemail(&backup).ok().flatten().map(|v| v.len()),
                 "voice-memos" => load_voice_memos(&backup).ok().flatten().map(|v| v.len()),
                 "safari-history" => load_safari_history(&backup).ok().flatten().map(|v| v.len()),
@@ -2338,7 +2409,7 @@ mod cli_tests {
         // list mirrors that match — when adding a store, add it here AND add the
         // matching `load_*` count arm.
         let counted = [
-            "contacts", "calls", "accounts", "known-networks", "voicemail", "voice-memos",
+            "contacts", "calls", "accounts", "known-networks", "homescreen-layout", "voicemail", "voice-memos",
             "safari-history", "safari-bookmarks", "calendar", "notes", "photos",
             "photos-recently-deleted", "attachments", "whatsapp", "health", "reminders", "mail",
         ];
@@ -2634,6 +2705,17 @@ mod cli_tests {
         }
         let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "photos-recently-deleted").unwrap();
         assert!(s.1, "photos-recently-deleted must be supported");
+    }
+
+    #[test]
+    fn parses_homescreen_layout_invocation() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "homescreen-layout", "-f", "json"]).unwrap();
+        match cli.command {
+            Command::HomescreenLayout { format } => assert_eq!(format, "json"),
+            _ => panic!("expected HomescreenLayout"),
+        }
+        let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "homescreen-layout").unwrap();
+        assert!(s.1, "homescreen-layout must be supported");
     }
 
     #[test]

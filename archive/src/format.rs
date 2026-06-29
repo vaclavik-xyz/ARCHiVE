@@ -521,6 +521,55 @@ pub fn photos_deleted_html(items: &[crate::photos_deleted::DeletedAsset]) -> Str
     PhotosDeletedTemplate { assets: items }.render().unwrap()
 }
 
+pub fn homescreen_csv(items: &[crate::homescreen::IconSlot]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["container", "position", "kind", "identifier", "label"]).unwrap();
+    for s in items {
+        wtr.write_record([
+            s.container.clone(),
+            s.position.to_string(),
+            s.kind.clone(),
+            s.identifier.clone(),
+            s.label.clone(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn homescreen_json(items: &[crate::homescreen::IconSlot]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+/// One container (dock / page / folder) with its icons, for the HTML view.
+struct HomeGroup<'a> {
+    name: &'a str,
+    icons: Vec<&'a crate::homescreen::IconSlot>,
+}
+
+#[derive(Template)]
+#[template(path = "homescreen.html")]
+struct HomescreenTemplate<'a> {
+    groups: Vec<HomeGroup<'a>>,
+    count: usize,
+}
+
+pub fn homescreen_html(items: &[crate::homescreen::IconSlot]) -> String {
+    // Group by container (dock / each page / each folder) in first-seen order, so
+    // a folder's contents form their own section instead of splitting a page.
+    let mut groups: Vec<HomeGroup> = Vec::new();
+    for s in items {
+        match groups.iter_mut().find(|g| g.name == s.container) {
+            Some(g) => g.icons.push(s),
+            None => groups.push(HomeGroup { name: &s.container, icons: vec![s] }),
+        }
+    }
+    for g in &mut groups {
+        g.icons.sort_by_key(|i| i.position);
+    }
+    HomescreenTemplate { groups, count: items.len() }.render().unwrap()
+}
+
 pub fn attachments_csv(items: &[crate::attachments::Attachment]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record(["name", "mime_type", "created", "total_bytes", "file"]).unwrap();
