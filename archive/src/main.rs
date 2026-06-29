@@ -8,6 +8,7 @@ mod calls;
 mod contacts;
 mod data_usage;
 mod datetime;
+mod db_export;
 mod device_backup;
 mod device_usage;
 mod enrich;
@@ -290,6 +291,9 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Consolidate the extracted data into one queryable SQLite database
+    /// (`<out>/archive.sqlite`): timeline + contacts + calls + whatsapp tables.
+    DbExport,
     /// Recover saved Wi-Fi passwords from the keychain (encrypted backups only).
     Wifi {
         /// Output format: csv, json, html (no pdf — avoids a plaintext sidecar).
@@ -425,6 +429,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::RecoverDeleted { format, store } => run_recover_deleted(&cli, password.as_deref(), format, store),
         Command::SchemaCheck { format } => run_schema_check(&cli, password.as_deref(), format),
         Command::Search { query, format } => run_search(&cli, password.as_deref(), query, format),
+        Command::DbExport => run_db_export(&cli, password.as_deref()),
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
         Command::KeychainInventory { format } => run_keychain_inventory(&cli, password.as_deref(), format),
@@ -1952,6 +1957,47 @@ fn run_search(cli: &Cli, password: Option<&str>, query: &str, format: &str) -> R
     }))
 }
 
+// Consolidate the extracted data into one queryable SQLite database. Read-only on
+// the backup; writes a single unencrypted archive.sqlite. Personal data goes only
+// into that file — stderr/stdout carry only per-table row counts.
+fn run_db_export(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, AppError> {
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required for the SQLite export"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let idx = contact_index(&backup);
+    let events = collect_timeline_events(&backup);
+    let contacts = opt_or_log(load_contacts(&backup), "contacts").unwrap_or_default();
+    let mut calls = opt_or_log(load_calls(&backup), "calls").unwrap_or_default();
+    let mut whatsapp = opt_or_log(load_whatsapp(&backup), "whatsapp").unwrap_or_default();
+    if let Some(idx) = &idx {
+        enrich::enrich_calls(idx, &mut calls);
+        enrich::enrich_whatsapp(idx, &mut whatsapp);
+    }
+
+    let out_file = out.join("archive.sqlite");
+    let counts = db_export::write(&out_file, &events, &contacts, &calls, &whatsapp)
+        .map_err(|e| AppError::other(e.to_string()))?;
+    eprintln!(
+        "db-export: {} timeline, {} contacts, {} calls, {} whatsapp -> {}",
+        counts.timeline,
+        counts.contacts,
+        counts.calls,
+        counts.whatsapp,
+        out_file.display()
+    );
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "db-export",
+        "tables": {
+            "timeline": counts.timeline, "contacts": counts.contacts,
+            "calls": counts.calls, "whatsapp": counts.whatsapp
+        },
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
 /// Read the first `n` bytes of a file (for magic-byte sniffing), tolerant of
 /// short files / open failures.
 fn file_head(path: &std::path::Path, n: usize) -> Vec<u8> {
@@ -3061,6 +3107,19 @@ mod cli_tests {
     fn search_rejects_empty_query() {
         let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "search", "-q", "  ", "-f", "json"]).unwrap();
         let err = run_search(&cli, None, "  ", "json").unwrap_err();
+        assert_eq!(err.kind, "usage");
+    }
+
+    #[test]
+    fn parses_db_export() {
+        let d = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "db-export"]).unwrap();
+        assert!(matches!(d.command, Command::DbExport));
+    }
+
+    #[test]
+    fn db_export_requires_out() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "db-export"]).unwrap();
+        let err = run_db_export(&cli, None).unwrap_err();
         assert_eq!(err.kind, "usage");
     }
 

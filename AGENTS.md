@@ -802,6 +802,24 @@ builds (message bodies, call numbers, titles, URLs, resolved names), so it answe
 "what mentions X" rather than performing a full-text index of every column.
 Read-only.
 
+### `db-export` — combined SQLite database
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> db-export
+```
+
+Takes no format flag — it always writes one SQLite database, `<OUT>/archive.sqlite`
+(replacing any existing file), so an examiner can run cross-store SQL (joins,
+time-range filters, `LIKE`) instead of opening one CSV per store. Tables: `timeline`
+(`timestamp, kind, summary` — every dated event from every in-process extractor),
+`contacts` (`first, last, organization, phones, emails, note`; phones/emails are
+`; `-joined), `calls` (`date, number, contact_name, duration_seconds, direction,
+answered, service`), and `whatsapp` (`date, chat, from_me, text, has_media`). Calls
+and WhatsApp are contact-name-enriched. The database is **plain unencrypted SQLite**
+and holds personal data; the JSON envelope carries only per-table row counts
+(`tables: { timeline, contacts, calls, whatsapp }`), `outputs` and `device` —
+never the rows. Read-only on the backup.
+
 ### `wifi` — recover saved Wi-Fi passwords
 
 ```
