@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Databáze aplikací</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}td.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.yes td:first-child{border-left:3px solid #2c8}.no{color:#999}.b{color:#888;font-size:11px}</style></head><body>
+<h1>Databáze aplikací ({{ rows.len() }}, čitelných {{ readable }})</h1>
+<p class="b">Per-app DB soubory ze záloh třetích stran. „Čitelná" = prostá SQLite databáze (lze otevřít); „ne" = šifrovaná (SQLCipher), Core Data binární store, nebo jiný formát. Mnoho appek (Viber, Messenger…) svůj message store ze zálohy vylučuje nebo šifruje.</p>
+<table>
+<tr><th>Aplikace</th><th>Soubor</th><th>Velikost</th><th>Čitelná</th><th>Tabulek</th></tr>
+{% for r in rows %}
+<tr class="{% if r.db.readable %}yes{% else %}no{% endif %}">
+<td>{{ r.db.app }}</td><td>{{ r.db.path }}</td>
+<td class="n">{{ r.size }}</td>
+<td>{% if r.db.readable %}ano{% else %}ne{% endif %}</td>
+<td class="n">{% if let Some(t) = r.db.tables %}{{ t }}{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>

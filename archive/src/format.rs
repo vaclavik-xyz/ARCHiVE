@@ -666,6 +666,48 @@ pub fn device_usage_html(items: &[crate::device_usage::AppUsage]) -> String {
     DeviceUsageTemplate { items }.render().unwrap()
 }
 
+pub fn app_databases_csv(items: &[crate::app_databases::AppDatabase]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["app", "path", "bytes", "readable", "tables"]).unwrap();
+    for d in items {
+        wtr.write_record([
+            d.app.clone(),
+            d.path.clone(),
+            d.bytes.to_string(),
+            d.readable.to_string(),
+            d.tables.map(|t| t.to_string()).unwrap_or_default(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn app_databases_json(items: &[crate::app_databases::AppDatabase]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+/// A row enriched with a human-readable size for the template.
+struct AppDbRow<'a> {
+    db: &'a crate::app_databases::AppDatabase,
+    size: String,
+}
+
+#[derive(Template)]
+#[template(path = "app-databases.html")]
+struct AppDatabasesTemplate<'a> {
+    rows: Vec<AppDbRow<'a>>,
+    readable: usize,
+}
+
+pub fn app_databases_html(items: &[crate::app_databases::AppDatabase]) -> String {
+    let rows = items
+        .iter()
+        .map(|db| AppDbRow { db, size: crate::data_usage::human_bytes(db.bytes as i64) })
+        .collect();
+    let readable = items.iter().filter(|d| d.readable).count();
+    AppDatabasesTemplate { rows, readable }.render().unwrap()
+}
+
 pub fn attachments_csv(items: &[crate::attachments::Attachment]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record(["name", "mime_type", "created", "total_bytes", "file"]).unwrap();
