@@ -700,7 +700,7 @@ files → `count: 0` plus a `note` naming how many domains matched.
 ### `recover-deleted` — carve deleted SQLite rows
 
 ```
-archive --backup <DIR> [--password <PW>] -o <OUT> recover-deleted -f <FORMAT> [--store messages|calls|contacts|all]
+archive --backup <DIR> [--password <PW>] -o <OUT> recover-deleted -f <FORMAT> [--store messages|calls|contacts|notes|calendar|safari|all]
 ```
 
 `FORMAT` is `csv | json | html`; `--store` defaults to `all` (an unknown value is
@@ -710,14 +710,19 @@ in-page freeblocks, the unallocated gap, and the `-wal` sidecar — with a gener
 schema-less parser (`archive-core::carve`), then attributes each carved record to
 a store via heuristic signatures: `messages` (`sms.db`, anchored by a 36-char
 GUID), `calls` (`CallHistory.storedata`, anchored by a Cocoa-seconds REAL date),
-`contacts` (`AddressBook.sqlitedb`, name texts — softest). Each output row is
-`{ store, source (freelist|freeblock|unallocated|wal), rowid, date (ISO 8601 UTC
-or null), summary }`, sorted chronologically.
+`contacts` (`AddressBook.sqlitedb`, name texts — softest), `notes`
+(`NoteStore.sqlite`, title/snippet texts + Cocoa date — the body is gzipped
+protobuf and not recovered here), `calendar` (`Calendar.sqlitedb`, event title +
+location + earliest associated Cocoa date — schema-less carving cannot single out
+the start column from end/created, so the earliest is reported), and `safari`
+(`History.db`, a URL or a titled visit with a Cocoa visit date). Each output row is `{ store, source (freelist|freeblock|
+unallocated|wal), rowid, date (ISO 8601 UTC or null), summary }`, sorted
+chronologically.
 
 Rows still **live** in the database are excluded (a carved candidate whose cell
 rowid — or, for messages, GUID — is still present in the live table is dropped).
-Because `-wal` frames are full page images mixing live and deleted cells, and
-calls/contacts lack a strong content anchor, **`calls` and `contacts` ignore WAL
+Because `-wal` frames are full page images mixing live and deleted cells, every
+store except `messages` lacks a strong content anchor and therefore **ignores WAL
 candidates entirely** (their deletions still surface from the main file's free
 regions); `messages` use the GUID anchor and do recover from the WAL.
 

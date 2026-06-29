@@ -30,13 +30,17 @@ pub struct LiveKeys {
     pub rowids: HashSet<i64>,
     /// Live message GUIDs (extra safety against rowid reuse), messages only.
     pub guids: HashSet<String>,
+    /// Live Safari history URLs (`history_items.url`). Safari recovers URL-only
+    /// rows that carry no usable rowid key, so live URLs are excluded by content.
+    pub urls: HashSet<String>,
 }
 
 /// One recovered deleted row, normalised across stores (mirrors the timeline
 /// `Event` shape so a single formatter/template renders all of them).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DeletedRecord {
-    /// Which store the row was attributed to: `messages` | `calls` | `contacts`.
+    /// Which store the row was attributed to: `messages` | `calls` | `contacts`
+    /// | `notes` | `calendar` | `safari`.
     pub store: String,
     /// Which free region it was carved from: `freelist` | `freeblock` | `unallocated` | `wal`.
     pub source: String,
@@ -76,6 +80,37 @@ fn as_real(v: &CarvedValue) -> Option<f64> {
     }
 }
 
+/// A REAL that looks like a Cocoa (2001-epoch) seconds timestamp in a plausible
+/// range (~2008 .. ~2035), the date anchor for calls/calendar/safari rows.
+fn cocoa_seconds(v: &CarvedValue) -> Option<f64> {
+    match v {
+        CarvedValue::Real(r) if (250_000_000.0..1_100_000_000.0).contains(r) => Some(*r),
+        _ => None,
+    }
+}
+
+/// The largest plausible Cocoa-seconds date among a record's values, as ISO 8601.
+fn max_cocoa_date(r: &CarvedRecord) -> Option<String> {
+    r.values
+        .iter()
+        .filter_map(cocoa_seconds)
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .and_then(datetime::cocoa_to_iso)
+}
+
+/// The smallest plausible Cocoa-seconds date among a record's values, as ISO
+/// 8601. Used for calendar events: schema-less carving cannot single out the
+/// start column from end/created, so we report the *earliest* associated date —
+/// the closest honest proxy for when the event happened (its start, or the
+/// creation date when that is earlier).
+fn min_cocoa_date(r: &CarvedRecord) -> Option<String> {
+    r.values
+        .iter()
+        .filter_map(cocoa_seconds)
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .and_then(datetime::cocoa_to_iso)
+}
+
 /// Whitespace-collapse and cap a string for one-line display.
 fn trunc(s: &str, n: usize) -> String {
     let collapsed = s.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -101,6 +136,13 @@ fn looks_addressy(s: &str) -> bool {
     let len = s.chars().count();
     (3..=64).contains(&len)
         && (s.contains('@') || s.bytes().filter(|b| b.is_ascii_digit()).count() >= 3)
+}
+
+/// A text that looks like a browser URL — the (soft) anchor for Safari history.
+fn looks_url(s: &str) -> bool {
+    (s.contains("://") || s.starts_with("www."))
+        && !s.chars().any(char::is_whitespace)
+        && (6..=2048).contains(&s.chars().count())
 }
 
 /// sms.db `message`: anchored by a 36-char guid. The body is the longest
@@ -144,17 +186,18 @@ fn messages_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
         .collect()
 }
 
-/// Whether a carved calls/contacts candidate should be rejected. Unlike messages
-/// (which carry a GUID anchor usable for live-exclusion), these stores have no
-/// strong content key, so we cannot reliably separate deleted rows from the live
-/// rows that WAL frames inevitably contain: a WAL frame is a full page image, and
-/// the carver's raw slide can even misframe live bytes into a rowid-bearing
-/// candidate, so neither "rowid is live" nor "has a rowid" is a sufficient test.
-/// We therefore drop **every** WAL-sourced candidate for these two stores —
-/// genuinely deleted calls/contacts still surface from the main file's free
-/// regions (freelist/freeblock/unallocated), which are not contaminated by live
-/// cells. We also drop rows whose rowid is still live.
-fn excluded_call_or_contact(r: &CarvedRecord, live: &LiveKeys) -> bool {
+/// Whether a carved candidate from an *anchorless* store should be rejected.
+/// Unlike messages (which carry a GUID anchor usable for live-exclusion), these
+/// stores — calls, contacts, notes, calendar, safari — have no strong content
+/// key, so we cannot reliably separate deleted rows from the live rows that WAL
+/// frames inevitably contain: a WAL frame is a full page image, and the carver's
+/// raw slide can even misframe live bytes into a rowid-bearing candidate, so
+/// neither "rowid is live" nor "has a rowid" is a sufficient test. We therefore
+/// drop **every** WAL-sourced candidate for these stores — genuinely deleted rows
+/// still surface from the main file's free regions (freelist/freeblock/
+/// unallocated), which are not contaminated by live cells. We also drop rows
+/// whose rowid is still live.
+fn excluded_anchorless(r: &CarvedRecord, live: &LiveKeys) -> bool {
     r.source == CarveSource::Wal || r.rowid.is_some_and(|id| live.rowids.contains(&id))
 }
 
@@ -165,7 +208,7 @@ fn calls_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
     records
         .iter()
         .filter_map(|r| {
-            if excluded_call_or_contact(r, live) {
+            if excluded_anchorless(r, live) {
                 return None;
             }
             // ~2008-12 .. ~2035 in Cocoa (2001-epoch) seconds.
@@ -210,7 +253,7 @@ fn contacts_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
     records
         .iter()
         .filter_map(|r| {
-            if excluded_call_or_contact(r, live) {
+            if excluded_anchorless(r, live) {
                 return None;
             }
             let texts: Vec<&str> = r.values.iter().filter_map(as_text).filter(|t| !t.is_empty()).collect();
@@ -228,6 +271,115 @@ fn contacts_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
         .collect()
 }
 
+/// NoteStore.sqlite (`ZICCLOUDSYNCINGOBJECT`): no content anchor — the note body
+/// is gzipped protobuf in `ZICNOTEDATA`, but the title (`ZTITLE1`) and snippet
+/// (`ZSNIPPET`) are plain-text columns. Joins the non-empty alphabetic texts and
+/// attaches the largest Cocoa date (creation/modification). Best-effort/noisier.
+fn notes_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
+    records
+        .iter()
+        .filter_map(|r| {
+            if excluded_anchorless(r, live) {
+                return None;
+            }
+            let texts: Vec<&str> = r
+                .values
+                .iter()
+                .filter_map(as_text)
+                .filter(|t| t.chars().count() >= 2 && t.chars().any(char::is_alphabetic))
+                .collect();
+            if texts.is_empty() {
+                return None;
+            }
+            Some(DeletedRecord {
+                store: "notes".into(),
+                source: source_str(r.source).into(),
+                rowid: r.rowid,
+                date: max_cocoa_date(r),
+                summary: trunc(&texts.join(" · "), 200),
+            })
+        })
+        .collect()
+}
+
+/// Calendar.sqlitedb (`CalendarItem`): the event title (`summary`) is plain text,
+/// `start_date` a Cocoa-seconds REAL, `location` more text. Anchors on the longest
+/// alphabetic title; attaches the location and a date. The row holds several
+/// indistinguishable dates (start/end/created); we report the **earliest** as the
+/// most honest proxy for when the event was (see `min_cocoa_date`).
+fn calendar_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
+    records
+        .iter()
+        .filter_map(|r| {
+            if excluded_anchorless(r, live) {
+                return None;
+            }
+            let title = r
+                .values
+                .iter()
+                .filter_map(as_text)
+                .filter(|t| t.chars().any(char::is_alphabetic))
+                .max_by_key(|t| t.chars().count())?;
+            let location = r
+                .values
+                .iter()
+                .filter_map(as_text)
+                .find(|t| *t != title && t.chars().any(char::is_alphabetic));
+            let mut summary = trunc(title, 160);
+            if let Some(loc) = location {
+                summary = format!("{summary} · {}", trunc(loc, 60));
+            }
+            Some(DeletedRecord {
+                store: "calendar".into(),
+                source: source_str(r.source).into(),
+                rowid: r.rowid,
+                date: min_cocoa_date(r),
+                summary,
+            })
+        })
+        .collect()
+}
+
+/// Safari `History.db`: deleted browsing history. `history_items` rows carry the
+/// URL; `history_visits` rows carry a visit title and a Cocoa-seconds
+/// `visit_time`. Anchors on a URL-looking text, or a (title + visit date) pair.
+fn safari_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
+    records
+        .iter()
+        .filter_map(|r| {
+            if excluded_anchorless(r, live) {
+                return None;
+            }
+            let url = r.values.iter().filter_map(as_text).find(|t| looks_url(t));
+            // A URL still present in the live `history_items` table is not deleted.
+            if url.is_some_and(|u| live.urls.contains(u)) {
+                return None;
+            }
+            let date = max_cocoa_date(r);
+            let title = r
+                .values
+                .iter()
+                .filter_map(as_text)
+                .filter(|t| !looks_url(t) && t.chars().any(char::is_alphabetic))
+                .max_by_key(|t| t.chars().count());
+            // Require a URL, or a titled visit with a date, to avoid plain-text noise.
+            let summary = match (url, title) {
+                (Some(u), Some(t)) => format!("{} — {}", trunc(t, 120), trunc(u, 200)),
+                (Some(u), None) => trunc(u, 200),
+                (None, Some(t)) if date.is_some() => trunc(t, 200),
+                _ => return None,
+            };
+            Some(DeletedRecord {
+                store: "safari".into(),
+                source: source_str(r.source).into(),
+                rowid: r.rowid,
+                date,
+                summary,
+            })
+        })
+        .collect()
+}
+
 /// Apply the signature for `store` to carved records, excluding rows still live
 /// in the database (`live`) — which filters out the live rows that WAL frame
 /// images inevitably contain — then drop near-duplicates (the same row often
@@ -237,6 +389,9 @@ pub fn recover(store: &str, records: &[CarvedRecord], live: &LiveKeys) -> Vec<De
         "messages" => messages_from(records, live),
         "calls" => calls_from(records, live),
         "contacts" => contacts_from(records, live),
+        "notes" => notes_from(records, live),
+        "calendar" => calendar_from(records, live),
+        "safari" => safari_from(records, live),
         _ => Vec::new(),
     };
     let mut seen = std::collections::HashSet::new();
@@ -368,6 +523,115 @@ mod tests {
         // ...but a deleted call from the main file's free regions IS recovered.
         let freelist = vec![rec_n(Some(50), CarveSource::Freelist, nums())];
         assert_eq!(recover("calls", &freelist, &LiveKeys::default()).len(), 1);
+    }
+
+    #[test]
+    fn notes_signature_joins_text_and_dates() {
+        // A deleted note: title + snippet text plus a Cocoa creation date; the
+        // gzipped body blob carries no readable text and is ignored.
+        let records = vec![rec_n(
+            Some(12),
+            CarveSource::Freeblock,
+            vec![
+                CarvedValue::Text("Nákupní seznam".into()),
+                CarvedValue::Text("mléko, chléb, vejce".into()),
+                CarvedValue::Real(600_000_000.0), // Cocoa seconds, 2020
+                CarvedValue::Blob(vec![0x1f, 0x8b, 0x08]), // gzip magic, not text
+            ],
+        )];
+        let out = recover("notes", &records, &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].store, "notes");
+        assert_eq!(out[0].summary, "Nákupní seznam · mléko, chléb, vejce");
+        assert!(out[0].date.as_deref().unwrap().starts_with("2020-01-06"));
+    }
+
+    #[test]
+    fn calendar_signature_extracts_title_location_and_date() {
+        let records = vec![rec_n(
+            Some(3),
+            CarveSource::Unallocated,
+            vec![
+                CarvedValue::Text("Schůzka s klientem".into()),
+                CarvedValue::Real(600_000_000.0), // ZSTARTDATE
+                CarvedValue::Text("Kavárna Praha".into()),
+            ],
+        )];
+        let out = recover("calendar", &records, &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].store, "calendar");
+        assert_eq!(out[0].summary, "Schůzka s klientem · Kavárna Praha");
+        assert!(out[0].date.as_deref().unwrap().starts_with("2020-01-06"));
+    }
+
+    #[test]
+    fn safari_signature_recovers_url_title_and_visit_date() {
+        // A history_items row (url) and a history_visits row (title + visit_time).
+        let item = rec_n(Some(8), CarveSource::Freelist, vec![CarvedValue::Text("https://example.com/page".into()), CarvedValue::Int(4)]);
+        let out = recover("safari", &[item], &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].store, "safari");
+        assert_eq!(out[0].summary, "https://example.com/page");
+
+        let visit = rec_n(
+            Some(9),
+            CarveSource::Freelist,
+            vec![CarvedValue::Text("Example Domain".into()), CarvedValue::Real(600_000_000.0)],
+        );
+        let out = recover("safari", &[visit], &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].summary, "Example Domain");
+        assert!(out[0].date.as_deref().unwrap().starts_with("2020-01-06"));
+    }
+
+    #[test]
+    fn safari_drops_plain_text_without_url_or_date() {
+        // A titled visit with no date and no URL is noise → dropped.
+        let noise = vec![rec_n(Some(1), CarveSource::Unallocated, vec![CarvedValue::Text("just some words".into())])];
+        assert!(recover("safari", &noise, &LiveKeys::default()).is_empty());
+    }
+
+    #[test]
+    fn soft_stores_drop_all_wal_candidates() {
+        // notes/calendar/safari share the anchorless WAL-drop policy.
+        let note = vec![rec_n(None, CarveSource::Wal, vec![CarvedValue::Text("Poznámka".into())])];
+        assert!(recover("notes", &note, &LiveKeys::default()).is_empty());
+        let cal = vec![rec_n(Some(2), CarveSource::Wal, vec![CarvedValue::Text("Událost".into()), CarvedValue::Real(600_000_000.0)])];
+        assert!(recover("calendar", &cal, &LiveKeys::default()).is_empty());
+        let saf = vec![rec_n(None, CarveSource::Wal, vec![CarvedValue::Text("https://x.test/a".into())])];
+        assert!(recover("safari", &saf, &LiveKeys::default()).is_empty());
+    }
+
+    #[test]
+    fn calendar_reports_earliest_date_not_end() {
+        // Schema-less carving can't tell start from end/created, so the earliest
+        // plausible date is reported (never the later end). Here created < start
+        // < end, and the earliest (created) is what we surface.
+        let created = 600_000_000.0; // 2020-01-06
+        let start = 615_000_000.0; // ~5.5 months later
+        let end = 631_000_000.0; // later still
+        let records = vec![rec_n(
+            Some(4),
+            CarveSource::Freelist,
+            vec![CarvedValue::Text("Dovolená".into()), CarvedValue::Real(end), CarvedValue::Real(start), CarvedValue::Real(created)],
+        )];
+        let out = recover("calendar", &records, &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        // The earliest timestamp wins; crucially it is not the end date.
+        assert!(out[0].date.as_deref().unwrap().starts_with("2020-01-06"));
+    }
+
+    #[test]
+    fn safari_excludes_live_history_item_url() {
+        let live_url = "https://live.example.com/";
+        let mut live = LiveKeys::default();
+        live.urls.insert(live_url.into());
+        // The same URL carved from a free region is still live → dropped.
+        let live_row = vec![rec_n(Some(2), CarveSource::Freelist, vec![CarvedValue::Text(live_url.into())])];
+        assert!(recover("safari", &live_row, &live).is_empty());
+        // A different (genuinely deleted) URL is kept.
+        let gone = vec![rec_n(Some(3), CarveSource::Freelist, vec![CarvedValue::Text("https://gone.example.com/x".into())])];
+        assert_eq!(recover("safari", &gone, &live).len(), 1);
     }
 
     #[test]
