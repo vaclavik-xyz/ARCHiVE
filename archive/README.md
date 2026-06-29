@@ -38,6 +38,9 @@ archive --backup <backup-dir> -o <out> homescreen-layout -f html   # csv | json 
 # Per-process network data usage (cellular/Wi-Fi byte counters) from DataUsage.sqlite
 archive --backup <backup-dir> -o <out> data-usage -f html   # csv | json | html | pdf
 
+# Per-app foreground usage (time, sessions) from CoreDuet's knowledgeC.db (often excluded from iOS 16+ backups)
+archive --backup <backup-dir> -o <out> device-usage -f html   # csv | json | html | pdf
+
 archive --backup <backup-dir> -o <out> voicemail -f json   # csv | json | html
 
 # Extract voicemail metadata + audio (raw .amr; pass --audio-format m4a|wav to transcode via ffmpeg)
@@ -121,6 +124,7 @@ written under `<out>/messages`.
 - [x] known-networks — csv, json, html: remembered Wi-Fi SSIDs (no passwords) from `com.apple.wifi*.plist`; works on any backup, but the plaintext list is usually empty on iOS 16+ (the inventory moved to the keychain — see `wifi`)
 - [x] homescreen-layout — csv, json, html, pdf: Home Screen pages, dock, folders and widget stacks from SpringBoard's `IconState.plist`; works on any backup
 - [x] data-usage — csv, json, html, pdf: per-process cellular/Wi-Fi byte counters from `DataUsage.sqlite` (ZLIVEUSAGE aggregated per process)
+- [x] device-usage — csv, json, html, pdf: per-app foreground time + sessions from CoreDuet's `knowledgeC.db` (`/app/usage` stream); the store is often excluded from iOS 16+ backups, then reports an honest 0
 - [x] voicemail — csv, json, html (metadata) + audio extraction (`--audio`, raw `.amr` or ffmpeg `m4a`/`wav`)
 - [x] voice-memos — csv, json, html (metadata) + audio extraction (native copy by default, or ffmpeg `m4a`/`wav`)
 - [x] safari-history · safari-bookmarks · calendar — csv, json, html
