@@ -1017,6 +1017,48 @@ pub fn search_html(items: &[crate::search::SearchHit], query: &str) -> String {
     SearchTemplate { hits: items, query }.render().unwrap()
 }
 
+// --- Backup diff ----------------------------------------------------------
+
+fn opt_size(s: Option<u64>) -> String {
+    s.map(|n| n.to_string()).unwrap_or_default()
+}
+
+pub fn diff_csv(items: &[crate::backup_diff::FileChange]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["change", "domain", "path", "size_a", "size_b"]).unwrap();
+    for c in items {
+        wtr.write_record([c.change.to_string(), c.domain.clone(), c.path.clone(), opt_size(c.size_a), opt_size(c.size_b)])
+            .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn diff_json(items: &[crate::backup_diff::FileChange]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "backup-diff.html")]
+struct DiffTemplate<'a> {
+    changes: &'a [crate::backup_diff::FileChange],
+    added: usize,
+    removed: usize,
+    modified: usize,
+    unchanged: usize,
+}
+
+pub fn diff_html(items: &[crate::backup_diff::FileChange], summary: &crate::backup_diff::DiffSummary) -> String {
+    DiffTemplate {
+        changes: items,
+        added: summary.added,
+        removed: summary.removed,
+        modified: summary.modified,
+        unchanged: summary.unchanged,
+    }
+    .render()
+    .unwrap()
+}
+
 // --- Recovered deleted records --------------------------------------------
 
 pub fn deleted_csv(items: &[crate::recover_deleted::DeletedRecord]) -> String {

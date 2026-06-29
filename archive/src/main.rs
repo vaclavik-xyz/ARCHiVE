@@ -3,6 +3,7 @@ mod app_databases;
 mod app_files;
 mod audio;
 mod attachments;
+mod backup_diff;
 mod calendar;
 mod calls;
 mod contacts;
@@ -301,6 +302,16 @@ enum Command {
     /// Consolidate the extracted data into one queryable SQLite database
     /// (`<out>/archive.sqlite`): timeline + contacts + calls + whatsapp tables.
     DbExport,
+    /// Diff two backups at the file level: which manifest files were added,
+    /// removed, or changed size between `--backup` (A) and `--against` (B).
+    Diff {
+        /// The second (newer) backup directory to compare against.
+        #[arg(long)]
+        against: String,
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Recover saved Wi-Fi passwords from the keychain (encrypted backups only).
     Wifi {
         /// Output format: csv, json, html (no pdf — avoids a plaintext sidecar).
@@ -437,6 +448,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::SchemaCheck { format } => run_schema_check(&cli, password.as_deref(), format),
         Command::Search { query, format, redact } => run_search(&cli, password.as_deref(), query, format, *redact),
         Command::DbExport => run_db_export(&cli, password.as_deref()),
+        Command::Diff { against, format } => run_diff(&cli, password.as_deref(), against, format),
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
         Command::KeychainInventory { format } => run_keychain_inventory(&cli, password.as_deref(), format),
@@ -2009,6 +2021,46 @@ fn run_db_export(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value,
     }))
 }
 
+// Diff two backups at the file (manifest) level. `--backup` is A (older),
+// `--against` is B (newer); both are opened with the same `--password`. Read-only
+// on both. Reports added/removed/modified files; the size comparison uses manifest
+// sizes, so it works for encrypted backups.
+fn run_diff(cli: &Cli, password: Option<&str>, against: &str, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "diff")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export the diff"))?;
+    let backup_a = open_backup(cli, password)?;
+    let backup_b = archive_core::Backup::open(std::path::Path::new(against), password).map_err(open_error)?;
+    let device = device_json(backup_a.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let entries_a = backup_a.file_entries().map_err(|e| AppError::other(e.to_string()))?;
+    let entries_b = backup_b.file_entries().map_err(|e| AppError::other(e.to_string()))?;
+    let (summary, changes) = backup_diff::diff(&entries_a, &entries_b);
+
+    let rendered = match format {
+        Format::Csv => format::diff_csv(&changes),
+        Format::Json => format::diff_json(&changes),
+        Format::Html | Format::Pdf => format::diff_html(&changes, &summary),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("backup-diff.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!(
+        "diff: +{} added, -{} removed, ~{} modified ({} unchanged) -> {}",
+        summary.added,
+        summary.removed,
+        summary.modified,
+        summary.unchanged,
+        out_file.display()
+    );
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "diff",
+        "summary": { "added": summary.added, "removed": summary.removed, "modified": summary.modified, "unchanged": summary.unchanged },
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
 /// Read the first `n` bytes of a file (for magic-byte sniffing), tolerant of
 /// short files / open failures.
 fn file_head(path: &std::path::Path, n: usize) -> Vec<u8> {
@@ -3142,6 +3194,12 @@ mod cli_tests {
         let cli = Cli::try_parse_from(["archive", "--backup", "/b", "db-export"]).unwrap();
         let err = run_db_export(&cli, None).unwrap_err();
         assert_eq!(err.kind, "usage");
+    }
+
+    #[test]
+    fn parses_diff_against_and_format() {
+        let d = Cli::try_parse_from(["archive", "--backup", "/a", "-o", "/o", "diff", "--against", "/b", "-f", "json"]).unwrap();
+        assert!(matches!(d.command, Command::Diff { ref against, ref format } if against == "/b" && format == "json"));
     }
 
     #[test]

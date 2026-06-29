@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Porovnání dvou záloh</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top}
+th{background:#f5f5f5}code{background:#f0f0f0;padding:1px 5px;border-radius:3px}td.n{text-align:right;white-space:nowrap}
+.summary{font-size:1.1em;margin:8px 0}
+.added{color:#1e7d34}.removed{color:#b3261e}.modified{color:#b26a00}</style></head><body>
+<h1>Porovnání dvou záloh (A = starší, B = novější)</h1>
+<p class="summary"><span class="added">+ přidáno: {{ added }}</span> &middot;
+<span class="removed">− odebráno: {{ removed }}</span> &middot;
+<span class="modified">~ změněno: {{ modified }}</span> &middot; beze změny: {{ unchanged }}</p>
+{% if changes.is_empty() %}<p>Žádné rozdíly na úrovni souborů.</p>{% else %}
+<table>
+<tr><th>Změna</th><th>Doména</th><th>Soubor</th><th>Velikost A</th><th>Velikost B</th></tr>
+{% for c in changes %}
+<tr><td class="{{ c.change }}">{{ c.change }}</td><td class="k"><code>{{ c.domain }}</code></td><td>{{ c.path }}</td>
+<td class="n">{% if let Some(s) = c.size_a %}{{ s }}{% endif %}</td>
+<td class="n">{% if let Some(s) = c.size_b %}{{ s }}{% endif %}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+</body></html>
