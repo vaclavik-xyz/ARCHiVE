@@ -50,6 +50,9 @@ archive --backup <backup-dir> -o <out> notes -f html
 # Camera Roll: metadata + extract photo/video files into <out>/photos/ (--no-files for catalog only)
 archive --backup <backup-dir> -o <out> photos -f html
 
+# Recently Deleted: recover trashed photos/videos still in the 30-day window into <out>/recently-deleted/
+archive --backup <backup-dir> -o <out> photos-recently-deleted -f html
+
 # Messages attachments: extract media into <out>/attachments/ (--no-files for catalog only)
 archive --backup <backup-dir> -o <out> attachments -f html
 
@@ -111,6 +114,7 @@ written under `<out>/messages`.
 - [x] safari-history · safari-bookmarks · calendar — csv, json, html
 - [x] notes — csv, json, html (body decoded from gzip+protobuf, snippet fallback)
 - [x] photos — csv, json, html gallery + file extraction; albums, hidden, Live/burst, edited, GPS, original name/title
+- [x] photos-recently-deleted — csv, json, html + file recovery of trashed assets still in the 30-day purge window (with estimated purge date)
 - [x] attachments — csv, json, html gallery + Messages attachment file extraction
 - [x] recover — one-shot: all in-process data-store extractors + customer index.html (device sheet + links; excludes `messages` and `apps`)
 - [x] backup — create a fresh backup from a connected iPhone (libimobiledevice)

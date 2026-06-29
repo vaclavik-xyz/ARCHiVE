@@ -480,6 +480,46 @@ pub fn photos_html(items: &[crate::photos::Photo]) -> String {
     PhotosTemplate { photos: items }.render().unwrap()
 }
 
+pub fn photos_deleted_csv(items: &[crate::photos_deleted::DeletedAsset]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record([
+        "filename", "kind", "created", "trashed_date", "purge_after",
+        "width", "height", "duration_seconds", "albums", "file",
+    ])
+    .unwrap();
+    for d in items {
+        let p = &d.photo;
+        wtr.write_record([
+            p.filename.clone(),
+            p.kind.clone(),
+            p.created.clone(),
+            p.trashed_date.clone(),
+            d.purge_after.clone(),
+            p.width.to_string(),
+            p.height.to_string(),
+            opt_num(p.duration_seconds),
+            p.albums.join("; "),
+            p.file.clone().unwrap_or_default(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn photos_deleted_json(items: &[crate::photos_deleted::DeletedAsset]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "photos-recently-deleted.html")]
+struct PhotosDeletedTemplate<'a> {
+    assets: &'a [crate::photos_deleted::DeletedAsset],
+}
+
+pub fn photos_deleted_html(items: &[crate::photos_deleted::DeletedAsset]) -> String {
+    PhotosDeletedTemplate { assets: items }.render().unwrap()
+}
+
 pub fn attachments_csv(items: &[crate::attachments::Attachment]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record(["name", "mime_type", "created", "total_bytes", "file"]).unwrap();
@@ -1138,6 +1178,7 @@ mod tests {
             favorite: true,
             hidden: false,
             trashed: false,
+            trashed_date: String::new(),
             edited: true,
             live_photo: true,
             kind_subtype: Some(2),

@@ -29,6 +29,9 @@ pub struct Photo {
     pub hidden: bool,
     /// In Recently Deleted.
     pub trashed: bool,
+    /// When the asset was moved to Recently Deleted as ISO 8601 UTC
+    /// (`ZTRASHEDDATE`); empty when not trashed / unset.
+    pub trashed_date: String,
     /// Has edits/adjustments (`ZHASADJUSTMENTS`).
     pub edited: bool,
     /// Best-effort Live Photo flag (image with `ZKINDSUBTYPE == 2`).
@@ -162,7 +165,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Photo>> {
 
     let sql = format!(
         "SELECT a.Z_PK, a.ZFILENAME, a.ZDIRECTORY, {created}, {modif}, {added}, {kind}, {subtype}, \
-         {fav}, {hidden}, {trash}, {edited}, {w}, {h}, {lat}, {lon}, {dur}, {avalanche}, {orig_sel}, {title_sel} \
+         {fav}, {hidden}, {trash}, {edited}, {w}, {h}, {lat}, {lon}, {dur}, {avalanche}, {orig_sel}, {title_sel}, {tdate} \
          FROM ZASSET a {aa_join} ORDER BY {order}",
         created = col("ZDATECREATED"),
         modif = col("ZMODIFICATIONDATE"),
@@ -179,6 +182,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Photo>> {
         lon = col("ZLONGITUDE"),
         dur = col("ZDURATION"),
         avalanche = col("ZAVALANCHEUUID"),
+        tdate = col("ZTRASHEDDATE"),
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], |row| {
@@ -202,6 +206,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Photo>> {
         let avalanche: Option<String> = row.get(17)?;
         let original_filename: Option<String> = row.get(18)?;
         let title: Option<String> = row.get(19)?;
+        let trashed_date: Option<f64> = row.get(20)?;
 
         let filename = filename.unwrap_or_default();
         let directory = directory.unwrap_or_default();
@@ -226,6 +231,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Photo>> {
             favorite: favorite == Some(1),
             hidden: hidden.unwrap_or(0) != 0,
             trashed: trashed.unwrap_or(0) != 0,
+            trashed_date: trashed_date.and_then(cocoa_to_iso).unwrap_or_default(),
             edited: edited.unwrap_or(0) != 0,
             live_photo: kind == "image" && subtype == Some(2),
             kind_subtype: subtype,
@@ -265,24 +271,34 @@ pub(crate) fn output_name(n: usize, filename: &str) -> String {
 }
 
 /// Fetch each asset's file into `<out>/photos/`, filling `file` in place.
-/// Best-effort: an asset absent from the backup is counted `missing`. Only
-/// directory creation is fatal.
 pub fn extract_photos(
     backup: &archive_core::Backup,
     items: &mut [Photo],
     out: &Path,
 ) -> std::io::Result<PhotoSummary> {
-    let photo_dir = out.join(PHOTO_DIR);
-    std::fs::create_dir_all(&photo_dir)?;
+    extract_into(backup, items, out, PHOTO_DIR)
+}
+
+/// Fetch each asset's file into `<out>/<subdir>/`, filling `file` in place.
+/// Best-effort: an asset absent from the backup is counted `missing`. Only
+/// directory creation is fatal. Shared by `photos` and `photos-recently-deleted`.
+pub fn extract_into(
+    backup: &archive_core::Backup,
+    items: &mut [Photo],
+    out: &Path,
+    subdir: &str,
+) -> std::io::Result<PhotoSummary> {
+    let media_dir = out.join(subdir);
+    std::fs::create_dir_all(&media_dir)?;
 
     for (i, item) in items.iter_mut().enumerate() {
         if item.source_path.is_empty() {
             continue;
         }
         let name = output_name(i + 1, &item.filename);
-        let dest = photo_dir.join(&name);
+        let dest = media_dir.join(&name);
         match backup.fetch("CameraRollDomain", &item.source_path, &dest) {
-            Ok(Some(_)) => item.file = Some(format!("{PHOTO_DIR}/{name}")),
+            Ok(Some(_)) => item.file = Some(format!("{subdir}/{name}")),
             Ok(None) => {}
             Err(why) => eprintln!("photo {}: fetch failed: {why}", item.filename),
         }
@@ -290,7 +306,7 @@ pub fn extract_photos(
 
     let extracted = items.iter().filter(|p| p.file.is_some()).count();
     let missing = items.iter().filter(|p| p.file.is_none()).count();
-    Ok(PhotoSummary { dir: PHOTO_DIR.to_string(), extracted, missing })
+    Ok(PhotoSummary { dir: subdir.to_string(), extracted, missing })
 }
 
 #[cfg(test)]
@@ -343,6 +359,7 @@ mod tests {
 
         let trashed = &assets[2];
         assert!(trashed.trashed);
+        assert_eq!(trashed.trashed_date, "2020-01-06T10:45:00+00:00"); // Cocoa 600_000_300
         assert_eq!(trashed.latitude, None); // NULL → None
         assert_eq!(trashed.burst_id.as_deref(), Some("BURST1")); // same burst as the video
         std::fs::remove_dir_all(&dir).ok();
@@ -368,6 +385,8 @@ mod tests {
         let a = &assets[0];
         assert_eq!(a.filename, "IMG_9.JPG");
         assert!(!a.hidden && !a.edited && !a.live_photo);
+        assert!(!a.trashed);
+        assert_eq!(a.trashed_date, "");
         assert_eq!(a.kind_subtype, None);
         assert_eq!(a.modified, "");
         assert_eq!(a.original_filename, "");

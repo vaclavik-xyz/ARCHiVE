@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Nedávno smazané fotky</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+.gallery{display:flex;flex-wrap:wrap;gap:12px}
+.item{width:200px;font-size:12px;word-break:break-all}
+.item img{width:200px;height:200px;object-fit:cover;border:1px solid #ddd;display:block}
+.cap{color:#555;margin-top:2px}.purge{color:#b00}</style></head><body>
+<h1>Nedávno smazané fotky a videa ({{ assets.len() }})</h1>
+<p>Položky z alba „Nedávno smazané". iOS je drží ~30 dní, než je trvale odstraní —
+záloha pořízená v tomto okně stále obsahuje původní soubory, takže je lze obnovit.
+„Trvale odstraněno po" je odhad (smazáno + 30 dní).</p>
+<div class="gallery">
+{% for a in assets %}
+<div class="item">
+{% if let Some(f) = a.photo.file.as_ref() %}
+{% if a.photo.kind == "video" %}<a href="{{ f }}">▶ {{ a.photo.filename }}</a>
+{% else %}<a href="{{ f }}"><img src="{{ f }}" loading="lazy" alt="{{ a.photo.filename }}"></a>
+{% endif %}
+{% else %}{{ a.photo.filename }}
+{% endif %}
+<div class="cap">
+🗑 smazáno {% if a.photo.trashed_date.is_empty() %}?{% else %}{{ a.photo.trashed_date }}{% endif %}
+{% if !a.purge_after.is_empty() %}<br><span class="purge">trvale odstraněno po {{ a.purge_after }}</span>{% endif %}
+<br>pořízeno {% if a.photo.created.is_empty() %}?{% else %}{{ a.photo.created }}{% endif %}{% if a.photo.live_photo %} ◉Live{% endif %}{% if let Some(b) = a.photo.burst_id.as_ref() %} 🔥{{ b }}{% endif %}{% if let Some(lat) = a.photo.latitude %}{% if let Some(lon) = a.photo.longitude %}<br>📍 {{ lat }}, {{ lon }}{% endif %}{% endif %}
+{% if !a.photo.albums.is_empty() %}<br>📁 {% for al in a.photo.albums %}{{ al }}{% if !loop.last %}, {% endif %}{% endfor %}{% endif %}
+</div>
+</div>
+{% endfor %}
+</div>
+</body></html>

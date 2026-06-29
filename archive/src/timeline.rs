@@ -140,6 +140,19 @@ pub fn from_photos(items: &[crate::photos::Photo]) -> Vec<Event> {
         .collect()
 }
 
+/// Events at each trashed asset's deletion time (when known), so a recovered
+/// "Recently Deleted" photo shows up on the timeline at the moment it was binned.
+pub fn from_deleted(items: &[crate::photos::Photo]) -> Vec<Event> {
+    items
+        .iter()
+        .filter(|p| !p.trashed_date.is_empty())
+        .map(|p| {
+            let name = if p.filename.is_empty() { or_unknown(&p.original_filename) } else { &p.filename };
+            Event::new(p.trashed_date.clone(), "photo-deleted", name.to_string())
+        })
+        .collect()
+}
+
 pub fn from_attachments(items: &[crate::attachments::Attachment]) -> Vec<Event> {
     items
         .iter()
