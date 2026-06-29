@@ -209,6 +209,13 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Recover saved website/app passwords from the keychain (encrypted backups
+    /// only). Sensitive: output contains plaintext passwords.
+    Passwords {
+        /// Output format: csv, json, html (no pdf — avoids a plaintext sidecar).
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Run every extractor into <out>/ and write a customer index.html package.
     Recover {
         /// Skip large media extraction (metadata + HTML only).
@@ -314,6 +321,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Timeline { format } => run_timeline(&cli, password.as_deref(), format),
         Command::RecoverDeleted { format, store } => run_recover_deleted(&cli, password.as_deref(), format, store),
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
+        Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
@@ -1276,6 +1284,44 @@ fn run_wifi(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_jso
     }))
 }
 
+fn run_passwords(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "passwords")?;
+    // PDF is intentionally not offered: the shared PDF path writes a temporary
+    // plaintext HTML sidecar, which we will not do for plaintext passwords.
+    if format == Format::Pdf {
+        return Err(AppError::usage(
+            "pdf is not available for passwords (it would write a temporary plaintext HTML file); use csv, json, or html",
+        ));
+    }
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export passwords"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+    let creds = backup.saved_passwords().map_err(|e| AppError::other(e.to_string()))?;
+    if creds.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "passwords", "count": 0, "outputs": [],
+            "note": "no saved passwords recovered (the keychain is included only in ENCRYPTED backups; this backup may be unencrypted, have no saved website/app logins, or only ThisDeviceOnly items that are not transferable)",
+            "device": device
+        }));
+    }
+    let rendered = match format {
+        Format::Csv => format::passwords_csv(&creds),
+        Format::Json => format::passwords_json(&creds),
+        Format::Html => format::passwords_html(&creds),
+        Format::Vcf | Format::Pdf => unreachable!("vcf rejected by export_format; pdf rejected above"),
+    };
+    let out_file = out.join(format!("passwords.{}", format.extension()));
+    std::fs::write(&out_file, rendered).map_err(|e| AppError::other(e.to_string()))?;
+    // Count only — never log the recovered passwords.
+    eprintln!("Recovered {} saved password(s) to {}", creds.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "passwords", "count": creds.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device,
+        "note": "recovered passwords are plaintext — handle and transmit securely"
+    }))
+}
+
 // Merge every in-process extractor into one chronological timeline. Like
 // `recover`, each store is best-effort (absent/unreadable is logged and skipped).
 // A view over the other extractors, not a data store: standalone (not in
@@ -2072,6 +2118,14 @@ mod cli_tests {
     fn wifi_rejects_pdf_to_avoid_plaintext_sidecar() {
         let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "wifi", "-f", "pdf"]).unwrap();
         let err = run_wifi(&cli, None, "pdf").unwrap_err();
+        assert_eq!(err.kind, "usage");
+        assert_eq!(err.code, 1);
+    }
+
+    #[test]
+    fn passwords_rejects_pdf_to_avoid_plaintext_sidecar() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "passwords", "-f", "pdf"]).unwrap();
+        let err = run_passwords(&cli, None, "pdf").unwrap_err();
         assert_eq!(err.kind, "usage");
         assert_eq!(err.code, 1);
     }

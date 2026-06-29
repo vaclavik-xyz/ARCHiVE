@@ -101,6 +101,10 @@ fn map_open_err(why: CrabError) -> BackupError {
     }
 }
 
+/// Decrypted keychain plist bytes paired with the protection-class key map needed
+/// to unwrap its items.
+type KeychainMaterial = (Vec<u8>, std::collections::HashMap<u32, Vec<u8>>);
+
 /// An opened (and, if needed, unlocked) iOS backup.
 pub struct Backup {
     raw: RawBackup,
@@ -163,6 +167,29 @@ impl Backup {
     /// Sensitive: the returned `password` fields are plaintext PSKs. Callers must
     /// not log them.
     pub fn wifi_credentials(&self) -> Result<Vec<keychain::WifiCredential>, BackupError> {
+        match self.keychain_material()? {
+            Some((plist_bytes, class_keys)) => Ok(keychain::extract_wifi(&plist_bytes, &class_keys)),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Recover saved **website/app passwords** (the keychain `inet` array) from
+    /// the backup keychain. Empty when the backup has no keychain (only encrypted
+    /// backups include it).
+    ///
+    /// Sensitive: the returned `password` fields are plaintext. Callers must not
+    /// log them. See [`Backup::wifi_credentials`] for the decryption model.
+    pub fn saved_passwords(&self) -> Result<Vec<keychain::PasswordCredential>, BackupError> {
+        match self.keychain_material()? {
+            Some((plist_bytes, class_keys)) => Ok(keychain::extract_passwords(&plist_bytes, &class_keys)),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Decrypt the keychain plist and gather the protection-class keys needed to
+    /// unwrap its items. `Ok(None)` when the backup has no keychain (unencrypted
+    /// backups). Shared by every keychain extractor.
+    fn keychain_material(&self) -> Result<Option<KeychainMaterial>, BackupError> {
         let entries = self
             .raw
             .entries()
@@ -171,7 +198,7 @@ impl Backup {
             .iter()
             .find(|e| e.domain == "KeychainDomain" && e.relative_path == "keychain-backup.plist")
         else {
-            return Ok(Vec::new());
+            return Ok(None);
         };
         let plist_bytes = self
             .raw
@@ -186,7 +213,7 @@ impl Backup {
             .iter()
             .map(|(id, pck)| (*id, pck.key.as_ref().to_vec()))
             .collect();
-        Ok(keychain::extract_wifi(&plist_bytes, &class_keys))
+        Ok(Some((plist_bytes, class_keys)))
     }
 
     /// Whether the backup contains a file at `domain` + `relative_path`, without

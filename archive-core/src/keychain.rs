@@ -49,8 +49,12 @@ use aes_kw::KwAes256;
 use plist::Value;
 use serde::Serialize;
 
-/// The keychain plist's generic-password array — where Wi-Fi PSKs live.
+/// The keychain plist's generic-password array — where Wi-Fi PSKs (and other
+/// app/service secrets) live.
 const GENP_KEY: &str = "genp";
+
+/// The keychain plist's internet-password array — Safari/app website logins.
+const INET_KEY: &str = "inet";
 
 /// Only version-3 (AES-GCM) items are supported; older CBC items are skipped.
 const ITEM_VERSION_GCM: u32 = 3;
@@ -67,6 +71,20 @@ pub struct WifiCredential {
     pub password: String,
 }
 
+/// One recovered website/app login: where it applies, the account, and the
+/// plaintext password.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PasswordCredential {
+    /// Service/host the login is for (the item's `srvr`, e.g. `accounts.google.com`).
+    pub service: String,
+    /// Account / username (the item's `acct`); may be empty.
+    pub account: String,
+    /// The recovered password in plaintext.
+    pub password: String,
+    /// Protocol marker (the item's `ptcl`, e.g. `htps`); empty when absent.
+    pub protocol: String,
+}
+
 /// Extract saved Wi-Fi credentials from decrypted keychain plist bytes.
 ///
 /// `plist_bytes` is the decrypted `keychain-backup.plist`; `class_keys` maps
@@ -77,36 +95,95 @@ pub fn extract_wifi(plist_bytes: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> V
     let Ok(root) = Value::from_reader(std::io::Cursor::new(plist_bytes)) else {
         return Vec::new();
     };
-    let Some(items) = root.as_dictionary().and_then(|d| d.get(GENP_KEY)).and_then(Value::as_array) else {
-        return Vec::new();
-    };
-
     let mut out = Vec::new();
-    for item in items {
-        let Some(blob) = item.as_dictionary().and_then(|a| a.get("v_Data")).and_then(Value::as_data) else {
+    for item in items_array(&root, GENP_KEY) {
+        let Some(attrs) = item_attributes(item, class_keys) else {
             continue;
         };
-        let Some(plaintext) = decrypt_item(blob, class_keys) else {
-            continue;
-        };
-        let attrs = parse_der_attributes(&plaintext);
-        let attr = |k: &str| attrs.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_slice());
-
         // Wi-Fi marker comes from the DECRYPTED, authoritative attributes.
-        let is_wifi = attr("svce").is_some_and(|v| v.eq_ignore_ascii_case(b"AirPort"))
-            && attr("agrp").is_some_and(|v| v == b"apple");
+        let is_wifi = attr(&attrs, "svce").is_some_and(|v| v.eq_ignore_ascii_case(b"AirPort"))
+            && attr(&attrs, "agrp").is_some_and(|v| v == b"apple");
         if !is_wifi {
             continue;
         }
         let (Some(ssid), Some(pw)) = (
-            attr("acct").and_then(utf8_nonempty),
-            attr("v_Data").and_then(utf8_nonempty),
+            attr(&attrs, "acct").and_then(utf8_nonempty),
+            attr(&attrs, "v_Data").and_then(utf8_nonempty),
         ) else {
             continue;
         };
         out.push(WifiCredential { ssid, password: pw });
     }
     out
+}
+
+/// Extract saved website/app passwords (the keychain `inet` array) from decrypted
+/// keychain plist bytes. Same decryption pipeline as [`extract_wifi`]; total and
+/// panic-free. An item is returned only when it yields a non-empty plaintext
+/// password and at least one of service/account — items that fail to decrypt
+/// (e.g. non-transferable *ThisDeviceOnly* classes) are skipped.
+pub fn extract_passwords(plist_bytes: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Vec<PasswordCredential> {
+    let Ok(root) = Value::from_reader(std::io::Cursor::new(plist_bytes)) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in items_array(&root, INET_KEY) {
+        let Some(attrs) = item_attributes(item, class_keys) else {
+            continue;
+        };
+        // Keep only USER website/app logins, identified by the entitlement-enforced
+        // access group: the bulk of the `inet` array on a real device is Apple's
+        // internal iCloud-Keychain-sync machinery (com.apple.security.ckks, …)
+        // holding 88-byte sync key material, NOT passwords. Anchor on `agrp`.
+        let agrp = attr(&attrs, "agrp").and_then(utf8_nonempty).unwrap_or_default();
+        if !is_user_credential_group(&agrp) {
+            continue;
+        }
+        let Some(password) = attr(&attrs, "v_Data").and_then(utf8_nonempty) else {
+            continue;
+        };
+        let service = attr(&attrs, "srvr").and_then(utf8_nonempty).unwrap_or_default();
+        let account = attr(&attrs, "acct").and_then(utf8_nonempty).unwrap_or_default();
+        if service.is_empty() && account.is_empty() {
+            continue;
+        }
+        let protocol = attr(&attrs, "ptcl").and_then(utf8_nonempty).unwrap_or_default();
+        out.push(PasswordCredential { service, account, password, protocol });
+    }
+    out
+}
+
+/// Whether an `inet` item's access group holds *user* credentials worth showing:
+/// Safari/WebKit AutoFill website passwords (`com.apple.cfnetwork`) and any
+/// third-party app's own group. Apple's internal keychain-sync/cloud-storage
+/// groups (`com.apple.security.ckks`, `com.apple.ProtectedCloudStorage`, …) hold
+/// machine secrets, not passwords, and are excluded. The group is
+/// entitlement-enforced, so it cannot be forged by item content.
+fn is_user_credential_group(agrp: &str) -> bool {
+    !agrp.is_empty() && (agrp == "com.apple.cfnetwork" || !agrp.starts_with("com.apple."))
+}
+
+/// The decrypted DER attributes of one keychain item dict, or `None` when the
+/// item has no protected `v_Data` blob or it cannot be decrypted.
+fn item_attributes(item: &Value, class_keys: &HashMap<u32, Vec<u8>>) -> Option<Vec<(String, Vec<u8>)>> {
+    let blob = item.as_dictionary()?.get("v_Data")?.as_data()?;
+    let plaintext = decrypt_item(blob, class_keys)?;
+    Some(parse_der_attributes(&plaintext))
+}
+
+/// Look up one decrypted attribute's value bytes by key.
+fn attr<'a>(attrs: &'a [(String, Vec<u8>)], key: &str) -> Option<&'a [u8]> {
+    attrs.iter().find(|(n, _)| n == key).map(|(_, v)| v.as_slice())
+}
+
+/// The items under a top-level keychain plist array key (`genp`/`inet`/…); empty
+/// when the key is absent or not an array.
+fn items_array<'a>(root: &'a Value, key: &str) -> Vec<&'a Value> {
+    root.as_dictionary()
+        .and_then(|d| d.get(key))
+        .and_then(Value::as_array)
+        .map(|a| a.iter().collect())
+        .unwrap_or_default()
 }
 
 /// Valid, non-empty UTF-8 → owned `String`, else `None`.
@@ -337,8 +414,11 @@ mod tests {
         Value::Dictionary(d)
     }
     fn keychain_plist(items: Vec<Value>) -> Vec<u8> {
+        keychain_plist_keyed(GENP_KEY, items)
+    }
+    fn keychain_plist_keyed(key: &str, items: Vec<Value>) -> Vec<u8> {
         let mut root = Dictionary::new();
-        root.insert(GENP_KEY.into(), Value::Array(items));
+        root.insert(key.into(), Value::Array(items));
         let mut buf = Vec::new();
         plist::to_writer_binary(&mut buf, &Value::Dictionary(root)).unwrap();
         buf
@@ -364,6 +444,81 @@ mod tests {
 
         let got = extract_wifi(&plist, &keys);
         assert_eq!(got, vec![WifiCredential { ssid: "Internet_C9".into(), password: "s3cr3tpass".into() }]);
+    }
+
+    #[test]
+    fn recovers_inet_passwords() {
+        // A Safari web login (cfnetwork) and a third-party app login (own group)
+        // are kept; an Apple-internal keychain-sync item, a passwordless item, and
+        // one under a missing class key are all skipped.
+        let web = make_item(CLASS, &CK, &IK, &[
+            ("agrp", "com.apple.cfnetwork"),
+            ("srvr", "accounts.google.com"),
+            ("acct", "jane@gmail.com"),
+            ("ptcl", "htps"),
+            ("v_Data", "hunter2"),
+        ]);
+        let app = make_item(CLASS, &CK, &IK, &[
+            ("agrp", "ABCDE12345.com.example.app"),
+            ("srvr", "example.com"),
+            ("acct", "user"),
+            ("v_Data", "pw"),
+        ]);
+        let sync = make_item(CLASS, &CK, &IK, &[
+            ("agrp", "com.apple.security.ckks"),
+            ("srvr", "WiFi"),
+            ("acct", "uuid"),
+            ("v_Data", "88-byte-sync-key-material"),
+        ]);
+        let no_pw = make_item(CLASS, &CK, &IK, &[("agrp", "com.apple.cfnetwork"), ("srvr", "nopass.com"), ("v_Data", "")]);
+        let other_class = make_item(11, &[0x99; 32], &IK, &[("agrp", "com.apple.cfnetwork"), ("srvr", "tdo.com"), ("v_Data", "secret")]);
+
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        let got = extract_passwords(
+            &keychain_plist_keyed(INET_KEY, vec![web, app, sync, no_pw, other_class]),
+            &keys,
+        );
+        assert_eq!(
+            got,
+            vec![
+                PasswordCredential {
+                    service: "accounts.google.com".into(),
+                    account: "jane@gmail.com".into(),
+                    password: "hunter2".into(),
+                    protocol: "htps".into(),
+                },
+                PasswordCredential {
+                    service: "example.com".into(),
+                    account: "user".into(),
+                    password: "pw".into(),
+                    protocol: String::new(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn internal_sync_group_is_excluded() {
+        // The dominant inet content on a real device is Apple keychain-sync
+        // machinery — it must never surface as a "password".
+        for grp in ["com.apple.security.ckks", "com.apple.ProtectedCloudStorage", "com.apple.sbd"] {
+            let item = make_item(CLASS, &CK, &IK, &[("agrp", grp), ("srvr", "Manatee"), ("v_Data", "secret")]);
+            let mut keys = HashMap::new();
+            keys.insert(CLASS, CK.to_vec());
+            assert!(
+                extract_passwords(&keychain_plist_keyed(INET_KEY, vec![item]), &keys).is_empty(),
+                "{grp} must be excluded"
+            );
+        }
+    }
+
+    #[test]
+    fn inet_item_without_service_or_account_skipped() {
+        let item = make_item(CLASS, &CK, &IK, &[("agrp", "com.apple.cfnetwork"), ("v_Data", "orphan-secret")]);
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        assert!(extract_passwords(&keychain_plist_keyed(INET_KEY, vec![item]), &keys).is_empty());
     }
 
     #[test]

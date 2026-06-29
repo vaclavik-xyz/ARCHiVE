@@ -778,6 +778,32 @@ pub fn wifi_html(items: &[archive_core::keychain::WifiCredential]) -> String {
     WifiTemplate { networks: items }.render().unwrap()
 }
 
+// --- Saved website/app passwords ------------------------------------------
+
+pub fn passwords_csv(items: &[archive_core::keychain::PasswordCredential]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["service", "account", "password", "protocol"]).unwrap();
+    for p in items {
+        wtr.write_record([p.service.clone(), p.account.clone(), p.password.clone(), p.protocol.clone()])
+            .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn passwords_json(items: &[archive_core::keychain::PasswordCredential]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "passwords.html")]
+struct PasswordsTemplate<'a> {
+    logins: &'a [archive_core::keychain::PasswordCredential],
+}
+
+pub fn passwords_html(items: &[archive_core::keychain::PasswordCredential]) -> String {
+    PasswordsTemplate { logins: items }.render().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

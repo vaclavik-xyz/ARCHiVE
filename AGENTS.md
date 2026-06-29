@@ -497,10 +497,29 @@ unsupported keychain layout it returns `count: 0` with a note. Each row is
 only to the output file; they are **never logged** to stderr (progress prints a
 count). Decryption: crabapple decrypts the keychain file and
 exposes the protection-class keys; per-item keys are RFC3394-unwrapped and
-AES-256-GCM-decrypted in `archive-core`. v1 is Wi-Fi only (website/app passwords,
-certs, and legacy AES-CBC items are out of scope). Envelope: `count`, `outputs`,
+AES-256-GCM-decrypted in `archive-core`. Wi-Fi PSKs come from the `genp`
+AirPort items; website/app passwords have their own command (`passwords`).
+Certs and legacy AES-CBC items remain out of scope. Envelope: `count`, `outputs`,
 `device`, and a `note` flagging plaintext secrets. **Sensitive** — handle and
 transmit securely.
+
+### `passwords` — recover saved website/app passwords
+
+```
+archive --backup <DIR> --password <PW> -o <OUT> passwords -f <FORMAT>
+```
+
+Same model and security handling as `wifi` (`csv | json | html`, **no `pdf`**;
+plaintext secrets **never logged**, only a count; encrypted backups only).
+Recovers Safari/WebKit AutoFill website logins and third-party app passwords from
+the keychain `inet` array. Each row is `{ service, account, password, protocol }`
+with the password in **plaintext**. Items are filtered by their
+entitlement-enforced access group: Safari/WebKit (`com.apple.cfnetwork`) and
+third-party app groups are kept; Apple's internal iCloud-Keychain-sync groups
+(`com.apple.security.ckks`, `com.apple.ProtectedCloudStorage`, …) — which hold
+machine secrets, not passwords — are excluded. Returns `count: 0` with a note when
+the backup has no keychain or no saved logins. **Sensitive** — handle and transmit
+securely.
 
 ### `recover` — one-shot customer package
 
