@@ -576,10 +576,14 @@ bundle-id strings. Manifest-derived, not a data store: **not** listed by
 ### `timeline` — unified chronological timeline
 
 ```
-archive --backup <DIR> [--password <PW>] -o <OUT> timeline -f <FORMAT>
+archive --backup <DIR> [--password <PW>] -o <OUT> timeline -f <FORMAT> [--redact]
 ```
 
-`FORMAT` is `csv | json | html`. Writes `<OUT>/timeline.<ext>`. Merges every
+`--redact` masks the strongest direct identifiers in each summary for shareable
+output — a digit run of ≥5 keeps only its last two (`+420776452878` →
+`+••••••••••78`), an email local part keeps only its first character
+(`jan@firma.cz` → `j••@firma.cz`); names are kept. The JSON envelope reports
+`redacted: <bool>`. `FORMAT` is `csv | json | html`. Writes `<OUT>/timeline.<ext>`. Merges every
 in-process extractor (calls, voicemail, voice memos, Safari history, calendar,
 notes, photos, attachments, WhatsApp, reminders, Health workouts, mail) into one
 stream of events, each `{ timestamp (ISO 8601 UTC), kind, summary }`, sorted
@@ -784,8 +788,13 @@ only schema names.
 ### `search` — case-file search
 
 ```
-archive --backup <DIR> [--password <PW>] -o <OUT> search -q <TERM> -f <FORMAT>
+archive --backup <DIR> [--password <PW>] -o <OUT> search -q <TERM> -f <FORMAT> [--redact]
 ```
+
+`--redact` masks phone numbers and email local parts in the matched snippets
+(same scheme as `timeline --redact`); matching still runs on the raw text, so a
+phone-number query finds its records and then masks them in the output. The
+envelope reports `redacted: <bool>`.
 
 `FORMAT` is `csv | json | html | pdf`; `-q`/`--query` is the term to find (a phone
 number, name, or keyword) and must be non-empty (else a usage error). Writes
