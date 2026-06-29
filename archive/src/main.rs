@@ -21,6 +21,7 @@ mod recover_deleted;
 mod reminders;
 mod safari;
 mod sqlite_util;
+mod stats;
 mod timeline;
 mod voice_memos;
 mod voicemail;
@@ -212,6 +213,13 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
+    /// Activity dashboard: per-category event counts and date ranges across
+    /// every in-process extractor (a statistical view over the timeline).
+    Stats {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
     /// Recover DELETED rows from backup SQLite databases by carving freed
     /// pages/freeblocks/WAL (best-effort). `--store`: messages, calls, contacts, all.
     RecoverDeleted {
@@ -349,6 +357,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Mail { format } => run_mail(&cli, password.as_deref(), format),
         Command::Apps { format } => run_apps(&cli, password.as_deref(), format),
         Command::Timeline { format } => run_timeline(&cli, password.as_deref(), format),
+        Command::Stats { format } => run_stats(&cli, password.as_deref(), format),
         Command::RecoverDeleted { format, store } => run_recover_deleted(&cli, password.as_deref(), format, store),
         Command::Wifi { format } => run_wifi(&cli, password.as_deref(), format),
         Command::Passwords { format } => run_passwords(&cli, password.as_deref(), format),
@@ -1453,6 +1462,86 @@ fn run_keychain_inventory(cli: &Cli, password: Option<&str>, format: &str) -> Re
 // A view over the other extractors, not a data store: standalone (not in
 // `inspect`/`recover`). Conversation text (`messages`) and the app inventory are
 // not event streams and are excluded.
+/// Collect raw timeline events from every in-process extractor that has dates.
+/// Shared by `timeline` (which finalizes/sorts them) and `stats` (which
+/// aggregates them). An unreadable store is logged and skipped, never fatal.
+fn collect_timeline_events(backup: &archive_core::Backup) -> Vec<timeline::Event> {
+    let mut events: Vec<timeline::Event> = Vec::new();
+    if let Some(v) = opt_or_log(load_calls(backup), "calls") {
+        events.extend(timeline::from_calls(&v));
+    }
+    if let Some(v) = opt_or_log(load_accounts(backup), "accounts") {
+        events.extend(timeline::from_accounts(&v));
+    }
+    if let Some(v) = opt_or_log(load_voicemail(backup), "voicemail") {
+        events.extend(timeline::from_voicemail(&v));
+    }
+    if let Some(v) = opt_or_log(load_voice_memos(backup), "voice-memos") {
+        events.extend(timeline::from_voice_memos(&v));
+    }
+    if let Some(v) = opt_or_log(load_safari_history(backup), "safari-history") {
+        events.extend(timeline::from_safari_history(&v));
+    }
+    if let Some(v) = opt_or_log(load_calendar(backup), "calendar") {
+        events.extend(timeline::from_calendar(&v));
+    }
+    if let Some(v) = opt_or_log(load_notes(backup), "notes") {
+        events.extend(timeline::from_notes(&v));
+    }
+    if let Some(v) = opt_or_log(load_photos(backup), "photos") {
+        events.extend(timeline::from_photos(&v));
+        events.extend(timeline::from_deleted(&v));
+    }
+    if let Some(v) = opt_or_log(load_attachments(backup), "attachments") {
+        events.extend(timeline::from_attachments(&v));
+    }
+    if let Some(v) = opt_or_log(load_whatsapp(backup), "whatsapp") {
+        events.extend(timeline::from_whatsapp(&v));
+    }
+    if let Some(v) = opt_or_log(load_reminders(backup), "reminders") {
+        events.extend(timeline::from_reminders(&v));
+    }
+    if let Some(d) = opt_or_log(load_health(backup), "health") {
+        events.extend(timeline::from_workouts(&d.workouts));
+    }
+    if let Some(v) = opt_or_log(load_mail(backup), "mail") {
+        events.extend(timeline::from_mail(&v));
+    }
+    events
+}
+
+fn run_stats(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "stats")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export stats"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let stats = stats::summarize(&collect_timeline_events(&backup));
+    let rendered = match format {
+        Format::Csv => format::stats_csv(&stats),
+        Format::Json => format::stats_json(&stats),
+        Format::Html | Format::Pdf => format::stats_html(&stats),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("stats.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!(
+        "Wrote stats for {} event(s) across {} categor(ies) to {}",
+        stats.total_events,
+        stats.categories.len(),
+        out_file.display()
+    );
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "stats",
+        "total_events": stats.total_events,
+        "categories": stats.categories.len(),
+        "earliest": stats.earliest, "latest": stats.latest,
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
 fn run_timeline(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "timeline")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export timeline"))?;
@@ -1460,49 +1549,7 @@ fn run_timeline(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     let device = device_json(backup.device_info());
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
 
-    let mut events: Vec<timeline::Event> = Vec::new();
-    if let Some(v) = opt_or_log(load_calls(&backup), "calls") {
-        events.extend(timeline::from_calls(&v));
-    }
-    if let Some(v) = opt_or_log(load_accounts(&backup), "accounts") {
-        events.extend(timeline::from_accounts(&v));
-    }
-    if let Some(v) = opt_or_log(load_voicemail(&backup), "voicemail") {
-        events.extend(timeline::from_voicemail(&v));
-    }
-    if let Some(v) = opt_or_log(load_voice_memos(&backup), "voice-memos") {
-        events.extend(timeline::from_voice_memos(&v));
-    }
-    if let Some(v) = opt_or_log(load_safari_history(&backup), "safari-history") {
-        events.extend(timeline::from_safari_history(&v));
-    }
-    if let Some(v) = opt_or_log(load_calendar(&backup), "calendar") {
-        events.extend(timeline::from_calendar(&v));
-    }
-    if let Some(v) = opt_or_log(load_notes(&backup), "notes") {
-        events.extend(timeline::from_notes(&v));
-    }
-    if let Some(v) = opt_or_log(load_photos(&backup), "photos") {
-        events.extend(timeline::from_photos(&v));
-        events.extend(timeline::from_deleted(&v));
-    }
-    if let Some(v) = opt_or_log(load_attachments(&backup), "attachments") {
-        events.extend(timeline::from_attachments(&v));
-    }
-    if let Some(v) = opt_or_log(load_whatsapp(&backup), "whatsapp") {
-        events.extend(timeline::from_whatsapp(&v));
-    }
-    if let Some(v) = opt_or_log(load_reminders(&backup), "reminders") {
-        events.extend(timeline::from_reminders(&v));
-    }
-    if let Some(d) = opt_or_log(load_health(&backup), "health") {
-        events.extend(timeline::from_workouts(&d.workouts));
-    }
-    if let Some(v) = opt_or_log(load_mail(&backup), "mail") {
-        events.extend(timeline::from_mail(&v));
-    }
-
-    let events = timeline::finalize(events);
+    let events = timeline::finalize(collect_timeline_events(&backup));
     let rendered = match format {
         Format::Csv => format::timeline_csv(&events),
         Format::Json => format::timeline_json(&events),
@@ -2343,6 +2390,8 @@ mod cli_tests {
         assert!(matches!(a.command, Command::Apps { format } if format == "csv"));
         let t = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "timeline", "-f", "json"]).unwrap();
         assert!(matches!(t.command, Command::Timeline { format } if format == "json"));
+        let s = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "stats", "-f", "json"]).unwrap();
+        assert!(matches!(s.command, Command::Stats { format } if format == "json"));
         let w = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "wifi", "-f", "html"]).unwrap();
         assert!(matches!(w.command, Command::Wifi { format } if format == "html"));
     }

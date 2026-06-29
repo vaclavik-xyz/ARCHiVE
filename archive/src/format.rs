@@ -570,6 +570,31 @@ pub fn homescreen_html(items: &[crate::homescreen::IconSlot]) -> String {
     HomescreenTemplate { groups, count: items.len() }.render().unwrap()
 }
 
+pub fn stats_csv(s: &crate::stats::Stats) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["category", "count", "earliest", "latest"]).unwrap();
+    for c in &s.categories {
+        wtr.write_record([c.category.clone(), c.count.to_string(), c.earliest.clone(), c.latest.clone()]).unwrap();
+    }
+    // A trailing TOTAL row keeps the grand total inside the same tabular export.
+    wtr.write_record(["TOTAL".to_string(), s.total_events.to_string(), s.earliest.clone(), s.latest.clone()]).unwrap();
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn stats_json(s: &crate::stats::Stats) -> String {
+    serde_json::to_string_pretty(s).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "stats.html")]
+struct StatsTemplate<'a> {
+    stats: &'a crate::stats::Stats,
+}
+
+pub fn stats_html(s: &crate::stats::Stats) -> String {
+    StatsTemplate { stats: s }.render().unwrap()
+}
+
 pub fn attachments_csv(items: &[crate::attachments::Attachment]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record(["name", "mime_type", "created", "total_bytes", "file"]).unwrap();

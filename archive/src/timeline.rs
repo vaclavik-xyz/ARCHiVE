@@ -181,20 +181,26 @@ pub fn from_whatsapp(items: &[crate::whatsapp::WaMessage]) -> Vec<Event> {
 }
 
 pub fn from_reminders(items: &[crate::reminders::Reminder]) -> Vec<Event> {
+    // Undated reminders get an empty-timestamp event so they still count in
+    // `stats`; `finalize` drops them from the chronological `timeline`.
     items
         .iter()
-        .filter_map(|r| {
-            let created = r.created.clone()?;
+        .map(|r| {
             let title = if r.title.is_empty() { "(untitled)" } else { &r.title };
-            Some(Event::new(created, "reminder", format!("{}: {title}", or_unknown(&r.list))))
+            Event::new(
+                r.created.clone().unwrap_or_default(),
+                "reminder",
+                format!("{}: {title}", or_unknown(&r.list)),
+            )
         })
         .collect()
 }
 
 pub fn from_workouts(items: &[crate::health::Workout]) -> Vec<Event> {
+    // Undated workouts keep an empty-timestamp event (counted by `stats`,
+    // dropped from `timeline` by `finalize`).
     items
         .iter()
-        .filter(|w| !w.start.is_empty())
         .map(|w| {
             let what = w
                 .activity_type
@@ -208,15 +214,16 @@ pub fn from_workouts(items: &[crate::health::Workout]) -> Vec<Event> {
 }
 
 pub fn from_mail(items: &[crate::mail::MailMessage]) -> Vec<Event> {
+    // Undated mail keeps an empty-timestamp event (counted by `stats`, dropped
+    // from `timeline` by `finalize`).
     items
         .iter()
-        .filter_map(|m| {
-            let date = m.date.clone()?;
-            Some(Event::new(
-                date,
+        .map(|m| {
+            Event::new(
+                m.date.clone().unwrap_or_default(),
                 "mail",
                 format!("{} — {}", or_unknown(&m.subject), or_unknown(&m.from)),
-            ))
+            )
         })
         .collect()
 }
@@ -256,6 +263,40 @@ mod tests {
     }
 
     #[test]
+    fn undated_reminders_and_mail_still_emit_events() {
+        // An undated reminder/mail record yields an empty-timestamp event so it
+        // is counted by `stats`; `finalize` then drops it from the timeline.
+        let r = crate::reminders::Reminder {
+            list: "Tasks".into(),
+            title: "buy milk".into(),
+            notes: String::new(),
+            due: None,
+            completed: false,
+            completed_date: None,
+            priority: 0,
+            created: None,
+            flagged: false,
+        };
+        let revents = from_reminders(&[r]);
+        assert_eq!(revents.len(), 1);
+        assert_eq!(revents[0].timestamp, "");
+        assert_eq!(revents[0].kind, "reminder");
+        assert!(finalize(revents).is_empty(), "undated reminder dropped from timeline");
+
+        let m = crate::mail::MailMessage {
+            from: "a@b.c".into(),
+            to: String::new(),
+            subject: "hi".into(),
+            date: None,
+            snippet: String::new(),
+        };
+        let mevents = from_mail(&[m]);
+        assert_eq!(mevents.len(), 1);
+        assert_eq!(mevents[0].timestamp, "");
+        assert!(finalize(mevents).is_empty(), "undated mail dropped from timeline");
+    }
+
+    #[test]
     fn finalize_is_stable_for_equal_timestamps() {
         let ts = "2021-01-01T00:00:00+00:00";
         let events = vec![
@@ -286,7 +327,8 @@ mod tests {
         assert_eq!(ev[0].kind, "call");
         assert!(ev[0].summary.contains("+420123") && ev[0].summary.contains("42s"));
 
-        // Reminders/mail with no date are skipped by their builders.
+        // Reminders/mail with no date now emit an empty-timestamp event (so they
+        // count in `stats`); `finalize` is what drops them from the timeline.
         let reminders = vec![crate::reminders::Reminder {
             list: "L".into(),
             title: "T".into(),
@@ -298,7 +340,10 @@ mod tests {
             created: None,
             flagged: false,
         }];
-        assert!(from_reminders(&reminders).is_empty());
+        let rev = from_reminders(&reminders);
+        assert_eq!(rev.len(), 1);
+        assert_eq!(rev[0].timestamp, "");
+        assert!(finalize(rev).is_empty());
 
         let workouts = vec![crate::health::Workout {
             activity_type_id: Some(37),

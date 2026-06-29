@@ -14,7 +14,8 @@ portable formats:
   attachments, WhatsApp, iMessage/SMS/RCS transcripts, Health, Reminders, Mail,
   an installed-app inventory, a configured-accounts inventory, a saved Wi-Fi
   network list (`known-networks`), the Home Screen layout
-  (`homescreen-layout`), and a unified chronological `timeline` — plus a
+  (`homescreen-layout`), a unified chronological `timeline`, and an activity
+  `stats` dashboard — plus a
   one-shot `recover` package, deleted-record recovery (`recover-deleted`, SQLite
   carving), Recently Deleted photo/video recovery
   (`photos-recently-deleted`), saved Wi-Fi passwords (`wifi`) and website/app
@@ -73,6 +74,7 @@ archive --backup ~/Backup/<UDID> -o out reminders       -f html  # lists, items,
 archive --backup ~/Backup/<UDID> -o out mail            -f html  # local/POP3 .emlx (often empty on iOS)
 archive --backup ~/Backup/<UDID> -o out apps            -f json  # installed app bundle ids
 archive --backup ~/Backup/<UDID> -o out timeline        -f html  # everything merged chronologically
+archive --backup ~/Backup/<UDID> -o out stats           -f html  # activity dashboard: per-category counts + date ranges
 archive --backup ~/Backup/<UDID> -o out recover-deleted -f html  # carve deleted rows (best-effort)
 archive --backup ~/Backup/<UDID> -o out wifi            -f html  # saved Wi-Fi passwords (encrypted backups)
 archive --backup ~/Backup/<UDID> -o out passwords       -f html  # saved website/app passwords (encrypted backups)
