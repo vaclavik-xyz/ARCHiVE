@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Certifikáty</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top}
+th{background:#f5f5f5}code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.tag{font-size:11px;padding:1px 6px;border-radius:3px;background:#eee}
+.ca{background:#f5e6d6}.id{background:#d6f5d6}</style></head><body>
+<h1>Certifikáty ({{ certs.len() }})</h1>
+<p>X.509 certifikáty z keychainu. Syrové bajty jsou v souboru <code>certificates.pem</code>
+(standardní PEM, otevře ho openssl/prohlížeč/keychain). Privátní klíče se neexportují —
+sloupec „Identita" jen značí, že k certu existuje privátní klíč na zařízení.</p>
+<table>
+<tr><th>Popisek</th><th>Subjekt (CN)</th><th>Vydavatel (CN)</th><th>Platnost</th><th>Sériové číslo</th><th>Příznaky</th></tr>
+{% for c in certs %}
+<tr>
+<td>{{ c.label }}</td>
+<td>{{ c.subject }}</td>
+<td>{{ c.issuer }}</td>
+<td>{{ c.not_before }}{% if !c.not_after.is_empty() %} – {{ c.not_after }}{% endif %}</td>
+<td><code>{{ c.serial }}</code></td>
+<td>{% if c.is_ca %}<span class="tag ca">CA</span> {% endif %}{% if c.has_private_key %}<span class="tag id">identita</span>{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>

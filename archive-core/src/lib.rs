@@ -207,6 +207,19 @@ impl Backup {
         }
     }
 
+    /// Recover **X.509 certificates** from the keychain `cert` array, each flagged
+    /// with whether a matching private key (an *identity*) is present. Empty when
+    /// the backup has no keychain (only encrypted backups include it).
+    ///
+    /// Only public certificate bytes are returned — never private key material. See
+    /// [`Backup::wifi_credentials`] for the decryption model.
+    pub fn certificates(&self) -> Result<Vec<keychain::CertificateItem>, BackupError> {
+        match self.keychain_material()? {
+            Some((plist_bytes, class_keys)) => Ok(keychain::extract_certificates(&plist_bytes, &class_keys)),
+            None => Ok(Vec::new()),
+        }
+    }
+
     /// Decrypt the keychain plist and gather the protection-class keys needed to
     /// unwrap its items. `Ok(None)` when the backup has no keychain (unencrypted
     /// backups). Shared by every keychain extractor.

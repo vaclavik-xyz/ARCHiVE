@@ -28,7 +28,7 @@ invocation.
 **PDF output:** the **in-process** export commands that list `html` (contacts,
 calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, bluetooth-devices, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
-whatsapp, timeline, stats, app-databases, app-files, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
+whatsapp, timeline, stats, app-databases, app-files, recover-deleted, health, apps, keychain-inventory, certificates) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
 with `--chrome-path`; a missing browser is a usage error, exit 1), with the JSON
 envelope unchanged (`outputs` points at the `.pdf`). `messages -f pdf` is produced
@@ -955,6 +955,38 @@ ThisDeviceOnly item not transferable in a portable backup. The envelope adds a
 `summary` of per-array totals and decrypted counts. Encrypted backups only;
 `count: 0` with a note otherwise. Useful to triage scope before exporting secrets
 with `wifi`/`passwords`.
+
+### `certificates` — recover X.509 certificates
+
+```
+archive --backup <DIR> --password <PW> -o <OUT> certificates -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html | pdf` (**pdf allowed** — certificates are public,
+no secret material). Decrypts the keychain `cert` array and writes two outputs: a
+standard `<OUT>/certificates.pem` bundle (every recovered cert concatenated, read
+by openssl/browsers/keychains) and a metadata table `<OUT>/certificates.<ext>`
+with `{ label, subject, issuer, serial, not_before, not_after, is_ca,
+has_private_key }`. `subject`/`issuer` are the certificate's CN; `has_private_key`
+true means a matching private key is on the device (the cert is an **identity**) —
+but **no private key material is ever exported**, only the public certificate. The
+metadata is parsed from each cert's DER with a minimal, total X.509 walk (any
+unparsed field is left empty). Encrypted backups only. Certificates are commonly
+stored under a *ThisDeviceOnly* protection class whose key is not transferable in a
+portable backup; those cannot be decrypted and are skipped, so a device with only
+ThisDeviceOnly certs returns `count: 0` with a note. The envelope also reports
+`identities` (count with a private key). Keychain-derived and sensitive-adjacent,
+so — like `wifi`/`passwords` — it is **not** part of `recover`/`inspect`.
+
+stdout envelope:
+
+```json
+{
+  "ok": true, "command": "certificates", "count": 3, "identities": 1,
+  "outputs": ["<OUT>/certificates.json", "<OUT>/certificates.pem"],
+  "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
+}
+```
 
 ### `recover` — one-shot customer package
 

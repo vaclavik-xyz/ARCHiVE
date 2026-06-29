@@ -229,6 +229,71 @@ pub fn inventory(plist_bytes: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Vec<
     out
 }
 
+/// One recovered X.509 **certificate** from the keychain `cert` array. Carries the
+/// raw certificate DER (a public artifact — no private key material) plus whether
+/// a matching private key is present on the device (i.e. this cert is an
+/// *identity*). The display-level X.509 metadata (subject/issuer/validity) is
+/// parsed by the consumer from `der`; this layer only decrypts and pairs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CertificateItem {
+    /// The keychain item label (`labl`); may be empty.
+    pub label: String,
+    /// The full X.509 certificate, DER-encoded.
+    pub der: Vec<u8>,
+    /// True when a private key whose public-key hash matches this certificate's
+    /// `pkhh` exists in the keychain `keys` array — the cert is then a usable
+    /// identity (the private key itself is **not** exported here).
+    pub has_private_key: bool,
+}
+
+/// Extract X.509 certificates from the keychain `cert` array. Each cert item
+/// decrypts (same pipeline as the other extractors) to DER attributes; the
+/// certificate bytes live in the decrypted `v_Data` attribute. A cert is paired
+/// with a private key when its public-key hash (`pkhh`) matches the label
+/// (`klbl`) of a private-key item in the `keys` array. Total and panic-free: an
+/// item that does not decrypt or carries no certificate bytes is skipped. No
+/// private key material is ever returned.
+pub fn extract_certificates(plist_bytes: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Vec<CertificateItem> {
+    let Ok(root) = Value::from_reader(std::io::Cursor::new(plist_bytes)) else {
+        return Vec::new();
+    };
+
+    // Public-key hashes of every private key in the keychain (`kcls` == 1), used to
+    // flag which recovered certificates are usable identities.
+    let mut private_key_hashes: std::collections::HashSet<Vec<u8>> = std::collections::HashSet::new();
+    for item in items_array(&root, KEYS_KEY) {
+        let Some(attrs) = item_attributes(item, class_keys) else { continue };
+        let is_private = attr(&attrs, "kcls").map(attr_u32) == Some(1);
+        if is_private && let Some(klbl) = attr(&attrs, "klbl") {
+            private_key_hashes.insert(klbl.to_vec());
+        }
+    }
+
+    let mut out = Vec::new();
+    for item in items_array(&root, CERT_KEY) {
+        // Certificates are commonly stored under a *ThisDeviceOnly* protection
+        // class whose key is not transferable in a portable backup; those items
+        // fail to unwrap here and are skipped (only transferable certs decrypt).
+        let Some(attrs) = item_attributes(item, class_keys) else { continue };
+        let Some(der) = attr(&attrs, "v_Data").filter(|d| !d.is_empty()).map(<[u8]>::to_vec) else {
+            continue;
+        };
+        let label = attr(&attrs, "labl").and_then(utf8_nonempty).unwrap_or_default();
+        let has_private_key = attr(&attrs, "pkhh").is_some_and(|h| private_key_hashes.contains(h));
+        out.push(CertificateItem { label, der, has_private_key });
+    }
+    out
+}
+
+/// Read a keychain numeric attribute (stored little-endian in the DER value
+/// bytes) as a u32; short/empty slices read as 0.
+fn attr_u32(b: &[u8]) -> u32 {
+    let mut buf = [0u8; 4];
+    let n = b.len().min(4);
+    buf[..n].copy_from_slice(&b[..n]);
+    u32::from_le_bytes(buf)
+}
+
 /// The (version, protection-class) header of a keychain item blob, without
 /// decrypting. `None` when the blob is too short.
 fn item_header(blob: &[u8]) -> Option<(u32, u32)> {
@@ -719,6 +784,125 @@ mod tests {
             junk.push((x >> 24) as u8);
         }
         let _ = extract_wifi(&junk, &keys); // must not panic
+    }
+
+    // --- Certificate extraction --------------------------------------------
+
+    /// DER value carrying raw bytes as an OCTET STRING (tag 0x04); `parse_der_
+    /// attributes` reads the content generically regardless of tag.
+    fn der_octets(b: &[u8]) -> Vec<u8> {
+        let mut t = vec![0x04];
+        t.extend(der_len(b.len()));
+        t.extend(b);
+        t
+    }
+    /// Build the attribute SET from mixed string/byte values.
+    fn build_der_bytes(attrs: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        let mut body = Vec::new();
+        for (k, v) in attrs {
+            let mut seq_body = der_utf8(k);
+            seq_body.extend(der_octets(v));
+            let mut seq = vec![0x30];
+            seq.extend(der_len(seq_body.len()));
+            seq.extend(seq_body);
+            body.extend(seq);
+        }
+        let mut out = vec![0x31];
+        out.extend(der_len(body.len()));
+        out.extend(body);
+        out
+    }
+    /// Encrypt a binary-valued attribute set into a keychain item the way iOS does.
+    fn make_item_bytes(class_id: u32, class_key: &[u8], item_key: &[u8], attrs: &[(&str, Vec<u8>)]) -> Value {
+        let der = build_der_bytes(attrs);
+        let cipher = Aes256::new_from_slice(item_key).unwrap();
+        let ct = ctr_apply(&cipher, &der);
+        let tag = blank_iv_gcm_tag(&cipher, &ct);
+        let wrapped = kw_wrap(class_key, item_key);
+        let mut blob = Vec::new();
+        blob.extend(3u32.to_le_bytes());
+        blob.extend(class_id.to_le_bytes());
+        blob.extend((wrapped.len() as u32).to_le_bytes());
+        blob.extend(&wrapped);
+        blob.extend(&ct);
+        blob.extend(tag);
+        let mut d = Dictionary::new();
+        d.insert("v_Data".into(), Value::Data(blob));
+        Value::Dictionary(d)
+    }
+
+    #[test]
+    fn extracts_certificate_and_flags_identity() {
+        let cert_der = vec![0x30, 0x82, 0x01, 0x02, 0xAB, 0xCD]; // stand-in X.509 DER
+        let pubkey_hash = vec![0xDE; 20];
+        let cert = make_item_bytes(CLASS, &CK, &IK, &[
+            ("labl", b"My Client Cert".to_vec()),
+            ("pkhh", pubkey_hash.clone()),
+            ("v_Data", cert_der.clone()),
+        ]);
+        // A matching private key (kcls == 1) whose klbl equals the cert's pkhh.
+        let priv_key = make_item_bytes(CLASS, &CK, &IK, &[
+            ("kcls", vec![1]),
+            ("klbl", pubkey_hash.clone()),
+            ("v_Data", vec![0x11, 0x22]),
+        ]);
+
+        let mut root = Dictionary::new();
+        root.insert(CERT_KEY.into(), Value::Array(vec![cert]));
+        root.insert(KEYS_KEY.into(), Value::Array(vec![priv_key]));
+        let mut buf = Vec::new();
+        plist::to_writer_binary(&mut buf, &Value::Dictionary(root)).unwrap();
+
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        let got = extract_certificates(&buf, &keys);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].label, "My Client Cert");
+        assert_eq!(got[0].der, cert_der);
+        assert!(got[0].has_private_key, "cert with a matching private key is an identity");
+    }
+
+    #[test]
+    fn certificate_without_matching_key_is_not_identity() {
+        let cert = make_item_bytes(CLASS, &CK, &IK, &[
+            ("labl", b"CA Root".to_vec()),
+            ("pkhh", vec![0x01; 20]),
+            ("v_Data", vec![0x30, 0x03, 0x02, 0x01, 0x05]),
+        ]);
+        // A public key (kcls == 0) is NOT a private key, so it must not flag identity.
+        let pub_key = make_item_bytes(CLASS, &CK, &IK, &[("kcls", vec![0]), ("klbl", vec![0x01; 20]), ("v_Data", vec![0x09])]);
+        let mut root = Dictionary::new();
+        root.insert(CERT_KEY.into(), Value::Array(vec![cert]));
+        root.insert(KEYS_KEY.into(), Value::Array(vec![pub_key]));
+        let mut buf = Vec::new();
+        plist::to_writer_binary(&mut buf, &Value::Dictionary(root)).unwrap();
+
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec());
+        let got = extract_certificates(&buf, &keys);
+        assert_eq!(got.len(), 1);
+        assert!(!got[0].has_private_key);
+    }
+
+    #[test]
+    fn certificate_under_nontransferable_class_is_skipped() {
+        // A cert under a class whose key is absent (ThisDeviceOnly in a real
+        // backup) cannot be unwrapped — it is skipped, never errors.
+        let cert = make_item_bytes(11, &[0x99; 32], &IK, &[("labl", b"Device Cert".to_vec()), ("v_Data", vec![0x30, 0x01, 0x00])]);
+        let mut root = Dictionary::new();
+        root.insert(CERT_KEY.into(), Value::Array(vec![cert]));
+        let mut buf = Vec::new();
+        plist::to_writer_binary(&mut buf, &Value::Dictionary(root)).unwrap();
+        let mut keys = HashMap::new();
+        keys.insert(CLASS, CK.to_vec()); // class 11 key not provided
+        assert!(extract_certificates(&buf, &keys).is_empty());
+    }
+
+    #[test]
+    fn certificates_malformed_inputs_never_panic() {
+        let keys: HashMap<u32, Vec<u8>> = HashMap::new();
+        assert!(extract_certificates(b"not a plist", &keys).is_empty());
+        assert!(extract_certificates(b"", &keys).is_empty());
     }
 
     #[test]

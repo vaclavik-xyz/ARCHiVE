@@ -125,6 +125,9 @@ archive --backup <backup-dir> --password <pw> -o <out> passwords -f html
 
 # Keychain census: per-item metadata (service, account, group, class) with NO secrets
 archive --backup <backup-dir> --password <pw> -o <out> keychain-inventory -f html
+
+# X.509 certificates from the keychain → certificates.pem bundle + metadata (no private keys)
+archive --backup <backup-dir> --password <pw> -o <out> certificates -f html
 ```
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
@@ -180,4 +183,5 @@ written under `<out>/messages`.
 - [x] wifi — csv, json, html: recover saved Wi-Fi passwords from the keychain (encrypted backups only; passwords in plaintext)
 - [x] passwords — csv, json, html: recover saved website/app passwords from the keychain `inet` array (Safari/WebKit `com.apple.cfnetwork` + third-party app groups; Apple-internal keychain-sync items excluded); encrypted backups only, plaintext
 - [x] keychain-inventory — csv, json, html, pdf: non-secret census of the keychain (per-item service/account/group/protection-class/version across genp/inet/cert/keys; NO passwords) — triage scope before exporting secrets; encrypted backups only
+- [x] certificates — csv, json, html, pdf: recover X.509 certificates from the keychain `cert` array → a `certificates.pem` bundle plus a metadata table (subject/issuer CN, serial, validity, CA flag, and whether a matching private key makes it an identity); **public certificates only — no private key material is exported**. Encrypted backups only; certs stored under a *ThisDeviceOnly* protection class are not transferable in a portable backup and cannot be decrypted (then reports an honest 0)
 - [x] pdf output — `-f pdf` on every HTML-bearing command, rendered from the HTML via a headless browser
