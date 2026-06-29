@@ -234,3 +234,17 @@ fn extractor_matrix_device_usage() {
     let tables: &[(&str, &[&str])] = &[("ZOBJECT", &["Z_PK", "ZSTREAMNAME", "ZVALUESTRING", "ZSTARTDATE", "ZENDDATE"])];
     assert_parses_both("device-usage", tables, tables, "knowledgeC.db", crate::device_usage::parse);
 }
+
+#[test]
+fn extractor_matrix_interactions() {
+    assert_parses_both(
+        "interactions",
+        &[("ZINTERACTIONS", &["Z_PK", "ZSENDER"]), ("ZCONTACTS", &["Z_PK"])],
+        &[
+            ("ZINTERACTIONS", &["Z_PK", "ZSENDER", "ZDIRECTION", "ZBUNDLEID", "ZSTARTDATE"]),
+            ("ZCONTACTS", &["Z_PK", "ZIDENTIFIER", "ZNAME", "ZDISPLAYNAME"]),
+        ],
+        "interactionC.db",
+        crate::interactions::parse,
+    );
+}

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Historie kontaktů</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}td.n{text-align:right;font-variant-numeric:tabular-nums}.b{color:#888;font-size:11px}</style></head><body>
+<h1>Historie interakcí podle kontaktů ({{ items.len() }})</h1>
+<p class="b">Agregováno z <code>interactionC.db</code> (CoreDuet) přes odesílatele interakce (<code>ZSENDER</code>) — s kým, přes které aplikace a jak často.</p>
+<table>
+<tr><th>Kontakt</th><th>Identifikátor</th><th>Celkem</th><th>Příchozí</th><th>Odchozí</th><th>Aplikace</th><th>První</th><th>Poslední</th></tr>
+{% for c in items %}
+<tr>
+<td>{{ c.display_name }}</td>
+<td>{{ c.identifier }}</td>
+<td class="n">{{ c.total }}</td>
+<td class="n">{{ c.incoming }}</td>
+<td class="n">{{ c.outgoing }}</td>
+<td>{{ c.apps_human() }}</td>
+<td>{{ c.first }}</td><td>{{ c.last }}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>
