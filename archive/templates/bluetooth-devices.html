@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Bluetooth zařízení</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}code{font-family:ui-monospace,Menlo,monospace}
+.k{font-size:12px;padding:1px 6px;border-radius:3px;background:#eee}
+.paired{background:#d6f5d6}.classic{background:#d6e4f5}</style></head><body>
+<h1>Bluetooth zařízení ({{ devices.len() }})</h1>
+<p>Spárovaná, klasická a v okolí zachycená Bluetooth zařízení, která zařízení zná.
+Časy posledního spojení databáze neukládá jako reálné datum, proto se neexportují.</p>
+<table>
+<tr><th>Název</th><th>Adresa</th><th>Identita (resolved)</th><th>Typ</th></tr>
+{% for d in devices %}
+<tr>
+<td>{{ d.name }}</td>
+<td><code>{{ d.address }}</code></td>
+<td>{% if d.resolved_address.is_empty() %}{% else %}<code>{{ d.resolved_address }}</code>{% endif %}</td>
+<td><span class="k {{ d.kind }}">{% if d.kind == "paired" %}spárováno{% else if d.kind == "classic" %}klasické{% else %}viděno{% endif %}</span></td>
+</tr>
+{% endfor %}
+</table>
+</body></html>

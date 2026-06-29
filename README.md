@@ -13,7 +13,8 @@ portable formats:
   voicemail, voice memos, Safari, calendar, notes, photos & videos, message
   attachments, WhatsApp, iMessage/SMS/RCS transcripts, Health, Reminders, Mail,
   an installed-app inventory, a configured-accounts inventory, a saved Wi-Fi
-  network list (`known-networks`), the Home Screen layout
+  network list (`known-networks`), a paired/seen Bluetooth device roster
+  (`bluetooth-devices`), the Home Screen layout
   (`homescreen-layout`), per-process network `data-usage`, a unified
   chronological `timeline`, an activity `stats` dashboard, a per-app database
   recoverability report (`app-databases`), per-app document/media extraction
@@ -65,6 +66,7 @@ archive --backup ~/Backup/<UDID> -o out known-networks  -f json  # saved Wi-Fi S
 archive --backup ~/Backup/<UDID> -o out homescreen-layout -f html # home screen layout: pages, dock, folders, widgets
 archive --backup ~/Backup/<UDID> -o out data-usage      -f html  # per-process cellular/Wi-Fi byte counters
 archive --backup ~/Backup/<UDID> -o out device-usage    -f html  # per-app foreground time (knowledgeC.db; often absent on iOS 16+)
+archive --backup ~/Backup/<UDID> -o out bluetooth-devices -f html # paired + previously-seen Bluetooth devices (names, MAC addresses)
 archive --backup ~/Backup/<UDID> -o out voicemail       -f json --audio
 archive --backup ~/Backup/<UDID> -o out voice-memos     -f html
 archive --backup ~/Backup/<UDID> -o out safari-history  -f json

@@ -26,7 +26,7 @@ before **or** after the subcommand name, which is agent-friendly for programmati
 invocation.
 
 **PDF output:** the **in-process** export commands that list `html` (contacts,
-calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, voicemail, voice-memos, safari-history/bookmarks,
+calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, bluetooth-devices, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
 whatsapp, timeline, stats, app-databases, app-files, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
@@ -229,6 +229,38 @@ stdout envelope:
 {
   "ok": true, "command": "device-usage", "count": 87,
   "outputs": ["<OUT>/device-usage.json"],
+  "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
+}
+```
+
+### `bluetooth-devices` — paired and previously-seen Bluetooth devices
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> bluetooth-devices -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html | pdf`. Writes `<OUT>/bluetooth-devices.<ext>`.
+Merges three sources in the shared Bluetooth domain
+(`SysSharedContainerDomain-systemgroup.com.apple.bluetooth`): the LE
+`com.apple.MobileBluetooth.ledevices.paired.db` (`PairedDevices`) and
+`…ledevices.other.db` (`OtherDevices`) databases, plus the classic
+`Library/Preferences/com.apple.MobileBluetooth.devices.plist`. Each device has
+`name`, `address`, `resolved_address` (the LE identity address behind a rotating
+random one, when known and different), and `kind` (`paired` | `classic` |
+`other`). De-duplicated by address (strongest kind wins) and ordered paired →
+classic → named-other → anonymous-other. The databases' `LastSeenTime` /
+`LastConnectionTime` columns hold device-relative counters (not a Unix/Cocoa
+wall-clock epoch) on the backups inspected, so they are **not** surfaced as
+dates. Schema-tolerant: an unexpected schema or malformed plist is skipped, never
+fatal. A **store** (listed by `inspect`, included in `recover` when non-empty);
+when none of the sources exist, returns `count: 0` with a `note`.
+
+stdout envelope:
+
+```json
+{
+  "ok": true, "command": "bluetooth-devices", "count": 1005, "named": 5,
+  "outputs": ["<OUT>/bluetooth-devices.json"],
   "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
 }
 ```
@@ -957,7 +989,8 @@ stdout envelope:
       "files": { "dir": "recently-deleted", "extracted": 7, "missing": 0 } },
     { "type": "homescreen-layout", "file": "homescreen-layout.html", "count": 45 },
     { "type": "data-usage", "file": "data-usage.html", "count": 413 },
-    { "type": "device-usage", "file": "device-usage.html", "count": 87 }
+    { "type": "device-usage", "file": "device-usage.html", "count": 87 },
+    { "type": "bluetooth-devices", "file": "bluetooth-devices.html", "count": 1005 }
   ],
   "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
 }

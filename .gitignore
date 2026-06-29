@@ -9,3 +9,5 @@
 .DS_Store
 # roborev snapshots
 /.roborev/
+# Claude Code session/worktree scratch
+/.claude/
