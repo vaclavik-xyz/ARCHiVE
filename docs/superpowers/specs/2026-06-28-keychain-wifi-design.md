@@ -31,8 +31,10 @@ implement.
   ciphertext‖tag`. Steps: RFC3394-unwrap the 32-byte item key with
   `class_keys[class id]` (`aes-kw` — this also integrity-checks the key);
   AES-decrypt the ciphertext — Apple uses **AES-256-GCM with a blank IV (J0 = all
-  zeros)**, which is exactly **AES-256-CTR with the counter starting at 1** (the
-  GCM tag is not verified, the unwrap already proved the key); the plaintext is an
+  zeros)**, which is exactly **AES-256-CTR with the counter starting at 1**; the
+  trailing 16-byte GCM tag **is verified** before decrypting (under the blank IV
+  the tag is `GHASH_H(ct) XOR H`, `H = E(0)`), and a mismatch skips the item. The
+  plaintext is an
   **ASN.1 DER** `SET OF SEQUENCE { UTF8String key, value }` of the item's real
   attributes. Wi-Fi items have decrypted `svce = "AirPort"` and `agrp = "apple"`;
   SSID = `acct`, password = `v_Data`. Total and panic-free: a missing class key
