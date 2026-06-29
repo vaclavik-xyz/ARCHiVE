@@ -735,6 +735,14 @@ store except `messages` lacks a strong content anchor and therefore **ignores WA
 candidates entirely** (their deletions still surface from the main file's free
 regions); `messages` use the GUID anchor and do recover from the WAL.
 
+To suppress false positives the soft signatures demand **corroboration**, not a
+single coincidental value: a text anchor (name/title/snippet/message body) must
+read as genuine human text (a string dominated by control/non-printable bytes is
+rejected as carved binary that merely decoded as UTF-8), a `calls` row needs a
+number *or* a duration beside its date, and a `calendar` event needs a date *or* a
+location beside its title. (On a VACUUM-compacted backup this can correctly yield
+zero recovered rows rather than a binary-noise "event".)
+
 **Best-effort and partial**: recoverability depends on whether SQLite has reused
 the space (VACUUM/auto_vacuum/page reuse and checkpointed WALs destroy remnants),
 and carved rows can include false positives. The envelope carries `count`,
