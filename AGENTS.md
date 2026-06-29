@@ -26,7 +26,7 @@ before **or** after the subcommand name, which is agent-friendly for programmati
 invocation.
 
 **PDF output:** the **in-process** export commands that list `html` (contacts,
-calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, bluetooth-devices, significant-locations, voicemail, voice-memos, safari-history/bookmarks,
+calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, bluetooth-devices, significant-locations, keyboard-lexicon, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
 whatsapp, timeline, stats, app-databases, app-files, recover-deleted, health, apps, keychain-inventory, certificates) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
@@ -292,6 +292,25 @@ stdout envelope:
   "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
 }
 ```
+
+### `keyboard-lexicon` — the user's custom keyboard words
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> keyboard-lexicon -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html | pdf`. Writes
+`<OUT>/keyboard-lexicon.<ext>`. Reads `Library/Keyboard/LocalDictionary` (probing
+`KeyboardDomain` then `HomeDomain`) — the words the user added via *Add to
+Dictionary* — and returns `{ word }` entries, de-duplicated and sorted. The file
+shape has varied (property list / plain text / binary), so the parser is
+format-tolerant (plist → plain text → printable-run carve). This is the
+**user-curated** list, **not** the learned statistical typing model
+(`user_model_database.sqlite`), whose keys are internal markers, not a
+vocabulary, and which is deliberately not parsed. A **store** (listed by
+`inspect`, included in `recover` when non-empty). The file is present in ordinary
+backups but **empty when the owner never added a custom word**, so `count: 0`
+with a `note` is common.
 
 ### `voicemail` — export voicemail metadata and audio
 
@@ -1051,7 +1070,8 @@ stdout envelope:
     { "type": "data-usage", "file": "data-usage.html", "count": 413 },
     { "type": "device-usage", "file": "device-usage.html", "count": 87 },
     { "type": "bluetooth-devices", "file": "bluetooth-devices.html", "count": 1005 },
-    { "type": "significant-locations", "file": "significant-locations.html", "count": 128 }
+    { "type": "significant-locations", "file": "significant-locations.html", "count": 128 },
+    { "type": "keyboard-lexicon", "file": "keyboard-lexicon.html", "count": 12 }
   ],
   "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
 }

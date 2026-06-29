@@ -304,6 +304,29 @@ pub fn significant_locations_html(items: &[crate::significant_locations::Locatio
     SignificantLocationsTemplate { fixes: items }.render().unwrap()
 }
 
+pub fn keyboard_lexicon_csv(items: &[crate::keyboard_lexicon::LexiconWord]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["word"]).unwrap();
+    for w in items {
+        wtr.write_record([&w.word]).unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn keyboard_lexicon_json(items: &[crate::keyboard_lexicon::LexiconWord]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "keyboard-lexicon.html")]
+struct KeyboardLexiconTemplate<'a> {
+    words: &'a [crate::keyboard_lexicon::LexiconWord],
+}
+
+pub fn keyboard_lexicon_html(items: &[crate::keyboard_lexicon::LexiconWord]) -> String {
+    KeyboardLexiconTemplate { words: items }.render().unwrap()
+}
+
 pub fn voicemail_csv(items: &[crate::voicemail::Voicemail]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([

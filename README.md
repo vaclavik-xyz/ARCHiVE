@@ -15,7 +15,8 @@ portable formats:
   an installed-app inventory, a configured-accounts inventory, a saved Wi-Fi
   network list (`known-networks`), a paired/seen Bluetooth device roster
   (`bluetooth-devices`), recorded location history
-  (`significant-locations`), the Home Screen layout
+  (`significant-locations`), the user's custom keyboard words
+  (`keyboard-lexicon`), the Home Screen layout
   (`homescreen-layout`), per-process network `data-usage`, a unified
   chronological `timeline`, an activity `stats` dashboard, a per-app database
   recoverability report (`app-databases`), per-app document/media extraction
@@ -70,6 +71,7 @@ archive --backup ~/Backup/<UDID> -o out data-usage      -f html  # per-process c
 archive --backup ~/Backup/<UDID> -o out device-usage    -f html  # per-app foreground time (knowledgeC.db; often absent on iOS 16+)
 archive --backup ~/Backup/<UDID> -o out bluetooth-devices -f html # paired + previously-seen Bluetooth devices (names, MAC addresses)
 archive --backup ~/Backup/<UDID> -o out significant-locations -f html # routined location history (usually excluded from standard backups)
+archive --backup ~/Backup/<UDID> -o out keyboard-lexicon  -f html  # user's custom "Add to Dictionary" keyboard words
 archive --backup ~/Backup/<UDID> -o out voicemail       -f json --audio
 archive --backup ~/Backup/<UDID> -o out voice-memos     -f html
 archive --backup ~/Backup/<UDID> -o out safari-history  -f json
