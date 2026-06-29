@@ -294,7 +294,7 @@ pub fn inventory(plist_bytes: &[u8], class_keys: &HashMap<u32, Vec<u8>>) -> Vec<
             // legacy-CBC item) is not counted as decrypted — consistent with
             // `item_attributes` and keeping the census honest.
             let attrs = decrypt_item(blob, class_keys)
-                .map(|p| parse_der_attributes(&p))
+                .and_then(|p| parse_der_attributes(&p))
                 .filter(|a| !a.is_empty());
             let decrypted = attrs.is_some();
             let attrs = attrs.unwrap_or_default();
@@ -400,8 +400,7 @@ fn item_header(blob: &[u8]) -> Option<(u32, u32)> {
 fn item_attributes(item: &Value, class_keys: &HashMap<u32, Vec<u8>>) -> Option<Vec<(String, Vec<u8>)>> {
     let blob = item.as_dictionary()?.get("v_Data")?.as_data()?;
     let plaintext = decrypt_item(blob, class_keys)?;
-    let attrs = parse_der_attributes(&plaintext);
-    (!attrs.is_empty()).then_some(attrs)
+    parse_der_attributes(&plaintext).filter(|a| !a.is_empty())
 }
 
 /// Look up one decrypted attribute's value bytes by key.
@@ -559,10 +558,19 @@ fn blank_iv_gcm_tag(cipher: &Aes256, ct: &[u8]) -> [u8; 16] {
     tag
 }
 
-/// Minimal, bounds-checked ASN.1 DER reader for the decrypted keychain item: a
-/// `SET OF SEQUENCE { UTF8String key, value }`. Returns each `(key, value-content
-/// bytes)`. Never panics on malformed input.
-fn parse_der_attributes(der: &[u8]) -> Vec<(String, Vec<u8>)> {
+/// Strict, bounds-checked ASN.1 DER reader for a decrypted keychain item: a
+/// `SET OF SEQUENCE { UTF8String key, value }`. Returns `Some(attributes)` **only**
+/// when the bytes are exactly that structure — the SET consumes the whole input
+/// and every SEQUENCE is consumed exactly (a `UTF8String` key optionally followed
+/// by a single value TLV). Any structural deviation — wrong tag, a length that
+/// overruns or underruns its container, trailing bytes — yields `None`.
+///
+/// This strictness is what makes the experimental legacy-CBC path safe:
+/// version-3 plaintext is GCM-authenticated, so it is always a real, exact DER and
+/// parses; an unauthenticated CBC item decrypted with the wrong key/format almost
+/// never forms an exact SET OF SEQUENCE, so it is rejected here rather than
+/// surfaced with garbage fields. Never panics on malformed input.
+fn parse_der_attributes(der: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
     fn read_len(b: &[u8], i: &mut usize) -> Option<usize> {
         let first = *b.get(*i)?;
         *i += 1;
@@ -580,42 +588,51 @@ fn parse_der_attributes(der: &[u8]) -> Vec<(String, Vec<u8>)> {
         }
         Some(len)
     }
-    let mut out = Vec::new();
     if der.first() != Some(&0x31) {
-        return out;
+        return None;
     }
     let mut i = 1;
-    let Some(set_len) = read_len(der, &mut i) else { return out };
-    let end = i.saturating_add(set_len).min(der.len());
-    while i < end {
+    let set_len = read_len(der, &mut i)?;
+    let set_end = i.checked_add(set_len)?;
+    if set_end != der.len() {
+        return None; // the SET must span the whole plaintext, exactly
+    }
+    let mut out = Vec::new();
+    while i < set_end {
         if der.get(i) != Some(&0x30) {
-            break;
+            return None; // every element must be a SEQUENCE
         }
         i += 1;
-        let Some(seq_len) = read_len(der, &mut i) else { break };
-        let seq_end = i.saturating_add(seq_len).min(der.len());
+        let seq_len = read_len(der, &mut i)?;
+        let seq_end = i.checked_add(seq_len)?;
+        if seq_end > set_end {
+            return None;
+        }
+        // key: UTF8String (tag 0x0c).
         if der.get(i) != Some(&0x0c) {
-            i = seq_end;
-            continue;
+            return None;
         }
         i += 1;
-        let Some(klen) = read_len(der, &mut i) else { break };
-        let Some(kbytes) = der.get(i..i.saturating_add(klen)) else { break };
+        let klen = read_len(der, &mut i)?;
+        let kbytes = der.get(i..i.checked_add(klen)?)?;
         let key = String::from_utf8_lossy(kbytes).into_owned();
-        i = i.saturating_add(klen);
+        i += klen;
+        // value: an optional single TLV filling the rest of the sequence.
         let value = if i < seq_end {
-            i += 1; // value type tag
-            match read_len(der, &mut i) {
-                Some(vlen) => der.get(i..i.saturating_add(vlen)).unwrap_or(&[]).to_vec(),
-                None => Vec::new(),
-            }
+            i += 1; // value type tag (any)
+            let vlen = read_len(der, &mut i)?;
+            let vbytes = der.get(i..i.checked_add(vlen)?)?;
+            i += vlen;
+            vbytes.to_vec()
         } else {
             Vec::new()
         };
+        if i != seq_end {
+            return None; // the SEQUENCE must be consumed exactly
+        }
         out.push((key, value));
-        i = seq_end;
     }
-    out
+    Some(out)
 }
 
 #[cfg(test)]
@@ -1231,11 +1248,26 @@ mod tests {
     #[test]
     fn der_parser_reads_set_of_sequences() {
         let der = build_der(&[("svce", "AirPort"), ("acct", "MyNet")]);
-        let attrs = parse_der_attributes(&der);
+        let attrs = parse_der_attributes(&der).expect("well-formed DER");
         assert_eq!(attrs.len(), 2);
         assert_eq!(attrs[0], ("svce".to_string(), b"AirPort".to_vec()));
         assert_eq!(attrs[1], ("acct".to_string(), b"MyNet".to_vec()));
-        // Garbage DER yields nothing, no panic.
-        assert!(parse_der_attributes(&[0x31, 0x84, 0xff, 0xff, 0xff, 0xff]).is_empty());
+    }
+
+    #[test]
+    fn der_parser_rejects_malformed_and_partial() {
+        // A bogus length, non-SET input, trailing bytes, and a non-SEQUENCE element
+        // are all rejected (None), not silently accepted as partial attributes.
+        assert!(parse_der_attributes(&[0x31, 0x84, 0xff, 0xff, 0xff, 0xff]).is_none());
+        assert!(parse_der_attributes(b"not der").is_none());
+        assert!(parse_der_attributes(&[]).is_none());
+        // Well-formed SET but with one extra trailing byte → not consumed exactly.
+        let mut der = build_der(&[("svce", "AirPort")]);
+        der.push(0x00);
+        assert!(parse_der_attributes(&der).is_none());
+        // A SET whose single element is not a SEQUENCE.
+        assert!(parse_der_attributes(&[0x31, 0x03, 0x0c, 0x01, 0x41]).is_none());
+        // An empty SET is structurally valid but carries no attributes.
+        assert_eq!(parse_der_attributes(&[0x31, 0x00]), Some(vec![]));
     }
 }
