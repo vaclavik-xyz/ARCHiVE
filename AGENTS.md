@@ -794,7 +794,7 @@ archive --backup <DIR> [--password <PW>] -o <OUT> schema-check -f <FORMAT>
 `FORMAT` is `csv | json | html | pdf`; writes `<OUT>/schema-check.<ext>`. For every
 SQLite store the tool extracts from (contacts, calls, accounts, data-usage,
 voicemail, voice-memos, safari-history, safari-bookmarks, calendar, notes, photos,
-whatsapp, health, device-usage), it resolves the database from the manifest —
+whatsapp, health, device-usage, bluetooth-devices), it resolves the database from the manifest —
 trying each candidate location in order for stores whose DB moved across iOS
 versions (device-usage probes all six `knowledgeC.db` paths) — opens it
 **read-only**, and compares the live columns (`PRAGMA table_info`) against what that
