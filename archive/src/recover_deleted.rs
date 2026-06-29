@@ -50,6 +50,10 @@ pub struct DeletedRecord {
     pub date: Option<String>,
     /// A human-readable one-line description (message text, call number, names).
     pub summary: String,
+    /// The carved cell ran past the bytes available (record-size cap or an
+    /// overwritten tail), so the recovered values are **partial** — trailing
+    /// columns may be missing or cut short. Surfaced so callers can flag the row.
+    pub truncated: bool,
 }
 
 fn source_str(s: CarveSource) -> &'static str {
@@ -179,6 +183,7 @@ fn messages_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
                 store: "messages".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date,
                 summary,
             })
@@ -239,6 +244,7 @@ fn calls_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
                 store: "calls".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date,
                 summary,
             })
@@ -264,6 +270,7 @@ fn contacts_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
                 store: "contacts".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date: None,
                 summary: trunc(&texts.join(" · "), 200),
             })
@@ -295,6 +302,7 @@ fn notes_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
                 store: "notes".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date: max_cocoa_date(r),
                 summary: trunc(&texts.join(" · "), 200),
             })
@@ -333,6 +341,7 @@ fn calendar_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord
                 store: "calendar".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date: min_cocoa_date(r),
                 summary,
             })
@@ -373,6 +382,7 @@ fn safari_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> 
                 store: "safari".into(),
                 source: source_str(r.source).into(),
                 rowid: r.rowid,
+                truncated: r.truncated,
                 date,
                 summary,
             })
@@ -385,7 +395,7 @@ fn safari_from(records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> 
 /// images inevitably contain — then drop near-duplicates (the same row often
 /// survives in more than one free region).
 pub fn recover(store: &str, records: &[CarvedRecord], live: &LiveKeys) -> Vec<DeletedRecord> {
-    let mut out = match store {
+    let out = match store {
         "messages" => messages_from(records, live),
         "calls" => calls_from(records, live),
         "contacts" => contacts_from(records, live),
@@ -394,9 +404,57 @@ pub fn recover(store: &str, records: &[CarvedRecord], live: &LiveKeys) -> Vec<De
         "safari" => safari_from(records, live),
         _ => Vec::new(),
     };
-    let mut seen = std::collections::HashSet::new();
-    out.retain(|r| seen.insert((r.rowid, r.summary.clone(), r.date.clone())));
-    out
+    // De-duplicate rows that survived in several free regions, preferring a
+    // complete copy: a later non-truncated duplicate upgrades an earlier
+    // truncated one, so a row is never reported partial when a full copy was also
+    // recovered. First-seen order is preserved (the caller sorts by date).
+    let mut index: std::collections::HashMap<(Option<i64>, String, Option<String>), usize> =
+        std::collections::HashMap::new();
+    let mut deduped: Vec<DeletedRecord> = Vec::new();
+    for r in out {
+        let key = (r.rowid, r.summary.clone(), r.date.clone());
+        match index.get(&key) {
+            Some(&i) => {
+                if deduped[i].truncated && !r.truncated {
+                    deduped[i] = r;
+                }
+            }
+            None => {
+                index.insert(key, deduped.len());
+                deduped.push(r);
+            }
+        }
+    }
+    // Truncation can also shorten the recovered fields themselves (the body was
+    // cut), so the partial and complete copies of one row carry *different*
+    // summaries and escape the exact-key dedup above. Drop a still-truncated row
+    // when a complete copy of the *same* row (same rowid, and whose summary begins
+    // with the truncated one — i.e. the truncated value is a genuine prefix)
+    // exists. The prefix guard avoids collapsing two distinct rows that merely
+    // share a reused rowid.
+    let complete: Vec<(i64, String, Option<String>)> = deduped
+        .iter()
+        .filter(|r| !r.truncated)
+        .filter_map(|r| r.rowid.map(|id| (id, r.summary.clone(), r.date.clone())))
+        .collect();
+    deduped.retain(|r| {
+        if !r.truncated {
+            return true;
+        }
+        match r.rowid {
+            // Drop only when a complete copy of the same row clearly subsumes
+            // this one: same rowid, summary prefix, AND a compatible date — the
+            // partial either kept the row's date (equal) or lost it to truncation
+            // (None). A different date means a distinct row that reused the rowid.
+            Some(id) => !complete.iter().any(|(cid, csum, cdate)| {
+                *cid == id
+                    && csum.starts_with(&r.summary)
+                    && (r.date.is_none() || r.date.as_deref() == cdate.as_deref())
+            }),
+            None => true,
+        }
+    });
+    deduped
 }
 
 #[cfg(test)]
@@ -632,6 +690,67 @@ mod tests {
         // A different (genuinely deleted) URL is kept.
         let gone = vec![rec_n(Some(3), CarveSource::Freelist, vec![CarvedValue::Text("https://gone.example.com/x".into())])];
         assert_eq!(recover("safari", &gone, &live).len(), 1);
+    }
+
+    #[test]
+    fn dedup_prefers_complete_copy_over_truncated() {
+        let g = "9B7E5F2A-1C3D-4E5F-8A9B-0C1D2E3F4A5B";
+        let vals = || vec![CarvedValue::Text(g.into()), CarvedValue::Text("same body".into())];
+        // The truncated copy is seen first; the later complete copy upgrades it.
+        let truncated = CarvedRecord { rowid: Some(7), source: CarveSource::Freelist, values: vals(), truncated: true };
+        let full = CarvedRecord { rowid: Some(7), source: CarveSource::Freeblock, values: vals(), truncated: false };
+        let out = recover("messages", &[truncated, full], &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert!(!out[0].truncated);
+    }
+
+    #[test]
+    fn dedup_drops_truncated_prefix_of_complete_same_row() {
+        // Truncation shortened the body, so the two copies have different
+        // summaries; the partial body is a prefix of the complete one, same
+        // rowid → the truncated copy is dropped in favour of the complete one.
+        let g = "9B7E5F2A-1C3D-4E5F-8A9B-0C1D2E3F4A5B";
+        let partial = CarvedRecord { rowid: Some(7), source: CarveSource::Freelist, values: vec![CarvedValue::Text(g.into()), CarvedValue::Text("hello wor".into())], truncated: true };
+        let full = CarvedRecord { rowid: Some(7), source: CarveSource::Freeblock, values: vec![CarvedValue::Text(g.into()), CarvedValue::Text("hello world".into())], truncated: false };
+        let out = recover("messages", &[partial, full], &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].summary, "hello world");
+        assert!(!out[0].truncated);
+
+        // But a truncated row whose rowid has no complete counterpart is kept.
+        let lonely = CarvedRecord { rowid: Some(9), source: CarveSource::Freelist, values: vec![CarvedValue::Text(g.into()), CarvedValue::Text("orphan".into())], truncated: true };
+        let out = recover("messages", &[lonely], &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert!(out[0].truncated);
+    }
+
+    #[test]
+    fn dedup_keeps_distinct_same_rowid_rows_with_different_dates() {
+        // A reused rowid holds two real messages whose summaries prefix-match
+        // ("OK" vs "OK thanks") but whose dates differ → both must be kept.
+        let g1 = "11111111-1111-1111-1111-111111111111";
+        let g2 = "22222222-2222-2222-2222-222222222222";
+        let short = CarvedRecord { rowid: Some(5), source: CarveSource::Freelist, values: vec![CarvedValue::Text(g1.into()), CarvedValue::Int(600_000_000_000_000_000), CarvedValue::Text("OK".into())], truncated: true };
+        let long = CarvedRecord { rowid: Some(5), source: CarveSource::Freeblock, values: vec![CarvedValue::Text(g2.into()), CarvedValue::Int(660_000_000_000_000_000), CarvedValue::Text("OK thanks".into())], truncated: false };
+        let out = recover("messages", &[short, long], &LiveKeys::default());
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn truncated_flag_propagates_to_recovered_record() {
+        let g = "9B7E5F2A-1C3D-4E5F-8A9B-0C1D2E3F4A5B";
+        let partial = CarvedRecord {
+            rowid: Some(7),
+            source: CarveSource::Freelist,
+            values: vec![CarvedValue::Text(g.into()), CarvedValue::Text("partial body".into())],
+            truncated: true,
+        };
+        let out = recover("messages", &[partial], &LiveKeys::default());
+        assert_eq!(out.len(), 1);
+        assert!(out[0].truncated);
+        // A fully-recovered record reports false.
+        let full = vec![rec_n(Some(8), CarveSource::Freelist, vec![CarvedValue::Text(g.into()), CarvedValue::Text("full".into())])];
+        assert!(!recover("messages", &full, &LiveKeys::default())[0].truncated);
     }
 
     #[test]

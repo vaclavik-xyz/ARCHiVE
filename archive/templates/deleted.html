@@ -10,7 +10,8 @@ th{background:#f5f5f5}td.k{white-space:nowrap}code{background:#f0f0f0;padding:1p
 <tr><th>Store</th><th>Zdroj</th><th>Čas</th><th>Obsah</th></tr>
 {% for r in records %}
 <tr><td class="k"><code>{{ r.store }}</code></td><td class="k">{{ r.source }}</td>
-<td>{% if let Some(d) = r.date.as_ref() %}{{ d }}{% endif %}</td><td>{{ r.summary }}</td></tr>
+<td>{% if let Some(d) = r.date.as_ref() %}{{ d }}{% endif %}</td>
+<td>{{ r.summary }}{% if r.truncated %} <span title="záznam byl jen částečně obnoven – další sloupce mohou chybět" style="color:#b26a00">✂ oříznuto</span>{% endif %}</td></tr>
 {% endfor %}
 </table>
 </body></html>
