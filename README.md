@@ -59,6 +59,7 @@ archive --backup ~/Backup/<UDID> -o out accounts        -f json  # configured ac
 archive --backup ~/Backup/<UDID> -o out known-networks  -f json  # saved Wi-Fi SSIDs, no passwords (often empty on iOS 16+)
 archive --backup ~/Backup/<UDID> -o out homescreen-layout -f html # home screen layout: pages, dock, folders, widgets
 archive --backup ~/Backup/<UDID> -o out data-usage      -f html  # per-process cellular/Wi-Fi byte counters
+archive --backup ~/Backup/<UDID> -o out device-usage    -f html  # per-app foreground time (knowledgeC.db; often absent on iOS 16+)
 archive --backup ~/Backup/<UDID> -o out voicemail       -f json --audio
 archive --backup ~/Backup/<UDID> -o out voice-memos     -f html
 archive --backup ~/Backup/<UDID> -o out safari-history  -f json

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Využití aplikací</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:4px 8px;text-align:left}
+th{background:#f5f5f5}td.n{text-align:right;font-variant-numeric:tabular-nums}.b{color:#888;font-size:11px}</style></head><body>
+<h1>Využití aplikací na popředí ({{ items.len() }})</h1>
+<p class="b">Agregováno z <code>knowledgeC.db</code> (stream <code>/app/usage</code>) — čas na popředí podle bundle id.</p>
+<table>
+<tr><th>Bundle</th><th>Čas celkem</th><th>Sezení</th><th>První</th><th>Poslední</th></tr>
+{% for u in items %}
+<tr>
+<td>{{ u.bundle }}</td>
+<td class="n">{{ u.total_human() }}<br><span class="b">{{ u.total_seconds }} s</span></td>
+<td class="n">{{ u.sessions }}</td>
+<td>{{ u.first_used }}</td><td>{{ u.last_used }}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>

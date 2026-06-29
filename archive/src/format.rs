@@ -636,6 +636,36 @@ pub fn data_usage_html(items: &[crate::data_usage::DataUsage]) -> String {
     DataUsageTemplate { items }.render().unwrap()
 }
 
+pub fn device_usage_csv(items: &[crate::device_usage::AppUsage]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["bundle", "total_seconds", "sessions", "first_used", "last_used"]).unwrap();
+    for u in items {
+        wtr.write_record([
+            u.bundle.clone(),
+            u.total_seconds.to_string(),
+            u.sessions.to_string(),
+            u.first_used.clone(),
+            u.last_used.clone(),
+        ])
+        .unwrap();
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn device_usage_json(items: &[crate::device_usage::AppUsage]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "device-usage.html")]
+struct DeviceUsageTemplate<'a> {
+    items: &'a [crate::device_usage::AppUsage],
+}
+
+pub fn device_usage_html(items: &[crate::device_usage::AppUsage]) -> String {
+    DeviceUsageTemplate { items }.render().unwrap()
+}
+
 pub fn attachments_csv(items: &[crate::attachments::Attachment]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record(["name", "mime_type", "created", "total_bytes", "file"]).unwrap();

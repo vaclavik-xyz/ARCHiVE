@@ -26,7 +26,7 @@ before **or** after the subcommand name, which is agent-friendly for programmati
 invocation.
 
 **PDF output:** the **in-process** export commands that list `html` (contacts,
-calls, accounts, known-networks, homescreen-layout, data-usage, voicemail, voice-memos, safari-history/bookmarks,
+calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, voicemail, voice-memos, safari-history/bookmarks,
 calendar, reminders, mail, notes, photos, photos-recently-deleted, attachments,
 whatsapp, timeline, stats, recover-deleted, health, apps, keychain-inventory) also accept **`pdf`**: their HTML is printed to `<OUT>/<name>.pdf` by a
 headless Chrome/Chromium/Edge (auto-detected on `PATH`/standard locations or set
@@ -200,6 +200,35 @@ stdout envelope:
 {
   "ok": true, "command": "data-usage", "count": 413,
   "outputs": ["<OUT>/data-usage.json"],
+  "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
+}
+```
+
+### `device-usage` — per-app foreground usage (knowledgeC.db)
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> device-usage -f <FORMAT>
+```
+
+`FORMAT` is one of `csv | json | html | pdf`. Writes `<OUT>/device-usage.<ext>`.
+Reads CoreDuet's `knowledgeC.db` (probing a few candidate domain/paths) and
+aggregates the `ZOBJECT` `/app/usage` stream per bundle: `bundle`,
+`total_seconds` (sum of session durations), `sessions` (count), and
+`first_used` / `last_used` (ISO 8601 UTC), sorted by total time descending.
+Schema-tolerant: a `ZOBJECT` missing the needed columns yields an empty result.
+
+**Availability:** `knowledgeC.db` is increasingly protected and is frequently
+**excluded from iOS 16+ backups**; when absent the command returns `count: 0`
+with a `note` (no store), and an empty-but-present store returns `count: 0` with
+a different `note`. A **store**, so it is listed by `inspect` (presence probed
+across the candidate paths) and included in `recover` when non-empty.
+
+stdout envelope:
+
+```json
+{
+  "ok": true, "command": "device-usage", "count": 87,
+  "outputs": ["<OUT>/device-usage.json"],
   "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
 }
 ```
@@ -709,7 +738,8 @@ stdout envelope:
     { "type": "photos-recently-deleted", "file": "photos-recently-deleted.html", "count": 7,
       "files": { "dir": "recently-deleted", "extracted": 7, "missing": 0 } },
     { "type": "homescreen-layout", "file": "homescreen-layout.html", "count": 45 },
-    { "type": "data-usage", "file": "data-usage.html", "count": 413 }
+    { "type": "data-usage", "file": "data-usage.html", "count": 413 },
+    { "type": "device-usage", "file": "device-usage.html", "count": 87 }
   ],
   "device": { "name": "iPhone", "model": "iPhone14,2", "ios": "17.5", "serial": "F2L...", "udid": "00008..." }
 }

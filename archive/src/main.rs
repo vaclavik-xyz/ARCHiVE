@@ -7,6 +7,7 @@ mod contacts;
 mod data_usage;
 mod datetime;
 mod device_backup;
+mod device_usage;
 mod enrich;
 mod format;
 mod health;
@@ -96,6 +97,12 @@ enum Command {
     /// Per-process network data usage (cellular/Wi-Fi byte counters) from
     /// DataUsage.sqlite.
     DataUsage {
+        /// Output format: csv, json, html, pdf.
+        #[arg(long, short = 'f')]
+        format: String,
+    },
+    /// Per-app foreground usage (time, sessions) from CoreDuet's knowledgeC.db.
+    DeviceUsage {
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
@@ -345,6 +352,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::KnownNetworks { format } => run_known_networks(&cli, password.as_deref(), format),
         Command::HomescreenLayout { format } => run_homescreen(&cli, password.as_deref(), format),
         Command::DataUsage { format } => run_data_usage(&cli, password.as_deref(), format),
+        Command::DeviceUsage { format } => run_device_usage(&cli, password.as_deref(), format),
         Command::Voicemail { format, audio, audio_format } => {
             run_voicemail(&cli, password.as_deref(), format, *audio, audio_format.as_deref())
         }
@@ -713,6 +721,56 @@ fn run_data_usage(cli: &Cli, password: Option<&str>, format: &str) -> Result<ser
 
     Ok(serde_json::json!({
         "ok": true, "command": "data-usage", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()], "device": device
+    }))
+}
+
+fn load_device_usage(
+    backup: &archive_core::Backup,
+) -> Result<Option<Vec<device_usage::AppUsage>>, AppError> {
+    let scratch = tempfile::TempDir::new().map_err(|e| AppError::other(e.to_string()))?;
+    for (domain, path) in device_usage::CANDIDATES {
+        let tmp = scratch.path().join("knowledgeC.db");
+        if let Some(db) = backup.fetch(domain, path, &tmp).map_err(|e| AppError::other(e.to_string()))? {
+            return Ok(Some(device_usage::parse(&db).map_err(|e| AppError::other(e.to_string()))?));
+        }
+    }
+    Ok(None)
+}
+
+fn run_device_usage(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
+    let format = export_format(format, "device-usage")?;
+    let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export device usage"))?;
+    let backup = open_backup(cli, password)?;
+    let device = device_json(backup.device_info());
+    std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
+
+    let Some(items) = load_device_usage(&backup)? else {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "device-usage", "count": 0, "outputs": [],
+            "note": "this backup has no knowledgeC.db (CoreDuet usage store)", "device": device
+        }));
+    };
+    if items.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true, "command": "device-usage", "count": 0, "outputs": [],
+            "note": "knowledgeC.db has no /app/usage sessions (empty, or an unsupported schema)",
+            "device": device
+        }));
+    }
+
+    let rendered = match format {
+        Format::Csv => format::device_usage_csv(&items),
+        Format::Json => format::device_usage_json(&items),
+        Format::Html | Format::Pdf => format::device_usage_html(&items),
+        Format::Vcf => unreachable!("export_format rejects vcf"),
+    };
+    let out_file = out.join(format!("device-usage.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("Wrote app usage for {} app(s) to {}", items.len(), out_file.display());
+
+    Ok(serde_json::json!({
+        "ok": true, "command": "device-usage", "count": items.len(),
         "outputs": [out_file.to_string_lossy()], "device": device
     }))
 }
@@ -2025,6 +2083,11 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     {
         rec.add("data-usage", "Datový provoz", "data-usage.html", format::data_usage_html(&items), items.len(), None)?;
     }
+    if let Some(items) = opt_or_log(load_device_usage(&backup), "device-usage")
+        && !items.is_empty()
+    {
+        rec.add("device-usage", "Využití aplikací", "device-usage.html", format::device_usage_html(&items), items.len(), None)?;
+    }
     if let Some(mut items) = opt_or_log(load_voicemail(&backup), "voicemail") {
         if let Some(idx) = &cidx {
             enrich::enrich_voicemail(idx, &mut items);
@@ -2350,6 +2413,9 @@ const KNOWN_STORES: &[(&str, bool, &str, &str)] = &[
     ("known-networks", true, known_networks::DOMAIN, ""),
     ("homescreen-layout", true, homescreen::DOMAIN, homescreen::PATH),
     ("data-usage", true, data_usage::DOMAIN, data_usage::PATH),
+    // knowledgeC.db has lived at several domain/paths; presence is detected
+    // specially in `run_inspect` by probing device_usage::CANDIDATES.
+    ("device-usage", true, device_usage::DOMAIN, ""),
     ("voicemail", true, "HomeDomain", "Library/Voicemail/voicemail.db"),
     ("voice-memos", true, "AppDomainGroup-group.com.apple.VoiceMemos", "Recordings/CloudRecordings.db"),
     ("safari-history", true, "AppDomain-com.apple.mobilesafari", "Library/Safari/History.db"),
@@ -2411,6 +2477,15 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 }
             }
             any
+        } else if name == "device-usage" {
+            let mut any = false;
+            for (d, p) in device_usage::CANDIDATES {
+                if backup.has(d, p).map_err(|e| AppError::other(e.to_string()))? {
+                    any = true;
+                    break;
+                }
+            }
+            any
         } else {
             backup
                 .has(domain, path)
@@ -2428,6 +2503,7 @@ fn run_inspect(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value, A
                 "known-networks" => load_known_networks(&backup).ok().flatten().map(|v| v.len()),
                 "homescreen-layout" => load_homescreen(&backup).ok().flatten().map(|v| v.len()),
                 "data-usage" => load_data_usage(&backup).ok().flatten().map(|v| v.len()),
+                "device-usage" => load_device_usage(&backup).ok().flatten().map(|v| v.len()),
                 "voicemail" => load_voicemail(&backup).ok().flatten().map(|v| v.len()),
                 "voice-memos" => load_voice_memos(&backup).ok().flatten().map(|v| v.len()),
                 "safari-history" => load_safari_history(&backup).ok().flatten().map(|v| v.len()),
@@ -2562,7 +2638,7 @@ mod cli_tests {
         // list mirrors that match — when adding a store, add it here AND add the
         // matching `load_*` count arm.
         let counted = [
-            "contacts", "calls", "accounts", "known-networks", "homescreen-layout", "data-usage", "voicemail", "voice-memos",
+            "contacts", "calls", "accounts", "known-networks", "homescreen-layout", "data-usage", "device-usage", "voicemail", "voice-memos",
             "safari-history", "safari-bookmarks", "calendar", "notes", "photos",
             "photos-recently-deleted", "attachments", "whatsapp", "health", "reminders", "mail",
         ];
@@ -2858,6 +2934,17 @@ mod cli_tests {
         }
         let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "photos-recently-deleted").unwrap();
         assert!(s.1, "photos-recently-deleted must be supported");
+    }
+
+    #[test]
+    fn parses_device_usage_invocation() {
+        let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "device-usage", "-f", "json"]).unwrap();
+        match cli.command {
+            Command::DeviceUsage { format } => assert_eq!(format, "json"),
+            _ => panic!("expected DeviceUsage"),
+        }
+        let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "device-usage").unwrap();
+        assert!(s.1, "device-usage must be supported");
     }
 
     #[test]
