@@ -1024,6 +1024,61 @@ pub fn deleted_html(items: &[crate::recover_deleted::DeletedRecord]) -> String {
     DeletedTemplate { records: items }.render().unwrap()
 }
 
+// --- Schema drift self-check ----------------------------------------------
+
+pub fn schema_check_csv(items: &[crate::schema_check::StoreReport]) -> String {
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record(["command", "domain", "path", "table", "status", "missing_required", "missing_optional"]).unwrap();
+    for s in items {
+        if s.tables.is_empty() {
+            wtr.write_record([
+                s.command.clone(),
+                s.domain.clone(),
+                s.rel_path.clone(),
+                String::new(),
+                s.status.to_string(),
+                String::new(),
+                String::new(),
+            ])
+            .unwrap();
+        } else {
+            for t in &s.tables {
+                wtr.write_record([
+                    s.command.clone(),
+                    s.domain.clone(),
+                    s.rel_path.clone(),
+                    t.table.clone(),
+                    t.status.to_string(),
+                    t.missing_required.join(";"),
+                    t.missing_optional.join(";"),
+                ])
+                .unwrap();
+            }
+        }
+    }
+    String::from_utf8(wtr.into_inner().unwrap()).unwrap()
+}
+
+pub fn schema_check_json(items: &[crate::schema_check::StoreReport]) -> String {
+    serde_json::to_string_pretty(items).unwrap()
+}
+
+#[derive(Template)]
+#[template(path = "schema-check.html")]
+struct SchemaCheckTemplate<'a> {
+    stores: &'a [crate::schema_check::StoreReport],
+    ok: usize,
+    drifted: usize,
+    absent: usize,
+}
+
+pub fn schema_check_html(items: &[crate::schema_check::StoreReport]) -> String {
+    let ok = items.iter().filter(|s| s.status == "ok").count();
+    let drifted = items.iter().filter(|s| s.status == "drifted").count();
+    let absent = items.iter().filter(|s| s.status == "db_absent").count();
+    SchemaCheckTemplate { stores: items, ok, drifted, absent }.render().unwrap()
+}
+
 // --- Wi-Fi credentials ----------------------------------------------------
 
 pub fn wifi_csv(items: &[archive_core::keychain::WifiCredential]) -> String {

@@ -749,6 +749,38 @@ and carved rows can include false positives. The envelope carries `count`,
 `stores: [{store, recovered}]`, `outputs`, `device`, and a `note` stating this.
 Read-only; never writes to the backup. Absent databases are skipped.
 
+### `schema-check` — detect SQLite schema drift
+
+```
+archive --backup <DIR> [--password <PW>] -o <OUT> schema-check -f <FORMAT>
+```
+
+`FORMAT` is `csv | json | html | pdf`; writes `<OUT>/schema-check.<ext>`. For every
+SQLite store the tool extracts from (contacts, calls, accounts, data-usage,
+voicemail, voice-memos, safari-history, safari-bookmarks, calendar, notes, photos,
+whatsapp, health, device-usage), it resolves the database from the manifest —
+trying each candidate location in order for stores whose DB moved across iOS
+versions (device-usage probes all six `knowledgeC.db` paths) — opens it
+**read-only**, and compares the live columns (`PRAGMA table_info`) against what that
+store's extractor needs. Columns are split into two tiers mirroring how the
+extractors build their SQL: **required** columns appear unconditionally (or guard
+an early return), so their absence breaks extraction; **optional** columns are
+gated with a NULL/COALESCE/skip fallback, so the export still succeeds without
+them. Only a missing *required* column (or table) flags drift; a missing optional
+column is reported for visibility but keeps the store `ok`. SQLite's implicit
+`ROWID` is never in the required set (it is not a declared column, so
+`PRAGMA table_info` never lists it). Each store reports `ok`, `drifted` (a required
+table/column is gone — typically renamed/removed by a newer iOS, which makes that
+extractor silently return empty), or `db_absent` (no candidate location is in this
+backup — not a drift). Per store: `{ command, domain, rel_path, status, tables:
+[{ table, status (ok|missing_columns|table_absent), missing_required,
+missing_optional }] }`. The envelope carries `checked`, `ok_stores`, `drifted`,
+`db_absent`, `stores`, `outputs`, `device`, and a `note`. The expectations are
+empirically grounded against a real iOS 16 backup (all present stores report `ok`).
+Use it to explain an unexpectedly-empty export: `drifted` means the schema moved,
+`db_absent` means the data was never there. Read-only; never logs any row data,
+only schema names.
+
 ### `wifi` — recover saved Wi-Fi passwords
 
 ```
