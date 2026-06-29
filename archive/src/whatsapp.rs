@@ -21,8 +21,9 @@ pub struct WaMessage {
     pub chat: String,
     /// The chat partner's raw JID (`ZWACHATSESSION.ZCONTACTJID`, e.g.
     /// `420…@s.whatsapp.net`); identifies the conversation even for own messages
-    /// where `sender` is empty. Empty when the column is absent.
-    #[serde(skip_serializing_if = "String::is_empty")]
+    /// where `sender` is empty. Empty when the column is absent. Internal: read for
+    /// case-file search only, kept out of the `whatsapp` export's public schema.
+    #[serde(skip)]
     pub chat_jid: String,
     /// Sender JID (`ZFROMJID`); empty when from me / unknown.
     pub sender: String,
