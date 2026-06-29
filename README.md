@@ -20,8 +20,8 @@ portable formats:
   (`app-files`) — plus a
   one-shot `recover` package, deleted-record recovery (`recover-deleted`, SQLite
   carving), a `schema-check` that flags when a store's columns have drifted across
-  iOS versions, a case-file `search` across every record, Recently Deleted
-  photo/video recovery
+  iOS versions, a case-file `search` across every record, a combined SQLite
+  `db-export` for cross-store SQL, Recently Deleted photo/video recovery
   (`photos-recently-deleted`), saved Wi-Fi passwords (`wifi`) and website/app
   passwords (`passwords`) from the keychain, on-device `backup`
   capture, and a backup `integrity` check (agent-first JSON output)
@@ -86,6 +86,7 @@ archive --backup ~/Backup/<UDID> -o out app-files --app viber -f html  # extract
 archive --backup ~/Backup/<UDID> -o out recover-deleted -f html  # carve deleted rows (best-effort)
 archive --backup ~/Backup/<UDID> -o out schema-check     -f html  # do live DB schemas still match what extractors need?
 archive --backup ~/Backup/<UDID> -o out search -q "Jan"  -f html  # find a term across every record + the address book
+archive --backup ~/Backup/<UDID> -o out db-export                 # one queryable archive.sqlite for cross-store SQL
 archive --backup ~/Backup/<UDID> -o out wifi            -f html  # saved Wi-Fi passwords (encrypted backups)
 archive --backup ~/Backup/<UDID> -o out passwords       -f html  # saved website/app passwords (encrypted backups)
 archive --backup ~/Backup/<UDID> -o out keychain-inventory -f json  # keychain census: per-item metadata, NO secrets
