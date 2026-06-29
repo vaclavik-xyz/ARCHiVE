@@ -26,7 +26,7 @@ const SCHEMA: &str = "\
 CREATE TABLE timeline (timestamp TEXT, kind TEXT, summary TEXT);
 CREATE TABLE contacts (first TEXT, last TEXT, organization TEXT, phones TEXT, emails TEXT, note TEXT);
 CREATE TABLE calls (date TEXT, number TEXT, contact_name TEXT, duration_seconds INTEGER, direction TEXT, answered INTEGER, service TEXT);
-CREATE TABLE whatsapp (date TEXT, chat TEXT, from_me INTEGER, text TEXT, has_media INTEGER);
+CREATE TABLE whatsapp (date TEXT, chat TEXT, contact_name TEXT, from_me INTEGER, text TEXT, has_media INTEGER);
 ";
 
 fn join_values(items: &[crate::contacts::Labeled]) -> String {
@@ -65,9 +65,10 @@ pub fn write(
         for c in calls {
             stmt.execute(params![c.date, c.number, c.contact_name, c.duration_seconds, c.direction, c.answered as i64, c.service])?;
         }
-        let mut stmt = tx.prepare("INSERT INTO whatsapp (date, chat, from_me, text, has_media) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+        let mut stmt = tx
+            .prepare("INSERT INTO whatsapp (date, chat, contact_name, from_me, text, has_media) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
         for m in whatsapp {
-            stmt.execute(params![m.date, m.chat, m.from_me as i64, m.text, (!m.source_path.is_empty()) as i64])?;
+            stmt.execute(params![m.date, m.chat, m.contact_name, m.from_me as i64, m.text, (!m.source_path.is_empty()) as i64])?;
         }
     }
     tx.commit()?;
@@ -117,12 +118,24 @@ mod tests {
             contact_name: "Jan Novák".into(),
         }];
 
+        let whatsapp = vec![WaMessage {
+            chat: "Jana".into(),
+            chat_jid: "420776452878@s.whatsapp.net".into(),
+            sender: String::new(),
+            from_me: true,
+            date: "2020-02-01T00:00:00+00:00".into(),
+            text: "Ahoj".into(),
+            source_path: String::new(),
+            media_file: None,
+            contact_name: "Jana Nováková".into(),
+        }];
+
         let path = tmp("write");
-        let counts = write(&path, &events, &contacts, &calls, &[]).unwrap();
+        let counts = write(&path, &events, &contacts, &calls, &whatsapp).unwrap();
         assert_eq!(counts.timeline, 1);
         assert_eq!(counts.contacts, 1);
         assert_eq!(counts.calls, 1);
-        assert_eq!(counts.whatsapp, 0);
+        assert_eq!(counts.whatsapp, 1);
 
         // Reopen and verify the rows are queryable with joined handles.
         let conn = Connection::open(&path).unwrap();
@@ -130,6 +143,8 @@ mod tests {
         assert_eq!(phones, "+420776452878");
         let dur: i64 = conn.query_row("SELECT duration_seconds FROM calls WHERE answered = 1", [], |r| r.get(0)).unwrap();
         assert_eq!(dur, 42);
+        let wa_name: String = conn.query_row("SELECT contact_name FROM whatsapp WHERE from_me = 1", [], |r| r.get(0)).unwrap();
+        assert_eq!(wa_name, "Jana Nováková");
         let kinds: i64 = conn.query_row("SELECT count(*) FROM timeline WHERE kind = 'call'", [], |r| r.get(0)).unwrap();
         assert_eq!(kinds, 1);
         std::fs::remove_dir_all(path.parent().unwrap()).ok();

@@ -1967,7 +1967,8 @@ fn run_db_export(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value,
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
 
     let idx = contact_index(&backup);
-    let events = collect_timeline_events(&backup);
+    // Same finalized (dated, chronological) timeline the `timeline` command exports.
+    let events = timeline::finalize(collect_timeline_events(&backup));
     let contacts = opt_or_log(load_contacts(&backup), "contacts").unwrap_or_default();
     let mut calls = opt_or_log(load_calls(&backup), "calls").unwrap_or_default();
     let mut whatsapp = opt_or_log(load_whatsapp(&backup), "whatsapp").unwrap_or_default();

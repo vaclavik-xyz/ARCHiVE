@@ -814,8 +814,10 @@ time-range filters, `LIKE`) instead of opening one CSV per store. Tables: `timel
 (`timestamp, kind, summary` — every dated event from every in-process extractor),
 `contacts` (`first, last, organization, phones, emails, note`; phones/emails are
 `; `-joined), `calls` (`date, number, contact_name, duration_seconds, direction,
-answered, service`), and `whatsapp` (`date, chat, from_me, text, has_media`). Calls
-and WhatsApp are contact-name-enriched. The database is **plain unencrypted SQLite**
+answered, service`), and `whatsapp` (`date, chat, contact_name, from_me, text,
+has_media`). Calls and WhatsApp carry a contact-name-enriched `contact_name` column;
+the `timeline` table is the finalized (dated, chronological) view the `timeline`
+command exports. The database is **plain unencrypted SQLite**
 and holds personal data; the JSON envelope carries only per-table row counts
 (`tables: { timeline, contacts, calls, whatsapp }`), `outputs` and `device` —
 never the rows. Read-only on the backup.
