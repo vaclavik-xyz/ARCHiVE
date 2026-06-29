@@ -1815,6 +1815,74 @@ fn collect_timeline_events(backup: &archive_core::Backup) -> Vec<timeline::Event
     events
 }
 
+/// Build the case-file search corpus. Mirrors `collect_timeline_events`, but keeps
+/// each record's human snippet separate from the text it is matched against: for
+/// the handle-bearing stores (calls, voicemail, WhatsApp) the snippet shows the
+/// resolved contact name while the searchable text also folds in the raw
+/// number/JID, so a phone-number query still finds an enriched-to-a-name record.
+fn collect_search_records(backup: &archive_core::Backup) -> Vec<search::SearchRecord> {
+    let idx = contact_index(backup);
+    let mut recs: Vec<search::SearchRecord> = Vec::new();
+    let mut simple = |events: Vec<timeline::Event>| {
+        recs.extend(events.iter().map(search::SearchRecord::from_event));
+    };
+    // Non-handle stores: searchable text is just the summary.
+    if let Some(v) = opt_or_log(load_accounts(backup), "accounts") {
+        simple(timeline::from_accounts(&v));
+    }
+    if let Some(v) = opt_or_log(load_voice_memos(backup), "voice-memos") {
+        simple(timeline::from_voice_memos(&v));
+    }
+    if let Some(v) = opt_or_log(load_safari_history(backup), "safari-history") {
+        simple(timeline::from_safari_history(&v));
+    }
+    if let Some(v) = opt_or_log(load_calendar(backup), "calendar") {
+        simple(timeline::from_calendar(&v));
+    }
+    if let Some(v) = opt_or_log(load_notes(backup), "notes") {
+        simple(timeline::from_notes(&v));
+    }
+    if let Some(v) = opt_or_log(load_photos(backup), "photos") {
+        simple(timeline::from_photos(&v));
+        simple(timeline::from_deleted(&v));
+    }
+    if let Some(v) = opt_or_log(load_attachments(backup), "attachments") {
+        simple(timeline::from_attachments(&v));
+    }
+    if let Some(v) = opt_or_log(load_reminders(backup), "reminders") {
+        simple(timeline::from_reminders(&v));
+    }
+    if let Some(d) = opt_or_log(load_health(backup), "health") {
+        simple(timeline::from_workouts(&d.workouts));
+    }
+    if let Some(v) = opt_or_log(load_mail(backup), "mail") {
+        simple(timeline::from_mail(&v));
+    }
+    // Handle-bearing stores: fold the raw number/JID into the searchable text.
+    if let Some(mut v) = opt_or_log(load_calls(backup), "calls") {
+        if let Some(idx) = &idx {
+            enrich::enrich_calls(idx, &mut v);
+        }
+        let events = timeline::from_calls(&v);
+        recs.extend(v.iter().zip(events.iter()).map(|(c, e)| search::SearchRecord::with_extra(e, &c.number)));
+    }
+    if let Some(mut v) = opt_or_log(load_voicemail(backup), "voicemail") {
+        if let Some(idx) = &idx {
+            enrich::enrich_voicemail(idx, &mut v);
+        }
+        let events = timeline::from_voicemail(&v);
+        recs.extend(v.iter().zip(events.iter()).map(|(vm, e)| search::SearchRecord::with_extra(e, &vm.sender)));
+    }
+    if let Some(mut v) = opt_or_log(load_whatsapp(backup), "whatsapp") {
+        if let Some(idx) = &idx {
+            enrich::enrich_whatsapp(idx, &mut v);
+        }
+        let events = timeline::from_whatsapp(&v);
+        recs.extend(v.iter().zip(events.iter()).map(|(m, e)| search::SearchRecord::with_extra(e, &m.sender)));
+    }
+    recs
+}
+
 fn run_stats(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "stats")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export stats"))?;
@@ -1860,9 +1928,9 @@ fn run_search(cli: &Cli, password: Option<&str>, query: &str, format: &str) -> R
     let device = device_json(backup.device_info());
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
 
-    let events = collect_timeline_events(&backup);
+    let records = collect_search_records(&backup);
     let contacts = opt_or_log(load_contacts(&backup), "contacts").unwrap_or_default();
-    let hits = search::search(&events, &contacts, query);
+    let hits = search::search(&records, &contacts, query);
 
     let rendered = match format {
         Format::Csv => format::search_csv(&hits),

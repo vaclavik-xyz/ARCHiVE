@@ -3,13 +3,57 @@
 //! an examiner can pull "everything that mentions X" — a phone number, a name, a
 //! keyword — in a single read-only pass. Matching is a case-insensitive substring;
 //! results carry the source category and the record's timestamp when it has one.
-//! Best-effort: it searches the one-line summaries the timeline builds, which hold
-//! the salient text (message bodies, call numbers, titles, URLs, resolved names).
+//!
+//! Each searchable record keeps the human-readable `snippet` separate from the
+//! `searchable` text it is matched against. For handle-bearing stores (calls,
+//! voicemail, WhatsApp) the timeline summary shows the *resolved contact name*
+//! while `searchable` also carries the *raw number / JID* — so a phone-number
+//! query still finds a call even after the address book renamed it to a person.
 
 use serde::Serialize;
 
 use crate::contacts::Contact;
 use crate::timeline::Event;
+
+/// One searchable record: a human-readable `snippet` to display plus the
+/// `searchable` text actually matched against (a superset of the snippet for
+/// handle-bearing stores, which also fold in the raw number/JID).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SearchRecord {
+    pub store: String,
+    pub timestamp: Option<String>,
+    pub snippet: String,
+    pub searchable: String,
+}
+
+impl SearchRecord {
+    fn ts(timestamp: &str) -> Option<String> {
+        (!timestamp.is_empty()).then(|| timestamp.to_string())
+    }
+
+    /// A record whose searchable text is exactly its display snippet.
+    pub fn from_event(e: &Event) -> Self {
+        SearchRecord {
+            store: e.kind.clone(),
+            timestamp: Self::ts(&e.timestamp),
+            snippet: e.summary.clone(),
+            searchable: e.summary.clone(),
+        }
+    }
+
+    /// A record whose searchable text folds in an extra raw handle (number/JID)
+    /// alongside the (possibly contact-name-resolved) display snippet.
+    pub fn with_extra(e: &Event, extra: &str) -> Self {
+        let searchable =
+            if extra.is_empty() { e.summary.clone() } else { format!("{} {extra}", e.summary) };
+        SearchRecord {
+            store: e.kind.clone(),
+            timestamp: Self::ts(&e.timestamp),
+            snippet: e.summary.clone(),
+            searchable,
+        }
+    }
+}
 
 /// One record matching the query.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -26,22 +70,18 @@ fn contains_ci(haystack: &str, needle_lc: &str) -> bool {
     haystack.to_lowercase().contains(needle_lc)
 }
 
-/// Search timeline `events` and the address book `contacts` for `query`
-/// (case-insensitive substring). An empty/whitespace query matches nothing.
-/// Timeline hits come first in their existing order, then contact hits.
-pub fn search(events: &[Event], contacts: &[Contact], query: &str) -> Vec<SearchHit> {
+/// Search `records` and the address book `contacts` for `query` (case-insensitive
+/// substring of each record's `searchable` text). An empty/whitespace query
+/// matches nothing. Record hits come first in their existing order, then contacts.
+pub fn search(records: &[SearchRecord], contacts: &[Contact], query: &str) -> Vec<SearchHit> {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
         return Vec::new();
     }
     let mut hits: Vec<SearchHit> = Vec::new();
-    for e in events {
-        if contains_ci(&e.summary, &q) || contains_ci(&e.kind, &q) {
-            hits.push(SearchHit {
-                store: e.kind.clone(),
-                timestamp: (!e.timestamp.is_empty()).then(|| e.timestamp.clone()),
-                snippet: e.summary.clone(),
-            });
+    for r in records {
+        if contains_ci(&r.searchable, &q) {
+            hits.push(SearchHit { store: r.store.clone(), timestamp: r.timestamp.clone(), snippet: r.snippet.clone() });
         }
     }
     for c in contacts {
@@ -83,6 +123,10 @@ mod tests {
         Event { timestamp: ts.into(), kind: kind.into(), summary: summary.into() }
     }
 
+    fn rec(ts: &str, kind: &str, summary: &str) -> SearchRecord {
+        SearchRecord::from_event(&ev(ts, kind, summary))
+    }
+
     fn contact(first: &str, last: &str, org: &str, phone: &str) -> Contact {
         Contact {
             first: first.into(),
@@ -96,40 +140,50 @@ mod tests {
     }
 
     #[test]
-    fn matches_event_summary_case_insensitively() {
-        let events = vec![
-            ev("2020-01-06T00:00:00+00:00", "call", "+420776452878 (42s)"),
-            ev("2020-02-01T00:00:00+00:00", "note", "Nákupní seznam: mléko"),
-            ev("2020-03-01T00:00:00+00:00", "safari", "https://example.com/page"),
+    fn matches_record_snippet_case_insensitively() {
+        let records = vec![
+            rec("2020-01-06T00:00:00+00:00", "call", "outgoing Jan Novák (42s)"),
+            rec("2020-02-01T00:00:00+00:00", "note", "Nákupní seznam: mléko"),
+            rec("2020-03-01T00:00:00+00:00", "safari", "https://example.com/page"),
         ];
-        let hits = search(&events, &[], "MLÉKO");
+        let hits = search(&records, &[], "MLÉKO");
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].store, "note");
         assert_eq!(hits[0].timestamp.as_deref(), Some("2020-02-01T00:00:00+00:00"));
     }
 
     #[test]
-    fn matches_phone_number_across_events_and_contacts() {
-        let events = vec![ev("2020-01-06T00:00:00+00:00", "call", "+420776452878 (42s)")];
+    fn raw_handle_matches_even_after_enrichment() {
+        // A call whose display snippet was renamed to the contact still matches the
+        // raw number via `with_extra`, and the contact matches too.
+        let enriched = ev("2020-01-06T00:00:00+00:00", "call", "outgoing Jan Novák (42s)");
+        let records = vec![SearchRecord::with_extra(&enriched, "+420776452878")];
         let contacts = vec![contact("Jan", "Novák", "Acme", "+420776452878")];
-        let hits = search(&events, &contacts, "776452878");
+        let hits = search(&records, &contacts, "776452878");
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].store, "call");
+        assert!(hits[0].snippet.contains("Jan Novák")); // display keeps the resolved name
         assert_eq!(hits[1].store, "contacts");
         assert_eq!(hits[1].timestamp, None);
-        assert!(hits[1].snippet.contains("Jan Novák"));
+    }
+
+    #[test]
+    fn kind_name_is_not_a_match() {
+        // Querying a category name must not return every record of that category.
+        let records = vec![rec("2020-01-06T00:00:00+00:00", "call", "outgoing Jan (42s)")];
+        assert!(search(&records, &[], "call").is_empty());
     }
 
     #[test]
     fn empty_query_matches_nothing() {
-        let events = vec![ev("2020-01-06T00:00:00+00:00", "call", "anything")];
-        assert!(search(&events, &[], "   ").is_empty());
+        let records = vec![rec("2020-01-06T00:00:00+00:00", "call", "anything")];
+        assert!(search(&records, &[], "   ").is_empty());
     }
 
     #[test]
     fn non_matching_query_returns_no_hits() {
-        let events = vec![ev("2020-01-06T00:00:00+00:00", "call", "+420776452878")];
+        let records = vec![rec("2020-01-06T00:00:00+00:00", "call", "outgoing Jan (1s)")];
         let contacts = vec![contact("Jan", "Novák", "Acme", "+420111000999")];
-        assert!(search(&events, &contacts, "zzzznotfound").is_empty());
+        assert!(search(&records, &contacts, "zzzznotfound").is_empty());
     }
 }
