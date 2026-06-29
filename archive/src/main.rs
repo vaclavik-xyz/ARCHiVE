@@ -1946,15 +1946,10 @@ fn run_search(cli: &Cli, password: Option<&str>, query: &str, format: &str, reda
 
     let records = collect_search_records(&backup);
     let contacts = opt_or_log(load_contacts(&backup), "contacts").unwrap_or_default();
-    let mut hits = search::search(&records, &contacts, query);
+    let hits = search::search(&records, &contacts, query);
     // Matching ran on the raw text; redaction masks identifiers only in the output —
-    // including the echoed query itself, so a redacted report leaks nothing.
-    let display_query = if redact { redact::redact_pii(query) } else { query.to_string() };
-    if redact {
-        for h in &mut hits {
-            h.snippet = redact::redact_pii(&h.snippet);
-        }
-    }
+    // the echoed query and the snippets alike, so a redacted report leaks nothing.
+    let (display_query, hits) = search::apply_redaction(query, hits, redact);
 
     let rendered = match format {
         Format::Csv => format::search_csv(&hits),
