@@ -79,10 +79,85 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Voicemail>> {
     rows.collect()
 }
 
+/// Build a customer-facing summary of the recovered voicemails.
+pub fn summary(items: &[Voicemail]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+
+    let caller = |v: &Voicemail| -> String {
+        if !v.contact_name.is_empty() {
+            v.contact_name.clone()
+        } else if !v.sender.is_empty() {
+            v.sender.clone()
+        } else {
+            "Neznámé/skryté".to_string()
+        }
+    };
+    let inbox = items.iter().filter(|v| !v.trashed).count();
+    let trash = items.iter().filter(|v| v.trashed).count();
+    let total_min = (items.iter().map(|v| v.duration_seconds.max(0)).sum::<i64>() / 60) as usize;
+    let unknown = items.iter().filter(|v| v.sender.is_empty()).count();
+    let matched = items.iter().filter(|v| !v.contact_name.is_empty()).count();
+    let top_callers: Vec<(String, usize)> =
+        tally(items.iter().map(caller)).into_iter().take(12).collect();
+
+    Summary::new("voicemail", "Hlasové zprávy", "hlasových zpráv", items.len())
+        .count("Ve schránce", inbox)
+        .count("V koši", trash)
+        .count("Celková délka (min)", total_min)
+        .count("Od neznámých čísel", unknown)
+        .count("Spárováno s kontaktem", matched)
+        .period_from(iso_range(items.iter().map(|v| v.date.as_str())))
+        .breakdown("Po letech", year_rows(items.iter().map(|v| v.date.as_str())))
+        .breakdown("Nejčastější volající", top_callers)
+        .breakdown(
+            "Podle stavu",
+            vec![("Ve schránce".to_string(), inbox), ("V koši".to_string(), trash)],
+        )
+        .note("Audio (.amr) se kopíruje jen s přepínačem --audio.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_fixtures::make_voicemail;
+
+    fn vm(sender: &str, date: &str, dur: i64, trashed: bool, contact: &str) -> Voicemail {
+        Voicemail {
+            rowid: 1,
+            sender: sender.into(),
+            date: date.into(),
+            duration_seconds: dur,
+            trashed,
+            trashed_at: None,
+            expiration: None,
+            flags: 0,
+            audio_file: None,
+            contact_name: contact.into(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let vms = vec![
+            vm("+420111", "2022-05-01T10:00:00+00:00", 30, false, "Jana"),
+            vm("+420111", "2024-06-01T10:00:00+00:00", 90, true, "Jana"),
+            vm("", "", 12, false, ""),
+        ];
+        let s = summary(&vms);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "hlasových zpráv");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Ve schránce"), Some(2));
+        assert_eq!(get("V koši"), Some(1));
+        assert_eq!(get("Celková délka (min)"), Some(2)); // (30+90+12)/60
+        assert_eq!(get("Od neznámých čísel"), Some(1));
+        assert_eq!(get("Spárováno s kontaktem"), Some(2));
+        let yr = s.breakdowns.iter().find(|b| b.title == "Po letech").unwrap();
+        assert_eq!(yr.rows, vec![("2022".to_string(), 1), ("2024".to_string(), 1)]);
+        let callers = s.breakdowns.iter().find(|b| b.title == "Nejčastější volající").unwrap();
+        assert_eq!(callers.rows[0], ("Jana".to_string(), 2));
+        assert!(s.period.is_some()); // derived from the two dated voicemails
+    }
 
     #[test]
     fn parses_voicemail_with_mixed_epochs() {

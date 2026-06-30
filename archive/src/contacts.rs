@@ -148,10 +148,108 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Contact>> {
     Ok(contacts)
 }
 
+/// Build a customer-facing summary of the recovered address book.
+pub fn summary(items: &[Contact]) -> crate::summary::Summary {
+    use crate::summary::{tally, Summary};
+
+    // Phone/email slots store their kind in `Labeled.label`; unlabeled slots are
+    // bucketed together so the breakdown stays honest rather than dropping them.
+    let label_or_blank = |l: &str| if l.is_empty() { "(bez štítku)".to_string() } else { l.to_string() };
+
+    let with_phone = items.iter().filter(|c| !c.phones.is_empty()).count();
+    let with_email = items.iter().filter(|c| !c.emails.is_empty()).count();
+    let with_address = items.iter().filter(|c| !c.addresses.is_empty()).count();
+    let phone_total = items.iter().map(|c| c.phones.len()).sum::<usize>();
+    let email_total = items.iter().map(|c| c.emails.len()).sum::<usize>();
+    let company_only = items
+        .iter()
+        .filter(|c| c.first.is_empty() && c.last.is_empty() && !c.organization.is_empty())
+        .count();
+    let with_note = items.iter().filter(|c| !c.note.is_empty()).count();
+
+    let phone_labels = items.iter().flat_map(|c| &c.phones).map(|p| label_or_blank(&p.label));
+    let email_labels = items.iter().flat_map(|c| &c.emails).map(|e| label_or_blank(&e.label));
+    let by_company: Vec<(String, usize)> =
+        tally(items.iter().filter(|c| !c.organization.is_empty()).map(|c| c.organization.clone()))
+            .into_iter()
+            .take(15)
+            .collect();
+
+    Summary::new("contacts", "Kontakty", "kontaktů", items.len())
+        .count("S telefonem", with_phone)
+        .count("S e-mailem", with_email)
+        .count("S adresou", with_address)
+        .count("Telefonních čísel celkem", phone_total)
+        .count("E-mailů celkem", email_total)
+        .count("Firemních (bez jména)", company_only)
+        .count("S poznámkou", with_note)
+        .breakdown("Telefony podle typu", tally(phone_labels))
+        .breakdown("E-maily podle typu", tally(email_labels))
+        .breakdown("Podle firmy", by_company)
+        .note("Adresář neukládá datum vytvoření, proto report nemá časové období.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_fixtures::make_addressbook;
+
+    fn labeled(label: &str, value: &str) -> Labeled {
+        Labeled { label: label.into(), value: value.into() }
+    }
+
+    fn contact(
+        first: &str,
+        last: &str,
+        organization: &str,
+        note: &str,
+        phones: Vec<Labeled>,
+        emails: Vec<Labeled>,
+        addresses: Vec<Address>,
+    ) -> Contact {
+        Contact {
+            first: first.into(),
+            last: last.into(),
+            organization: organization.into(),
+            phones,
+            emails,
+            note: note.into(),
+            addresses,
+        }
+    }
+
+    #[test]
+    fn summary_counts_and_breakdowns() {
+        let people = vec![
+            contact(
+                "Jan",
+                "Novák",
+                "Acme",
+                "kamarád",
+                vec![labeled("Mobile", "+420776452878"), labeled("Home", "+420123")],
+                vec![labeled("Home", "jan@example.cz")],
+                vec![Address { label: "Home".into(), city: "Praha".into(), ..Address::default() }],
+            ),
+            contact("", "", "Firma s.r.o.", "", vec![], vec![], vec![]),
+            contact("Eva", "Malá", "", "", vec![labeled("", "+420999")], vec![], vec![]),
+        ];
+        let s = summary(&people);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "kontaktů");
+        assert!(s.period.is_none()); // the address book has no creation date
+
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("S telefonem"), Some(2));
+        assert_eq!(get("Telefonních čísel celkem"), Some(3));
+        assert_eq!(get("E-mailů celkem"), Some(1));
+        assert_eq!(get("Firemních (bez jména)"), Some(1));
+
+        // All labels appear once, so ties break by name: "(bez štítku)" sorts first.
+        let phones = s.breakdowns.iter().find(|b| b.title == "Telefony podle typu").unwrap();
+        assert_eq!(phones.rows[0], ("(bez štítku)".to_string(), 1));
+        let firms = s.breakdowns.iter().find(|b| b.title == "Podle firmy").unwrap();
+        assert_eq!(firms.rows[0], ("Acme".to_string(), 1));
+    }
 
     #[test]
     fn parses_addresses_joined_on_uid() {

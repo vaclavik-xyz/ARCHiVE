@@ -131,9 +131,82 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<DataUsage>> {
     rows.collect()
 }
 
+/// Build a customer-facing summary of recovered per-process data usage.
+pub fn summary(items: &[DataUsage]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, Summary};
+
+    const MB: i64 = 1_048_576;
+    let wwan_sum: i64 = items.iter().map(|d| d.wwan_total).sum();
+    let wifi_sum: i64 = items.iter().map(|d| d.wifi_total).sum();
+
+    // Biggest consumers: label by bundle (falling back to process), value in
+    // whole MB; drop sub-MB rows and keep the top 15 by volume.
+    let mut top: Vec<(String, usize)> = items
+        .iter()
+        .map(|d| {
+            let label = if !d.bundle.is_empty() { d.bundle.clone() } else { d.process.clone() };
+            (label, ((d.wwan_total + d.wifi_total) / MB) as usize)
+        })
+        .filter(|(_, mb)| *mb > 0)
+        .collect();
+    top.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let top: Vec<(String, usize)> = top.into_iter().take(15).collect();
+
+    let by_network = vec![
+        ("Mobilní data".to_string(), (wwan_sum / MB) as usize),
+        ("Wi-Fi data".to_string(), (wifi_sum / MB) as usize),
+    ];
+
+    Summary::new("data-usage", "Přenosy dat", "procesů", items.len())
+        .count("Celkem dat (MB)", ((wwan_sum + wifi_sum) / MB) as usize)
+        .count("Mobilní data (MB)", (wwan_sum / MB) as usize)
+        .count("Wi-Fi data (MB)", (wifi_sum / MB) as usize)
+        .period_from(iso_range(items.iter().flat_map(|d| [d.first_seen.as_str(), d.last_seen.as_str()])))
+        .breakdown("Největší spotřebitelé", top)
+        .breakdown("Podle sítě", by_network)
+        .note("Čítače jsou jen za nedávné období (iOS je periodicky nuluje), ne celoživotní.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn du(process: &str, bundle: &str, wwan_total: i64, wifi_total: i64, first: &str, last: &str) -> DataUsage {
+        DataUsage {
+            process: process.into(),
+            bundle: bundle.into(),
+            wwan_in: wwan_total,
+            wwan_out: 0,
+            wifi_in: wifi_total,
+            wifi_out: 0,
+            wwan_total,
+            wifi_total,
+            first_seen: first.into(),
+            last_seen: last.into(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        const MB: i64 = 1_048_576;
+        let items = vec![
+            du("Safari", "com.apple.mobilesafari", 5 * MB, 10 * MB, "2023-05-01T10:00:00+00:00", "2023-06-01T10:00:00+00:00"),
+            du("mediaserverd", "", 2 * MB, 0, "2024-01-01T10:00:00+00:00", "2024-02-01T10:00:00+00:00"),
+            du("tiny", "", 100, 0, "", ""), // sub-MB → dropped from biggest-consumers
+        ];
+        let s = summary(&items);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "procesů");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Celkem dat (MB)"), Some(17)); // (7*MB+100 + 10*MB) / MB
+        assert_eq!(get("Mobilní data (MB)"), Some(7)); // (5*MB + 2*MB + 100) / MB
+        assert_eq!(get("Wi-Fi data (MB)"), Some(10));
+        let top = s.breakdowns.iter().find(|b| b.title == "Největší spotřebitelé").unwrap();
+        assert_eq!(top.rows[0], ("com.apple.mobilesafari".to_string(), 15)); // 5+10 MB, bundle label
+        let net = s.breakdowns.iter().find(|b| b.title == "Podle sítě").unwrap();
+        assert_eq!(net.rows, vec![("Mobilní data".to_string(), 7), ("Wi-Fi data".to_string(), 10)]);
+        assert!(s.period.is_some()); // derived from the two dated processes
+    }
 
     fn make_db(path: &Path) {
         let conn = Connection::open(path).unwrap();

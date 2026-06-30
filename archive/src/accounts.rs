@@ -96,6 +96,49 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Account>> {
     rows.collect()
 }
 
+/// Build a customer-facing summary of the recovered accounts (migration checklist).
+pub fn summary(items: &[Account]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+    use std::collections::HashSet;
+
+    // Group-by key: human type, else the reverse-DNS identifier, else "neznámý".
+    let type_key = |a: &Account| -> String {
+        if !a.account_type.is_empty() {
+            a.account_type.clone()
+        } else if !a.type_identifier.is_empty() {
+            a.type_identifier.clone()
+        } else {
+            "neznámý".to_string()
+        }
+    };
+
+    let active = items.iter().filter(|a| a.active == Some(true)).count();
+    let inactive = items.iter().filter(|a| a.active == Some(false)).count();
+    let with_username = items.iter().filter(|a| !a.username.is_empty()).count();
+    let third_party = items.iter().filter(|a| !a.bundle_id.is_empty()).count();
+    let distinct_types = items
+        .iter()
+        .map(|a| a.account_type.clone())
+        .filter(|s| !s.is_empty())
+        .collect::<HashSet<_>>()
+        .len();
+
+    Summary::new("accounts", "Účty", "účtů", items.len())
+        .count("Aktivních", active)
+        .count("Neaktivních", inactive)
+        .count("S uživatelským jménem", with_username)
+        .count("Aplikací třetích stran", third_party)
+        .count("Typů účtů", distinct_types)
+        .period_from(iso_range(items.iter().map(|a| a.date.as_str())))
+        .breakdown("Podle typu", tally(items.iter().map(type_key)))
+        .breakdown(
+            "Podle aplikace",
+            tally(items.iter().filter(|a| !a.bundle_id.is_empty()).map(|a| a.bundle_id.clone())),
+        )
+        .breakdown("Po letech (přidáno)", year_rows(items.iter().map(|a| a.date.as_str())))
+        .note("Hesla nejsou v tomto úložišti (jsou v klíčence) — jde o seznam účtů k obnově na novém zařízení.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +148,40 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("be-accounts-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("Accounts3.sqlite")
+    }
+
+    fn account(account_type: &str, type_id: &str, username: &str, bundle: &str, date: &str, active: Option<bool>) -> Account {
+        Account {
+            account_type: account_type.into(),
+            type_identifier: type_id.into(),
+            description: String::new(),
+            username: username.into(),
+            bundle_id: bundle.into(),
+            date: date.into(),
+            active,
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let accounts = vec![
+            account("iCloud", "com.apple.account.iCloud", "jane@icloud.com", "", "2020-03-01T10:00:00+00:00", Some(true)),
+            account("Google", "com.google.account", "jane@gmail.com", "com.google.Gmail", "2022-06-01T10:00:00+00:00", Some(true)),
+            account("Exchange", "com.apple.account.exchange", "", "", "", Some(false)),
+        ];
+        let s = summary(&accounts);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "účtů");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Aktivních"), Some(2));
+        assert_eq!(get("Neaktivních"), Some(1));
+        assert_eq!(get("S uživatelským jménem"), Some(2));
+        assert_eq!(get("Typů účtů"), Some(3));
+        let apps = s.breakdowns.iter().find(|b| b.title == "Podle aplikace").unwrap();
+        assert_eq!(apps.rows, vec![("com.google.Gmail".to_string(), 1)]);
+        let yr = s.breakdowns.iter().find(|b| b.title == "Po letech (přidáno)").unwrap();
+        assert_eq!(yr.rows, vec![("2020".to_string(), 1), ("2022".to_string(), 1)]);
+        assert!(s.period.is_some()); // derived from the two dated accounts
     }
 
     #[test]

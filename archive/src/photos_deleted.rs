@@ -55,6 +55,57 @@ pub fn into_deleted(items: Vec<Photo>) -> Vec<DeletedAsset> {
         .collect()
 }
 
+/// Build a customer-facing summary of the recovered recently-deleted assets.
+pub fn summary(items: &[DeletedAsset]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+
+    let img = items.iter().filter(|d| d.photo.kind == "image").count();
+    let vid = items.iter().filter(|d| d.photo.kind == "video").count();
+    let other = items.len() - img - vid;
+    let full_quality = items
+        .iter()
+        .filter(|d| d.photo.file.is_some() && !d.photo.file_is_thumbnail)
+        .count();
+    let thumbnail = items.iter().filter(|d| d.photo.file_is_thumbnail).count();
+    let missing = items.iter().filter(|d| d.photo.file.is_none()).count();
+    let with_gps = items
+        .iter()
+        .filter(|d| d.photo.latitude.is_some() && d.photo.longitude.is_some())
+        .count();
+    let favorites = items.iter().filter(|d| d.photo.favorite).count();
+    let in_album = items.iter().filter(|d| !d.photo.albums.is_empty()).count();
+
+    // Manual rows (occurrence counts over three fixed buckets); drop empties so
+    // an all-photos backup shows no spurious "Videa"/"Ostatní" lines.
+    let mut by_type: Vec<(String, usize)> = Vec::new();
+    for (label, n) in [("Fotky", img), ("Videa", vid), ("Ostatní", other)] {
+        if n > 0 {
+            by_type.push((label.to_string(), n));
+        }
+    }
+    let albums: Vec<(String, usize)> =
+        tally(items.iter().flat_map(|d| d.photo.albums.iter().cloned()))
+            .into_iter()
+            .take(15)
+            .collect();
+
+    Summary::new("photos-recently-deleted", "Nedávno smazané fotky", "obnovitelných položek", items.len())
+        .count("Fotek", img)
+        .count("Videí", vid)
+        .count("V plné kvalitě", full_quality)
+        .count("Jen náhled", thumbnail)
+        .count("Chybí v záloze", missing)
+        .count("S GPS", with_gps)
+        .count("Oblíbených", favorites)
+        .count("Bylo v albu", in_album)
+        .period_from(iso_range(items.iter().map(|d| d.photo.trashed_date.as_str())))
+        .breakdown("Podle typu", by_type)
+        .breakdown("Rok smazání", year_rows(items.iter().map(|d| d.photo.trashed_date.as_str())))
+        .breakdown("Rok pořízení", year_rows(items.iter().map(|d| d.photo.created.as_str())))
+        .breakdown("Alba", albums)
+        .note("iOS koš maže po ~30 dnech — obnovitelné jen v tomto okně.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,6 +177,59 @@ mod tests {
     fn into_deleted_without_trashed_date_has_empty_purge() {
         let deleted = into_deleted(vec![photo("b.jpg", true, "")]);
         assert_eq!(deleted[0].purge_after, "");
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn asset(
+        kind: &str,
+        created: &str,
+        trashed_date: &str,
+        file: Option<&str>,
+        thumb: bool,
+        gps: bool,
+        favorite: bool,
+        albums: &[&str],
+    ) -> DeletedAsset {
+        let mut p = photo("x.jpg", true, trashed_date);
+        p.kind = kind.to_string();
+        p.created = created.to_string();
+        p.file = file.map(String::from);
+        p.file_is_thumbnail = thumb;
+        if gps {
+            p.latitude = Some(50.08);
+            p.longitude = Some(14.42);
+        }
+        p.favorite = favorite;
+        p.albums = albums.iter().map(|a| a.to_string()).collect();
+        let purge_after = purge_after(&p.trashed_date);
+        DeletedAsset { photo: p, purge_after }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let items = vec![
+            asset("image", "2022-03-01T10:00:00+00:00", "2024-01-06T10:45:00+00:00", Some("photos/a.jpg"), false, true, true, &["Dovolená"]),
+            asset("image", "2023-07-01T10:00:00+00:00", "2024-02-06T10:45:00+00:00", None, false, false, false, &["Dovolená"]),
+            asset("video", "2021-05-01T10:00:00+00:00", "2025-03-06T10:45:00+00:00", Some("photos/b.mov"), true, false, false, &[]),
+        ];
+        let s = summary(&items);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "obnovitelných položek");
+
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Fotek"), Some(2));
+        assert_eq!(get("Videí"), Some(1));
+        assert_eq!(get("V plné kvalitě"), Some(1)); // a.jpg: present and not a thumbnail
+        assert_eq!(get("Jen náhled"), Some(1)); // b.mov: thumbnail fallback
+        assert_eq!(get("Chybí v záloze"), Some(1)); // second image: no file
+        assert_eq!(get("Bylo v albu"), Some(2));
+
+        let by_type = s.breakdowns.iter().find(|b| b.title == "Podle typu").unwrap();
+        assert_eq!(by_type.rows, vec![("Fotky".to_string(), 2), ("Videa".to_string(), 1)]);
+        let albums = s.breakdowns.iter().find(|b| b.title == "Alba").unwrap();
+        assert_eq!(albums.rows[0], ("Dovolená".to_string(), 2));
+
+        assert!(s.period.is_some()); // derived from the trashed dates
     }
 
     #[test]

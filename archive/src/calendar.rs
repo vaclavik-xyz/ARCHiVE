@@ -59,10 +59,78 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<CalendarEvent>> {
     rows.collect()
 }
 
+/// Build a customer-facing summary of the recovered calendar events.
+pub fn summary(items: &[CalendarEvent]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+    use std::collections::HashSet;
+
+    let all_day = items.iter().filter(|e| e.all_day).count();
+    let timed = items.iter().filter(|e| !e.all_day).count();
+    let with_end = items.iter().filter(|e| !e.end.is_empty()).count();
+    let calendars = items
+        .iter()
+        .filter(|e| !e.calendar.is_empty())
+        .map(|e| e.calendar.clone())
+        .collect::<HashSet<_>>()
+        .len();
+    let with_title = items.iter().filter(|e| !e.summary.is_empty()).count();
+    let calendar_key = |e: &CalendarEvent| -> String {
+        if e.calendar.is_empty() {
+            "(neznámý)".to_string()
+        } else {
+            e.calendar.clone()
+        }
+    };
+
+    Summary::new("calendar", "Kalendář", "událostí", items.len())
+        .count("Celodenních", all_day)
+        .count("Časovaných", timed)
+        .count("S koncem", with_end)
+        .count("Kalendářů", calendars)
+        .count("S názvem", with_title)
+        .period_from(iso_range(items.iter().map(|e| e.start.as_str())))
+        .breakdown("Po letech", year_rows(items.iter().map(|e| e.start.as_str())))
+        .breakdown("Podle kalendáře", tally(items.iter().map(calendar_key)))
+        .note("Jen kalendáře uložené v zařízení; účty iCloud/Google nemusí být součástí zálohy.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_fixtures::make_calendar;
+
+    fn event(title: &str, start: &str, end: &str, all_day: bool, calendar: &str) -> CalendarEvent {
+        CalendarEvent {
+            summary: title.into(),
+            start: start.into(),
+            end: end.into(),
+            all_day,
+            calendar: calendar.into(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let events = vec![
+            event("Standup", "2023-05-01T10:00:00+00:00", "2023-05-01T11:00:00+00:00", false, "Work"),
+            event("Holiday", "2024-12-24T00:00:00+00:00", "", true, "Home"),
+            event("", "", "", false, ""),
+        ];
+        let s = summary(&events);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "událostí");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Celodenních"), Some(1));
+        assert_eq!(get("Časovaných"), Some(2));
+        assert_eq!(get("S koncem"), Some(1));
+        assert_eq!(get("Kalendářů"), Some(2));
+        assert_eq!(get("S názvem"), Some(2));
+        let yr = s.breakdowns.iter().find(|b| b.title == "Po letech").unwrap();
+        assert_eq!(yr.rows, vec![("2023".to_string(), 1), ("2024".to_string(), 1)]);
+        let by_cal = s.breakdowns.iter().find(|b| b.title == "Podle kalendáře").unwrap();
+        assert!(by_cal.rows.iter().any(|(name, _)| name == "(neznámý)"));
+        assert!(s.period.is_some()); // derived from the two dated events
+    }
 
     #[test]
     fn parses_events_joined_and_ordered() {

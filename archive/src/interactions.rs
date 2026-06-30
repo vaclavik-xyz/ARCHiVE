@@ -176,9 +176,108 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<ContactInteractions>> {
     Ok(out)
 }
 
+/// Build a customer-facing recovery summary from already-aggregated per-contact
+/// interactions (no extra IO). The grand total is the number of interactions
+/// (sum of each contact's `total`), not the number of contacts.
+pub fn summary(items: &[ContactInteractions]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, Summary};
+    use std::collections::HashSet;
+
+    let total_interactions = items.iter().map(|c| c.total.max(0)).sum::<i64>() as usize;
+    let incoming = items.iter().map(|c| c.incoming.max(0)).sum::<i64>() as usize;
+    let outgoing = items.iter().map(|c| c.outgoing.max(0)).sum::<i64>() as usize;
+    let apps = items
+        .iter()
+        .flat_map(|c| c.apps.iter().cloned())
+        .collect::<HashSet<_>>()
+        .len();
+
+    // `parse` returns contacts pre-sorted by total descending, so the first 15
+    // rows are the busiest contacts; these are per-record values, not occurrence
+    // counts, so the rows are built manually rather than via `tally`.
+    let top_contacts: Vec<(String, usize)> = items
+        .iter()
+        .map(|c| (c.display_name.clone(), c.total.max(0) as usize))
+        .take(15)
+        .collect();
+
+    Summary::new("interactions", "Komunikace s kontakty", "interakcí", total_interactions)
+        .count("Kontaktů", items.len())
+        .count("Příchozích", incoming)
+        .count("Odchozích", outgoing)
+        .count("Použitých aplikací", apps)
+        .period_from(iso_range(
+            items.iter().map(|c| c.first.as_str()).chain(items.iter().map(|c| c.last.as_str())),
+        ))
+        .breakdown("Nejaktivnější kontakty", top_contacts)
+        .breakdown(
+            "Podle směru",
+            vec![("Příchozí".to_string(), incoming), ("Odchozí".to_string(), outgoing)],
+        )
+        .note(
+            "Odchozí interakce jsou podhodnocené — započítají se jen ty, kde se odesílatel pojí ke kontaktu.",
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ci(
+        name: &str,
+        total: i64,
+        incoming: i64,
+        outgoing: i64,
+        apps: &[&str],
+        first: &str,
+        last: &str,
+    ) -> ContactInteractions {
+        ContactInteractions {
+            display_name: name.into(),
+            identifier: String::new(),
+            total,
+            incoming,
+            outgoing,
+            apps: apps.iter().map(|s| s.to_string()).collect(),
+            first: first.into(),
+            last: last.into(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        // Pre-sorted by total descending, as `parse` returns them.
+        let items = vec![
+            ci(
+                "Alice",
+                5,
+                3,
+                2,
+                &["com.apple.MobileSMS", "com.apple.mobilephone"],
+                "2021-01-01T00:00:00+00:00",
+                "2023-06-01T00:00:00+00:00",
+            ),
+            ci(
+                "Bob",
+                2,
+                2,
+                0,
+                &["com.apple.mobilemail", "com.apple.MobileSMS"],
+                "2022-03-01T00:00:00+00:00",
+                "2022-05-01T00:00:00+00:00",
+            ),
+        ];
+        let s = summary(&items);
+        assert_eq!(s.total, 7); // 5 + 2 interactions, not the contact count
+        assert_eq!(s.total_label, "interakcí");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Kontaktů"), Some(2));
+        assert_eq!(get("Příchozích"), Some(5)); // 3 + 2
+        assert_eq!(get("Použitých aplikací"), Some(3)); // SMS, phone, mail (union)
+        let top = s.breakdowns.iter().find(|b| b.title == "Nejaktivnější kontakty").unwrap();
+        assert_eq!(top.rows[0], ("Alice".to_string(), 5)); // busiest contact first
+        assert!(s.period.is_some()); // first/last span a real range
+    }
 
     fn make_db(path: &Path) {
         let conn = Connection::open(path).unwrap();

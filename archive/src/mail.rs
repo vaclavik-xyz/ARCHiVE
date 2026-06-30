@@ -364,6 +364,50 @@ fn decode_base64(payload: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// Build a customer-facing summary of the recovered mail.
+pub fn summary(items: &[MailMessage]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+    use std::collections::HashSet;
+
+    let dated = items.iter().filter(|m| m.date.is_some()).count();
+    let undated = items.iter().filter(|m| m.date.is_none()).count();
+    let distinct_senders = items
+        .iter()
+        .map(|m| m.from.as_str())
+        .filter(|f| !f.is_empty())
+        .collect::<HashSet<_>>()
+        .len();
+    let no_subject = items.iter().filter(|m| m.subject.is_empty()).count();
+
+    let by_sender: Vec<(String, usize)> =
+        tally(items.iter().map(|m| m.from.clone()).filter(|f| !f.is_empty()))
+            .into_iter()
+            .take(15)
+            .collect();
+    // Domain = substring after the last `@` of `from`, lowercased; addresses
+    // without an `@` are skipped. `from` may carry display-name syntax
+    // (`Name <a@b.com>`), so the domain can include a trailing `>`.
+    let by_domain: Vec<(String, usize)> = tally(
+        items
+            .iter()
+            .filter_map(|m| m.from.rsplit_once('@').map(|(_, d)| d.to_ascii_lowercase())),
+    )
+    .into_iter()
+    .take(15)
+    .collect();
+
+    Summary::new("mail", "Pošta", "e-mailů", items.len())
+        .count("S datem", dated)
+        .count("Bez data", undated)
+        .count("Unikátních odesílatelů", distinct_senders)
+        .count("Bez předmětu", no_subject)
+        .period_from(iso_range(items.iter().map(|m| m.date.as_deref().unwrap_or(""))))
+        .breakdown("Po letech", year_rows(items.iter().map(|m| m.date.as_deref().unwrap_or(""))))
+        .breakdown("Podle odesílatele", by_sender)
+        .breakdown("Podle domény odesílatele", by_domain)
+        .note("Obvykle jen lokální/POP3 schránky; těla IMAP/Exchange nebývají v záloze.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,6 +423,36 @@ mod tests {
         buf.extend_from_slice(message.as_bytes());
         buf.extend_from_slice(plist.as_bytes());
         buf
+    }
+
+    fn mail(from: &str, subject: &str, date: Option<&str>) -> MailMessage {
+        MailMessage {
+            from: from.into(),
+            to: "me@x.cz".into(),
+            subject: subject.into(),
+            date: date.map(Into::into),
+            snippet: "...".into(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let msgs = vec![
+            mail("alice@example.com", "Ahoj", Some("2023-05-01T10:00:00+00:00")),
+            mail("alice@example.com", "", Some("2024-06-01T10:00:00+00:00")),
+            mail("", "Bez odesílatele", None),
+        ];
+        let s = summary(&msgs);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "e-mailů");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("S datem"), Some(2));
+        assert_eq!(get("Bez data"), Some(1));
+        assert_eq!(get("Unikátních odesílatelů"), Some(1)); // two messages, one sender
+        assert_eq!(get("Bez předmětu"), Some(1));
+        let dom = s.breakdowns.iter().find(|b| b.title == "Podle domény odesílatele").unwrap();
+        assert_eq!(dom.rows[0], ("example.com".to_string(), 2));
+        assert!(s.period.is_some()); // derived from the two dated messages
     }
 
     #[test]

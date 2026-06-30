@@ -151,10 +151,90 @@ pub fn extract_attachments(
     Ok(AttachmentSummary { dir: ATT_DIR.to_string(), extracted, missing })
 }
 
+/// Build a customer-facing summary of the recovered message attachments.
+pub fn summary(items: &[Attachment]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+
+    // Top-level MIME token (the part before `/`); empty when the MIME is unknown.
+    fn top(a: &Attachment) -> &str {
+        a.mime_type.split('/').next().unwrap_or("")
+    }
+    // Lowercased file extension (after the last `.`), else a stable placeholder.
+    let ext = |a: &Attachment| match a.name.rsplit_once('.') {
+        Some((_, e)) if !e.is_empty() => e.to_lowercase(),
+        _ => "bez přípony".to_string(),
+    };
+
+    let images = items.iter().filter(|a| a.mime_type.starts_with("image/")).count();
+    let videos = items.iter().filter(|a| a.mime_type.starts_with("video/")).count();
+    let audio = items.iter().filter(|a| a.mime_type.starts_with("audio/")).count();
+    // Empty MIME, or a top-level type that is none of image/video/audio.
+    let documents = items.iter().filter(|a| !matches!(top(a), "image" | "video" | "audio")).count();
+    let total_mb = (items.iter().map(|a| a.total_bytes).filter(|&b| b > 0).sum::<i64>() / 1_048_576) as usize;
+    let present = items.iter().filter(|a| !a.source_path.is_empty()).count();
+    let absent = items.iter().filter(|a| a.source_path.is_empty()).count();
+
+    Summary::new("attachments", "Přílohy zpráv", "příloh", items.len())
+        .count("Obrázků", images)
+        .count("Videí", videos)
+        .count("Audio zpráv", audio)
+        .count("Dokumentů a ostatní", documents)
+        .count("Celková velikost (MB)", total_mb)
+        .count("Dohledatelných v záloze", present)
+        .count("Chybí v záloze", absent)
+        .period_from(iso_range(items.iter().map(|a| a.created.as_str())))
+        .breakdown("Po letech", year_rows(items.iter().map(|a| a.created.as_str())))
+        .breakdown(
+            "Podle typu",
+            tally(items.iter().map(|a| {
+                let t = top(a);
+                if t.is_empty() { "neznámé".to_string() } else { t.to_string() }
+            })),
+        )
+        .breakdown(
+            "Podle přípony",
+            tally(items.iter().map(ext)).into_iter().take(12).collect(),
+        )
+        .note("Velikost je dolní odhad — některé přílohy nemají uloženou velikost.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_fixtures::make_sms_attachments;
+
+    fn att(name: &str, mime: &str, created: &str, bytes: i64, source: &str) -> Attachment {
+        Attachment {
+            name: name.into(),
+            mime_type: mime.into(),
+            created: created.into(),
+            total_bytes: bytes,
+            source_path: source.into(),
+            file: None,
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let items = vec![
+            att("photo.jpg", "image/jpeg", "2023-05-01T10:00:00+00:00", 2_097_152, "Library/SMS/Attachments/a/photo.jpg"),
+            att("clip.mov", "video/quicktime", "2024-06-01T10:00:00+00:00", 1_048_576, "Library/SMS/Attachments/b/clip.mov"),
+            att("notes.pdf", "", "", 0, ""),
+        ];
+        let s = summary(&items);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "příloh");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Obrázků"), Some(1));
+        assert_eq!(get("Videí"), Some(1));
+        assert_eq!(get("Dokumentů a ostatní"), Some(1)); // empty-MIME pdf
+        assert_eq!(get("Celková velikost (MB)"), Some(3)); // (2 MiB + 1 MiB) / 1_048_576
+        assert_eq!(get("Dohledatelných v záloze"), Some(2));
+        assert_eq!(get("Chybí v záloze"), Some(1));
+        let yr = s.breakdowns.iter().find(|b| b.title == "Po letech").unwrap();
+        assert_eq!(yr.rows, vec![("2023".to_string(), 1), ("2024".to_string(), 1)]);
+        assert!(s.period.is_some()); // derived from the two dated attachments
+    }
 
     #[test]
     fn parses_attachments_mapping_paths_and_epochs() {

@@ -391,9 +391,131 @@ fn intern(expr: &str) -> &'static str {
     }
 }
 
+/// Build a customer-facing summary of the recovered Health data: workouts plus
+/// the per-type quantity aggregates already computed during parsing.
+pub fn summary(data: &HealthData) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+
+    // Total of one quantity type's samples, summed value, by friendly name.
+    let qty_sum = |name: &str| -> f64 {
+        data.quantity_summary
+            .iter()
+            .find(|q| q.name == name)
+            .and_then(|q| q.sum)
+            .unwrap_or(0.0)
+    };
+
+    let measurements_total =
+        data.quantity_summary.iter().map(|q| q.count.max(0)).sum::<i64>() as usize;
+    let steps = qty_sum("step_count") as usize;
+    let walk_run_km = (qty_sum("distance_walking_running") / 1000.0) as usize;
+    let active_kcal = qty_sum("active_energy_burned") as usize;
+    let workout_min = (data
+        .workouts
+        .iter()
+        .filter_map(|w| w.duration_seconds)
+        .map(|d| d.max(0))
+        .sum::<i64>()
+        / 60) as usize;
+
+    // Workout activity label: friendly name, else the raw id, else "neznámé".
+    let activity = |w: &Workout| -> String {
+        w.activity_type
+            .clone()
+            .or_else(|| w.activity_type_id.map(|id| id.to_string()))
+            .unwrap_or_else(|| "neznámé".to_string())
+    };
+
+    // Per-measurement-type rows are values (sample counts), not occurrences, so
+    // build them manually and sort most-frequent first (ties by name).
+    let mut measure_rows: Vec<(String, usize)> = data
+        .quantity_summary
+        .iter()
+        .map(|q| (q.name.clone(), q.count.max(0) as usize))
+        .collect();
+    measure_rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    Summary::new("health", "Zdraví", "tréninků", data.workouts.len())
+        .count("Tréninků", data.workouts.len())
+        .count("Typů měření", data.quantity_summary.len())
+        .count("Měření celkem", measurements_total)
+        .count("Kroků celkem", steps)
+        .count("Vzdálenost chůze/běhu (km)", walk_run_km)
+        .count("Aktivní energie (kcal)", active_kcal)
+        .count("Tréninkový čas (min)", workout_min)
+        .period_from(iso_range(
+            data.workouts
+                .iter()
+                .map(|w| w.start.as_str())
+                .chain(data.workouts.iter().map(|w| w.end.as_str())),
+        ))
+        .breakdown("Podle typu tréninku", tally(data.workouts.iter().map(activity)))
+        .breakdown(
+            "Po letech (tréninky)",
+            year_rows(data.workouts.iter().map(|w| w.start.as_str())),
+        )
+        .breakdown("Měření podle typu", measure_rows)
+        .note("Vyžaduje šifrovanou zálohu; data jen pokud uživatel používá Zdraví / Apple Watch.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn workout(activity: Option<&str>, id: Option<i64>, start: &str, end: &str, dur: Option<i64>) -> Workout {
+        Workout {
+            activity_type_id: id,
+            activity_type: activity.map(String::from),
+            start: start.into(),
+            end: end.into(),
+            duration_seconds: dur,
+            total_distance: None,
+            total_energy_burned: None,
+        }
+    }
+
+    fn qty(name: &str, count: i64, sum: Option<f64>) -> QuantitySummary {
+        QuantitySummary {
+            data_type_id: 0,
+            name: name.into(),
+            count,
+            sum,
+            min: None,
+            avg: None,
+            max: None,
+            first: String::new(),
+            last: String::new(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let data = HealthData {
+            workouts: vec![
+                workout(Some("running"), Some(37), "2023-05-01T10:00:00+00:00", "2023-05-01T10:30:00+00:00", Some(1800)),
+                workout(Some("running"), Some(37), "2024-06-01T09:00:00+00:00", "2024-06-01T10:00:00+00:00", Some(3600)),
+            ],
+            quantity_summary: vec![
+                qty("step_count", 2, Some(12000.0)),
+                qty("distance_walking_running", 2, Some(8000.0)),
+                qty("active_energy_burned", 3, Some(450.0)),
+            ],
+        };
+        let s = summary(&data);
+        assert_eq!(s.total, 2);
+        assert_eq!(s.total_label, "tréninků");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Tréninků"), Some(2));
+        assert_eq!(get("Měření celkem"), Some(7)); // 2 + 2 + 3
+        assert_eq!(get("Kroků celkem"), Some(12000));
+        assert_eq!(get("Vzdálenost chůze/běhu (km)"), Some(8)); // 8000 m / 1000
+        assert_eq!(get("Tréninkový čas (min)"), Some(90)); // (1800 + 3600) / 60
+        let typ = s.breakdowns.iter().find(|b| b.title == "Podle typu tréninku").unwrap();
+        assert_eq!(typ.rows[0], ("running".to_string(), 2));
+        let yr = s.breakdowns.iter().find(|b| b.title == "Po letech (tréninky)").unwrap();
+        assert_eq!(yr.rows, vec![("2023".to_string(), 1), ("2024".to_string(), 1)]);
+        assert!(s.period.is_some()); // derived from workout start/end dates
+    }
 
     /// Build a synthetic modern-ish Health DB: a `samples` table (dates + type),
     /// `quantity_samples`, a `workouts` table, and a `workout_activities` table

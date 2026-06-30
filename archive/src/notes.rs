@@ -186,11 +186,89 @@ fn field_bytes(buf: &[u8], field: u64) -> Option<&[u8]> {
     None
 }
 
+/// Build a customer-facing summary of the recovered notes.
+pub fn summary(items: &[Note]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+    use std::collections::HashSet;
+
+    let decoded = items.iter().filter(|n| n.body_source == "decoded").count();
+    let snippet = items.iter().filter(|n| n.body_source == "snippet").count();
+    let empty = items.iter().filter(|n| n.body_source == "empty").count();
+    let titled = items.iter().filter(|n| !n.title.is_empty()).count();
+    let in_folder = items.iter().filter(|n| !n.folder.is_empty()).count();
+    let folders = items
+        .iter()
+        .filter(|n| !n.folder.is_empty())
+        .map(|n| n.folder.clone())
+        .collect::<HashSet<_>>()
+        .len();
+
+    // Recovery-quality breakdown holds raw counts, so build the rows manually and
+    // push only the non-zero buckets (`.breakdown` still drops it if all are zero).
+    let mut quality: Vec<(String, usize)> = Vec::new();
+    for (label, n) in [("Plně obnovené", decoded), ("Náhled textu", snippet), ("Prázdné", empty)] {
+        if n > 0 {
+            quality.push((label.to_string(), n));
+        }
+    }
+
+    Summary::new("notes", "Poznámky", "poznámek", items.len())
+        .count("Plně obnovených", decoded)
+        .count("Jen náhled textu", snippet)
+        .count("Prázdných/neobnovitelných", empty)
+        .count("S názvem", titled)
+        .count("Ve složce", in_folder)
+        .count("Složek", folders)
+        .period_from(iso_range(items.iter().map(|n| n.created.as_str())))
+        .breakdown("Po letech (vytvořeno)", year_rows(items.iter().map(|n| n.created.as_str())))
+        .breakdown(
+            "Podle složky",
+            tally(items.iter().map(|n| {
+                if n.folder.is_empty() { "bez složky".to_string() } else { n.folder.clone() }
+            })),
+        )
+        .breakdown("Podle kvality obnovy", quality)
+        .note("Náhled textu = tělo se nepodařilo plně dekódovat. Přílohy poznámek se neexportují.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_fixtures::make_notes;
     use std::io::Write;
+
+    fn note(title: &str, folder: &str, created: &str, body_source: &str) -> Note {
+        Note {
+            title: title.into(),
+            folder: folder.into(),
+            created: created.into(),
+            modified: String::new(),
+            body: String::new(),
+            body_source: body_source.into(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let notes = vec![
+            note("Nákup", "Práce", "2022-05-01T10:00:00+00:00", "decoded"),
+            note("", "Práce", "2024-06-01T10:00:00+00:00", "snippet"),
+            note("Heslo", "", "", "empty"),
+        ];
+        let s = summary(&notes);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "poznámek");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Plně obnovených"), Some(1));
+        assert_eq!(get("Jen náhled textu"), Some(1));
+        assert_eq!(get("S názvem"), Some(2));
+        assert_eq!(get("Složek"), Some(1));
+        let yr = s.breakdowns.iter().find(|b| b.title == "Po letech (vytvořeno)").unwrap();
+        assert_eq!(yr.rows, vec![("2022".to_string(), 1), ("2024".to_string(), 1)]);
+        let folder = s.breakdowns.iter().find(|b| b.title == "Podle složky").unwrap();
+        assert_eq!(folder.rows[0], ("Práce".to_string(), 2));
+        assert!(s.period.is_some()); // derived from the two dated notes
+    }
 
     /// Encode one length-delimited protobuf field (field number < 16).
     fn encode_ld(field: u64, payload: &[u8]) -> Vec<u8> {

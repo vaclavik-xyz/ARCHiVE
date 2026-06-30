@@ -36,6 +36,47 @@ pub struct IconSlot {
     pub label: String,
 }
 
+/// Build a customer-facing summary of the captured home-screen layout. This is
+/// a single point-in-time snapshot of where icons sit, so it carries no period.
+pub fn summary(items: &[IconSlot]) -> crate::summary::Summary {
+    use crate::summary::{tally, Summary};
+    use std::collections::HashSet;
+
+    let kind = |k: &str| items.iter().filter(|s| s.kind == k).count();
+    let pages = items
+        .iter()
+        .filter(|s| s.container.starts_with("page "))
+        .map(|s| s.container.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+    let in_dock = items.iter().filter(|s| s.container == "dock").count();
+    let in_folders = items.iter().filter(|s| s.container.starts_with("folder:")).count();
+
+    let placement = |s: &IconSlot| -> String {
+        if s.container == "dock" {
+            "Dock".to_string()
+        } else if s.container.starts_with("page ") {
+            "Stránka".to_string()
+        } else if s.container.starts_with("folder:") {
+            "Složka".to_string()
+        } else {
+            "Jinde".to_string()
+        }
+    };
+
+    Summary::new("homescreen-layout", "Rozložení plochy", "ikon", items.len())
+        .count("Aplikací", kind("app"))
+        .count("Webových klipů", kind("webclip"))
+        .count("Složek", kind("folder"))
+        .count("Widgetů", kind("widget"))
+        .count("Stránek plochy", pages)
+        .count("Ikon v docku", in_dock)
+        .count("Ikon ve složkách", in_folders)
+        .breakdown("Podle typu", tally(items.iter().map(|s| s.kind.clone())))
+        .breakdown("Podle umístění", tally(items.iter().map(placement)))
+        .note("Snímek rozložení k jednomu okamžiku — bez časového vývoje.")
+}
+
 /// Classification of a raw icon entry.
 enum Entry {
     Leaf { kind: String, identifier: String, label: String },
@@ -209,6 +250,41 @@ mod tests {
         let mut d = Dictionary::new();
         d.insert("displayIdentifier".into(), Value::String(id.into()));
         Value::Dictionary(d)
+    }
+
+    fn slot(container: &str, kind: &str) -> IconSlot {
+        IconSlot {
+            container: container.into(),
+            position: 0,
+            kind: kind.into(),
+            identifier: String::new(),
+            label: String::new(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_and_breakdowns() {
+        let slots = vec![
+            slot("dock", "app"),
+            slot("page 1", "app"),
+            slot("page 1", "folder"),
+            slot("page 2", "app"),
+            slot("folder:Social [page 1 #2]", "app"),
+            slot("page 1", "webclip"),
+        ];
+        let s = summary(&slots);
+        assert_eq!(s.total, 6);
+        assert_eq!(s.total_label, "ikon");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Aplikací"), Some(4));
+        assert_eq!(get("Stránek plochy"), Some(2)); // distinct "page N" containers
+        assert_eq!(get("Ikon v docku"), Some(1));
+        assert_eq!(get("Ikon ve složkách"), Some(1));
+        let by_type = s.breakdowns.iter().find(|b| b.title == "Podle typu").unwrap();
+        assert_eq!(by_type.rows[0], ("app".to_string(), 4));
+        let by_place = s.breakdowns.iter().find(|b| b.title == "Podle umístění").unwrap();
+        assert_eq!(by_place.rows[0], ("Stránka".to_string(), 4));
+        assert!(s.period.is_none()); // snapshot, not temporal
     }
 
     #[test]
