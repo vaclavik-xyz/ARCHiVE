@@ -122,10 +122,86 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Call>> {
     rows.collect()
 }
 
+/// Build a customer-facing summary of the recovered call history.
+pub fn summary(items: &[Call]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+    use std::collections::HashSet;
+
+    let party = |c: &Call| -> String {
+        if !c.contact_name.is_empty() {
+            c.contact_name.clone()
+        } else if !c.number.is_empty() {
+            c.number.clone()
+        } else {
+            "Neznámé".to_string()
+        }
+    };
+    let incoming = items.iter().filter(|c| c.direction == "incoming").count();
+    let outgoing = items.iter().filter(|c| c.direction == "outgoing").count();
+    let missed = items.iter().filter(|c| !c.answered).count();
+    let facetime = items.iter().filter(|c| c.service == "facetime").count();
+    let talk_min = (items.iter().map(|c| c.duration_seconds.max(0)).sum::<i64>() / 60) as usize;
+    let distinct = items.iter().map(party).collect::<HashSet<_>>().len();
+    let top_contacts: Vec<(String, usize)> = tally(items.iter().map(party)).into_iter().take(12).collect();
+
+    Summary::new("calls", "Hovory", "hovorů", items.len())
+        .count("Příchozích", incoming)
+        .count("Odchozích", outgoing)
+        .count("Nezvednutých", missed)
+        .count("FaceTime hovorů", facetime)
+        .count("Celkem provoláno (min)", talk_min)
+        .count("Různých čísel", distinct)
+        .period_from(iso_range(items.iter().map(|c| c.date.as_str())))
+        .breakdown("Po letech", year_rows(items.iter().map(|c| c.date.as_str())))
+        .breakdown("Podle typu", tally(items.iter().map(|c| c.service.clone())))
+        .breakdown("Nejčastější kontakty", top_contacts)
+        .note("Historie hovorů je na zařízení omezená — starší záznamy se postupně přepisují.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_fixtures::make_callhistory;
+
+    fn call(number: &str, date: &str, dur: i64, dir: &str, answered: bool, service: &str, contact: &str) -> Call {
+        Call {
+            number: number.into(),
+            date: date.into(),
+            duration_seconds: dur,
+            direction: dir.into(),
+            answered,
+            service: service.into(),
+            video: None,
+            call_type: None,
+            location: None,
+            country: None,
+            contact_name: contact.into(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let calls = vec![
+            call("+420111", "2023-05-01T10:00:00+00:00", 120, "incoming", true, "phone", "Jana"),
+            call("+420111", "2024-06-01T10:00:00+00:00", 0, "outgoing", false, "phone", "Jana"),
+            call("jana@x.cz", "", 60, "incoming", true, "facetime", ""),
+        ];
+        let s = summary(&calls);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "hovorů");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Příchozích"), Some(2));
+        assert_eq!(get("Odchozích"), Some(1));
+        assert_eq!(get("Nezvednutých"), Some(1));
+        assert_eq!(get("FaceTime hovorů"), Some(1));
+        assert_eq!(get("Celkem provoláno (min)"), Some(3)); // (120+0+60)/60
+        assert_eq!(get("Různých čísel"), Some(2));
+        let yr = s.breakdowns.iter().find(|b| b.title == "Po letech").unwrap();
+        assert_eq!(yr.rows, vec![("2023".to_string(), 1), ("2024".to_string(), 1)]);
+        let contacts = s.breakdowns.iter().find(|b| b.title == "Nejčastější kontakty").unwrap();
+        assert_eq!(contacts.rows[0], ("Jana".to_string(), 2));
+        assert!(s.period.is_some()); // derived from the two dated calls
+    }
 
     #[test]
     fn decode_address_reads_ascii_blob() {

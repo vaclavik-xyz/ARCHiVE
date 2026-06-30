@@ -39,6 +39,7 @@ mod search;
 mod significant_locations;
 mod sqlite_util;
 mod stats;
+mod summary;
 mod timeline;
 mod voice_memos;
 mod voicemail;
@@ -655,9 +656,11 @@ fn run_calls(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} call(s) to {}", calls.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &calls::summary(&calls))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "calls", "count": calls.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -1460,6 +1463,21 @@ fn write_or_pdf(
     };
     let _ = std::fs::remove_file(&tmp_html);
     outcome
+}
+
+/// Write the per-folder `<type>-summary.md` next to a just-exported file and
+/// return its path (for the command envelope's `outputs`). Markdown is
+/// dependency-free, so this never needs a browser and never fails the export.
+fn write_type_summary(
+    out: &std::path::Path,
+    device: &archive_core::DeviceInfo,
+    s: &summary::Summary,
+) -> Result<String, AppError> {
+    let generated = chrono::Utc::now().to_rfc3339();
+    let mut outputs: Vec<std::path::PathBuf> = Vec::new();
+    summary::write_summary_md(out, &generated, device, s, &mut outputs)
+        .map_err(|e| AppError::other(e.to_string()))?;
+    Ok(outputs[0].to_string_lossy().into_owned())
 }
 
 /// Fetch + parse a single SQLite store into memory via a secure auto-cleaned temp
