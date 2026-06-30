@@ -13,6 +13,7 @@ mod data_usage;
 mod datetime;
 mod db_export;
 mod device_backup;
+mod device_model;
 mod device_usage;
 mod enrich;
 mod format;

@@ -603,7 +603,7 @@ fn report_summary(items: &[crate::photos::Photo], device: &archive_core::DeviceI
     dated.sort_unstable(); // ISO-8601 sorts chronologically
     PhotoReportSummary {
         device_name: device.device_name.clone(),
-        model: device.model.clone(),
+        model: crate::device_model::display_model(&device.model),
         ios: device.product_version.clone(),
         total,
         photos: total - videos,
@@ -1903,6 +1903,7 @@ mod tests {
         v.created = "2026-06-28T09:00:00+00:00".into();
         let html = photos_html(&[a, v], &test_device(), true);
         assert!(html.contains("Lenka ipad"));
+        assert!(html.contains("iPad Air (iPad4,1)")); // friendly model name + identifier
         assert!(html.contains("iOS 12.5.8"));
         assert!(html.contains("14. 3. 2014 – 28. 6. 2026"));
     }
