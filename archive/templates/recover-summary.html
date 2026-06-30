@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Souhrn zálohy</title>
+<style>
+body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:32px;color:#222;font-size:14px;line-height:1.5}
+h1{font-size:20px;margin:0 0 2px}
+.sub{color:#777;font-size:12px;margin-bottom:18px}
+table.kv{border-collapse:collapse;margin:0 0 18px}
+table.kv td{padding:3px 16px 3px 0;vertical-align:top}
+table.kv td:first-child{color:#667;font-weight:600;white-space:nowrap}
+h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid #ddd;padding-bottom:3px}
+table.grid{border-collapse:collapse}
+table.grid th{text-align:left;color:#667;font-weight:600;font-size:12px;padding:2px 22px 4px 0;border-bottom:1px solid #eee}
+table.grid td{padding:2px 22px 2px 0}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+.muted{color:#999}
+@media print{body{margin:0}}
+</style></head><body>
+<h1>Souhrn zálohy</h1>
+<div class="sub">ARCHiVE · vytvořeno {{ generated }}</div>
+
+<table class="kv">
+<tr><td>Zařízení</td><td>{{ name }} — {{ model }}, iOS {{ ios }}</td></tr>
+<tr><td>Zachráněno celkem</td><td><b>{{ total }}</b> položek v {{ rows.len() }} typech dat</td></tr>
+{% if media_files > 0 %}<tr><td>Obnovené soubory</td><td>{{ media_files }}</td></tr>{% endif %}
+</table>
+
+<h2>Podle typu</h2>
+{% if !rows.is_empty() %}<table class="grid">
+<tr><th>Typ</th><th class="num">Počet</th><th>Soubory</th></tr>
+{% for r in rows %}<tr><td>{{ r.label }}</td><td class="num">{{ r.count }}</td><td class="muted">{{ r.files }}</td></tr>
+{% endfor %}</table>
+{% else %}<p class="muted">Z této zálohy se nepodařilo obnovit žádný datový typ.</p>{% endif %}
+
+</body></html>

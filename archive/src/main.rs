@@ -3289,6 +3289,22 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     // index.html leads the outputs list.
     let mut all_outputs = vec![index_path.to_string_lossy().into_owned()];
     all_outputs.extend(rec.outputs);
+
+    // Root one-pager covering every recovered type. Markdown is always written
+    // (dependency-free); the polished summary.pdf needs a headless browser, so a
+    // missing one degrades to md-only rather than failing the whole package.
+    let summary_md_path = out.join("summary.md");
+    std::fs::write(&summary_md_path, recover::summary_md(device, &generated, &rec.sections))
+        .map_err(|e| AppError::other(e.to_string()))?;
+    all_outputs.push(summary_md_path.to_string_lossy().into_owned());
+
+    let summary_pdf_path = out.join("summary.pdf");
+    let summary_html = recover::render_summary_html(device, &generated, &rec.sections);
+    match write_or_pdf(&summary_pdf_path, &summary_html, Format::Pdf, cli.chrome_path.as_deref()) {
+        Ok(()) => all_outputs.push(summary_pdf_path.to_string_lossy().into_owned()),
+        Err(e) => eprintln!("summary.pdf skipped ({}); summary.md written", e.message),
+    }
+
     Ok(serde_json::json!({
         "ok": true, "command": "recover",
         "outputs": all_outputs, "sections": rec.sections, "device": device_json(device)
