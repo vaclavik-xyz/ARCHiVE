@@ -512,7 +512,7 @@ pub fn photos_csv(items: &[crate::photos::Photo]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([
         "filename", "kind", "created", "favorite", "trashed", "width", "height",
-        "latitude", "longitude", "duration_seconds", "file",
+        "latitude", "longitude", "duration_seconds", "file", "file_is_thumbnail",
         "hidden", "edited", "live_photo", "modified", "added",
         "original_filename", "title", "burst_id", "albums", "trashed_date",
     ])
@@ -530,6 +530,7 @@ pub fn photos_csv(items: &[crate::photos::Photo]) -> String {
             opt_num(p.longitude),
             opt_num(p.duration_seconds),
             p.file.clone().unwrap_or_default(),
+            p.file_is_thumbnail.to_string(),
             p.hidden.to_string(),
             p.edited.to_string(),
             p.live_photo.to_string(),
@@ -554,17 +555,19 @@ pub fn photos_json(items: &[crate::photos::Photo]) -> String {
 #[template(path = "photos.html")]
 struct PhotosTemplate<'a> {
     photos: &'a [crate::photos::Photo],
+    has_thumbnails: bool,
 }
 
 pub fn photos_html(items: &[crate::photos::Photo]) -> String {
-    PhotosTemplate { photos: items }.render().unwrap()
+    let has_thumbnails = items.iter().any(|p| p.file_is_thumbnail);
+    PhotosTemplate { photos: items, has_thumbnails }.render().unwrap()
 }
 
 pub fn photos_deleted_csv(items: &[crate::photos_deleted::DeletedAsset]) -> String {
     let mut wtr = csv::Writer::from_writer(Vec::new());
     wtr.write_record([
         "filename", "kind", "created", "trashed_date", "purge_after",
-        "width", "height", "duration_seconds", "albums", "file",
+        "width", "height", "duration_seconds", "albums", "file", "file_is_thumbnail",
     ])
     .unwrap();
     for d in items {
@@ -580,6 +583,7 @@ pub fn photos_deleted_csv(items: &[crate::photos_deleted::DeletedAsset]) -> Stri
             opt_num(p.duration_seconds),
             p.albums.join("; "),
             p.file.clone().unwrap_or_default(),
+            p.file_is_thumbnail.to_string(),
         ])
         .unwrap();
     }
@@ -594,10 +598,12 @@ pub fn photos_deleted_json(items: &[crate::photos_deleted::DeletedAsset]) -> Str
 #[template(path = "photos-recently-deleted.html")]
 struct PhotosDeletedTemplate<'a> {
     assets: &'a [crate::photos_deleted::DeletedAsset],
+    has_thumbnails: bool,
 }
 
 pub fn photos_deleted_html(items: &[crate::photos_deleted::DeletedAsset]) -> String {
-    PhotosDeletedTemplate { assets: items }.render().unwrap()
+    let has_thumbnails = items.iter().any(|d| d.photo.file_is_thumbnail);
+    PhotosDeletedTemplate { assets: items, has_thumbnails }.render().unwrap()
 }
 
 pub fn homescreen_csv(items: &[crate::homescreen::IconSlot]) -> String {
@@ -1719,6 +1725,7 @@ mod tests {
             albums: vec!["Dovolená".into(), "Rodina".into()],
             source_path: "Media/DCIM/100APPLE/IMG_0001.HEIC".into(),
             file: Some("photos/1_IMG_0001.HEIC".into()),
+            file_is_thumbnail: false,
         }
     }
 

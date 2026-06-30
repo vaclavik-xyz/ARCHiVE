@@ -485,9 +485,14 @@ archive --backup <DIR> [--password <PW>] -o <OUT> photos -f <FORMAT> [--no-files
 `FORMAT` is one of `csv | json | html`. Writes `<OUT>/photos.<ext>`. **Files are
 extracted by default** into `<OUT>/photos/` (the camera roll can be many
 gigabytes); pass `--no-files` for a metadata-only catalog. Files are copied
-byte-for-byte (no transcoding/thumbnailing). The HTML output is a gallery linking
-the extracted files (HEIC/HEVC may not render inline in every browser; the files
-are present regardless).
+byte-for-byte (no transcoding). **Thumbnail fallback:** when an asset's
+full-resolution original is not in the backup (e.g. iCloud Shared Album items or
+iCloud-optimized originals, which keep only a thumbnail on-device), the
+reduced-quality thumbnail is extracted instead into `<OUT>/photos/thumbnails/`
+and flagged with `file_is_thumbnail: true` (iOS ≤12 `Thumbnails/V2` store). The
+HTML output is a gallery linking the extracted files (HEIC/HEVC may not render
+inline in every browser; the files are present regardless) and badges thumbnail
+fallbacks.
 
 Each asset: `filename`, `kind` (`image`/`video`/`unknown`), `created` /
 `modified` / `added` (ISO 8601 UTC; empty when unset), `favorite`, `hidden` (in
@@ -498,8 +503,10 @@ Deleted), `trashed_date` (ISO 8601 UTC when binned; empty otherwise),
 `duration_seconds` (videos; `null` otherwise), `burst_id` (`ZAVALANCHEUUID`; same
 id ⇒ same burst; `null` when not a burst), `original_filename`, `title` (caption),
 `albums` (array of album names this asset is in), `source_path` (backup-relative
-source), `file` (output-relative extracted path, or `null` when the asset is
-iCloud-only / absent from the backup). Album membership is resolved by discovering
+source), `file` (output-relative extracted path — points at the original, or at a
+`photos/thumbnails/` fallback, or `null` when neither the original nor a thumbnail
+is in the backup), `file_is_thumbnail` (`true` when `file` is a reduced-quality
+thumbnail fallback; `false` for full-resolution originals). Album membership is resolved by discovering
 the version-dependent `Z_<n>ASSETS` join table at runtime; version-dependent
 values (`live_photo`, album discovery) are best-effort and `kind_subtype` is kept
 raw for fidelity.
@@ -510,7 +517,7 @@ stdout envelope (the `files` object is present only when extraction ran):
 {
   "ok": true, "command": "photos", "count": 1240,
   "outputs": ["<OUT>/photos.json"],
-  "files": { "dir": "photos", "extracted": 1238, "missing": 2 },
+  "files": { "dir": "photos", "extracted": 1236, "thumbnails": 2, "missing": 2 },
   "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." }
 }
 ```
@@ -541,7 +548,7 @@ stdout envelope (the `files` object is present only when extraction ran):
 {
   "ok": true, "command": "photos-recently-deleted", "count": 7,
   "outputs": ["<OUT>/photos-recently-deleted.json"],
-  "files": { "dir": "recently-deleted", "extracted": 7, "missing": 0 },
+  "files": { "dir": "recently-deleted", "extracted": 7, "thumbnails": 0, "missing": 0 },
   "device": { "name": "iPhone", "ios": "16.0.3", "udid": "c61ff..." }
 }
 ```

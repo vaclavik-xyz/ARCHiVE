@@ -2815,9 +2815,12 @@ fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -
         "outputs": [out_file.to_string_lossy()], "device": device
     });
     if let Some(s) = summary {
-        eprintln!("Extracted {} file(s) ({} missing) to {}/{}", s.extracted, s.missing, out.display(), s.dir);
+        eprintln!(
+            "Extracted {} file(s) ({} as reduced-quality thumbnails, {} missing) to {}/{}",
+            s.extracted, s.thumbnails, s.missing, out.display(), s.dir
+        );
         envelope["files"] = serde_json::json!({
-            "dir": s.dir, "extracted": s.extracted, "missing": s.missing
+            "dir": s.dir, "extracted": s.extracted, "thumbnails": s.thumbnails, "missing": s.missing
         });
     }
     Ok(envelope)
@@ -2880,9 +2883,12 @@ fn run_photos_recently_deleted(
         "outputs": [out_file.to_string_lossy()], "device": device
     });
     if let Some(s) = summary {
-        eprintln!("Extracted {} file(s) ({} missing) to {}/{}", s.extracted, s.missing, out.display(), s.dir);
+        eprintln!(
+            "Extracted {} file(s) ({} as reduced-quality thumbnails, {} missing) to {}/{}",
+            s.extracted, s.thumbnails, s.missing, out.display(), s.dir
+        );
         envelope["files"] = serde_json::json!({
-            "dir": s.dir, "extracted": s.extracted, "missing": s.missing
+            "dir": s.dir, "extracted": s.extracted, "thumbnails": s.thumbnails, "missing": s.missing
         });
     }
     Ok(envelope)

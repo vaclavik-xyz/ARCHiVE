@@ -60,6 +60,11 @@ pub struct Photo {
     /// Output-relative path to the extracted file (`photos/<name>`); `None`
     /// until extraction runs or when the file is absent from the backup.
     pub file: Option<String>,
+    /// True when `file` is a reduced-quality thumbnail extracted as a fallback
+    /// because the full-resolution original is not in the backup (e.g. iCloud
+    /// Shared Album items or iCloud-optimized originals, which keep only a
+    /// thumbnail on-device). Always false for full-resolution originals.
+    pub file_is_thumbnail: bool,
 }
 
 /// Last path component of a (possibly `/`-containing) name.
@@ -262,6 +267,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Photo>> {
             albums: albums.get(&pk).cloned().unwrap_or_default(),
             source_path,
             file: None,
+            file_is_thumbnail: false,
         })
     })?;
     rows.collect()
@@ -271,10 +277,63 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Photo>> {
 pub struct PhotoSummary {
     /// Output-relative directory the files were written to.
     pub dir: String,
-    /// Files written.
+    /// Full-resolution originals written.
     pub extracted: usize,
-    /// Assets with no file present in the backup (e.g. iCloud-only).
+    /// Reduced-quality thumbnails written as a fallback because the original was
+    /// not in the backup (written under `<dir>/thumbnails/`).
+    pub thumbnails: usize,
+    /// Assets with no file at all in the backup (no original and no thumbnail).
     pub missing: usize,
+}
+
+/// Image file extensions a thumbnail can have (lowercase, no dot).
+const THUMB_IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "heic"];
+
+/// The backup-relative directory holding an asset's on-device thumbnails (the
+/// iOS ≤12 `Thumbnails/V2` store), derived from its `source_path`
+/// (`Media/<dir>/<file>` → `Media/PhotoData/Thumbnails/V2/<dir>/<file>/`). iOS
+/// stores each asset's thumbnails in a directory named after the asset, holding
+/// one or more size-coded JPEGs. `None` for an empty or non-`Media/` path.
+fn thumbnail_prefix(source_path: &str) -> Option<String> {
+    let rel = source_path.strip_prefix("Media/")?;
+    if rel.is_empty() {
+        return None;
+    }
+    Some(format!("Media/PhotoData/Thumbnails/V2/{rel}/"))
+}
+
+/// Choose the best thumbnail from a directory listing of backup-relative paths:
+/// the highest size-coded image. Size codes are fixed-width zero-padded numbers
+/// (e.g. `5003`, `5005`), so the lexically greatest image basename is the
+/// largest rendition. `None` when no image-typed candidate is present.
+fn pick_thumbnail(candidates: &[String]) -> Option<&str> {
+    candidates
+        .iter()
+        .filter(|p| {
+            let ext = basename(p).rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+            THUMB_IMAGE_EXTS.contains(&ext.as_str())
+        })
+        .max_by(|a, b| basename(a).cmp(basename(b)))
+        .map(|s| s.as_str())
+}
+
+/// Output filename for a thumbnail fallback: the asset's index and stem with the
+/// thumbnail's real extension (`770_IMG_0015.jpg`), so a video poster is not
+/// mislabeled with the video's `.MOV` extension.
+fn thumbnail_output_name(n: usize, asset_filename: &str, chosen: &str) -> String {
+    let ext = basename(chosen).rsplit('.').next().filter(|e| !e.is_empty()).unwrap_or("jpg").to_ascii_lowercase();
+    let base = basename(asset_filename);
+    let stem = base.rsplit_once('.').map(|(s, _)| s).unwrap_or(base);
+    format!("{n}_{stem}.{ext}")
+}
+
+/// Tally extraction outcomes: full originals, thumbnail fallbacks, and assets
+/// with no file at all.
+fn summarize(items: &[Photo], dir: &str) -> PhotoSummary {
+    let thumbnails = items.iter().filter(|p| p.file_is_thumbnail).count();
+    let extracted = items.iter().filter(|p| p.file.is_some() && !p.file_is_thumbnail).count();
+    let missing = items.iter().filter(|p| p.file.is_none()).count();
+    PhotoSummary { dir: dir.to_string(), extracted, thumbnails, missing }
 }
 
 /// Subdirectory (under the export dir) that receives the media files.
@@ -306,6 +365,7 @@ pub fn extract_into(
 ) -> std::io::Result<PhotoSummary> {
     let media_dir = out.join(subdir);
     std::fs::create_dir_all(&media_dir)?;
+    let thumb_dir = media_dir.join("thumbnails");
 
     for (i, item) in items.iter_mut().enumerate() {
         if item.source_path.is_empty() {
@@ -315,20 +375,78 @@ pub fn extract_into(
         let dest = media_dir.join(&name);
         match backup.fetch("CameraRollDomain", &item.source_path, &dest) {
             Ok(Some(_)) => item.file = Some(format!("{subdir}/{name}")),
-            Ok(None) => {}
+            // Original not in the backup: fall back to the on-device thumbnail,
+            // if one is present (iCloud Shared Album / iCloud-optimized assets).
+            Ok(None) => {
+                if let Some(out_name) = extract_thumbnail(backup, &item.source_path, &item.filename, i + 1, &thumb_dir) {
+                    item.file = Some(format!("{subdir}/thumbnails/{out_name}"));
+                    item.file_is_thumbnail = true;
+                }
+            }
             Err(why) => eprintln!("photo {}: fetch failed: {why}", item.filename),
         }
     }
 
-    let extracted = items.iter().filter(|p| p.file.is_some()).count();
-    let missing = items.iter().filter(|p| p.file.is_none()).count();
-    Ok(PhotoSummary { dir: subdir.to_string(), extracted, missing })
+    Ok(summarize(items, subdir))
+}
+
+/// Fetch an asset's best thumbnail into `thumb_dir` when the full-resolution
+/// original is missing from the backup. Returns the written output filename on
+/// success. Best-effort: a missing thumbnail directory or any list/fetch failure
+/// yields `None` (the asset stays counted as missing).
+fn extract_thumbnail(
+    backup: &archive_core::Backup,
+    source_path: &str,
+    asset_filename: &str,
+    n: usize,
+    thumb_dir: &Path,
+) -> Option<String> {
+    let prefix = thumbnail_prefix(source_path)?;
+    let candidates = backup.list("CameraRollDomain", &prefix).ok()?;
+    let chosen = pick_thumbnail(&candidates)?;
+    let out_name = thumbnail_output_name(n, asset_filename, chosen);
+    std::fs::create_dir_all(thumb_dir).ok()?;
+    let dest = thumb_dir.join(&out_name);
+    match backup.fetch("CameraRollDomain", chosen, &dest) {
+        Ok(Some(_)) => Some(out_name),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_fixtures::make_photos;
+
+    /// Minimal default `Photo` with the given filename, for tally/selection tests.
+    fn make_one(filename: &str) -> Photo {
+        Photo {
+            filename: filename.into(),
+            kind: "image".into(),
+            created: String::new(),
+            modified: String::new(),
+            added: String::new(),
+            favorite: false,
+            hidden: false,
+            trashed: false,
+            trashed_date: String::new(),
+            edited: false,
+            live_photo: false,
+            kind_subtype: None,
+            width: 0,
+            height: 0,
+            latitude: None,
+            longitude: None,
+            duration_seconds: None,
+            burst_id: None,
+            original_filename: String::new(),
+            title: String::new(),
+            albums: Vec::new(),
+            source_path: String::new(),
+            file: None,
+            file_is_thumbnail: false,
+        }
+    }
 
     #[test]
     fn parses_assets_with_kinds_flags_and_gps() {
@@ -444,6 +562,57 @@ mod tests {
         assert_eq!(output_name(1, "IMG_0001.HEIC"), "1_IMG_0001.HEIC");
         assert_eq!(output_name(2, "a/b/IMG_0002.MOV"), "2_IMG_0002.MOV");
         assert_ne!(output_name(1, "x.jpg"), output_name(2, "x.jpg"));
+    }
+
+    #[test]
+    fn thumbnail_prefix_derives_v2_directory() {
+        assert_eq!(
+            thumbnail_prefix("Media/PhotoData/PhotoCloudSharingData/16/UUID/100CLOUD/IMG_0017.JPG").as_deref(),
+            Some("Media/PhotoData/Thumbnails/V2/PhotoData/PhotoCloudSharingData/16/UUID/100CLOUD/IMG_0017.JPG/"),
+        );
+        assert_eq!(
+            thumbnail_prefix("Media/DCIM/100APPLE/IMG_0001.HEIC").as_deref(),
+            Some("Media/PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_0001.HEIC/"),
+        );
+        assert_eq!(thumbnail_prefix(""), None);
+        assert_eq!(thumbnail_prefix("Media/"), None);
+    }
+
+    #[test]
+    fn pick_thumbnail_takes_largest_image_and_ignores_non_images() {
+        let dir = "Media/PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_0001.HEIC";
+        let candidates = vec![
+            format!("{dir}/5003.JPG"),
+            format!("{dir}/5005.JPG"),
+            format!("{dir}/5000.AAE"), // sidecar, not an image
+        ];
+        assert_eq!(pick_thumbnail(&candidates), Some(format!("{dir}/5005.JPG").as_str()));
+        // No image-typed entry → None.
+        assert_eq!(pick_thumbnail(&[format!("{dir}/info.plist")]), None);
+        assert_eq!(pick_thumbnail(&[]), None);
+    }
+
+    #[test]
+    fn thumbnail_output_name_uses_thumbnail_extension() {
+        // Image asset: stem + thumbnail's jpg extension.
+        assert_eq!(thumbnail_output_name(770, "IMG_0017.JPG", "x/y/5005.JPG"), "770_IMG_0017.jpg");
+        // Video asset: a JPEG poster must not keep the .MOV extension.
+        assert_eq!(thumbnail_output_name(42, "IMG_0015.MOV", "x/y/5005.JPG"), "42_IMG_0015.jpg");
+    }
+
+    #[test]
+    fn summarize_counts_originals_thumbnails_and_missing() {
+        let mut orig = make_one("a.jpg");
+        orig.file = Some("photos/1_a.jpg".into());
+        let mut thumb = make_one("b.jpg");
+        thumb.file = Some("photos/thumbnails/2_b.jpg".into());
+        thumb.file_is_thumbnail = true;
+        let missing = make_one("c.jpg"); // file None
+        let s = summarize(&[orig, thumb, missing], "photos");
+        assert_eq!(s.extracted, 1);
+        assert_eq!(s.thumbnails, 1);
+        assert_eq!(s.missing, 1);
+        assert_eq!(s.dir, "photos");
     }
 
     #[test]

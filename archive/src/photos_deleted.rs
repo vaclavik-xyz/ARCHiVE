@@ -84,6 +84,7 @@ mod tests {
             albums: Vec::new(),
             source_path: String::new(),
             file: None,
+            file_is_thumbnail: false,
         }
     }
 
