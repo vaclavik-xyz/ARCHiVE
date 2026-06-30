@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Souhrn zálohy fotek</title>
+<style>
+body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:32px;color:#222;font-size:14px;line-height:1.5}
+h1{font-size:20px;margin:0 0 2px}
+.sub{color:#777;font-size:12px;margin-bottom:18px}
+table.kv{border-collapse:collapse;margin:0 0 18px}
+table.kv td{padding:3px 16px 3px 0;vertical-align:top}
+table.kv td:first-child{color:#667;font-weight:600;white-space:nowrap}
+h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid #ddd;padding-bottom:3px}
+table.grid td{padding:2px 22px 2px 0}
+.num{font-variant-numeric:tabular-nums;color:#333;text-align:right}
+.muted{color:#999}
+@media print{body{margin:0}}
+</style></head><body>
+<h1>Souhrn zálohy fotek a videí</h1>
+<div class="sub">ARCHiVE · vytvořeno {{ generated }}</div>
+
+<table class="kv">
+<tr><td>Zařízení</td><td>{{ device_name }} — {{ model }}, iOS {{ ios }}</td></tr>
+<tr><td>Zachráněno</td><td><b>{{ total }}</b> položek — {{ photos }} fotek, {{ videos }} videí</td></tr>
+<tr><td>Kvalita</td><td>{{ originals }} v plné kvalitě{% if thumbnails > 0 %} · <b>{{ thumbnails }}</b> jako náhled (snížená kvalita){% endif %}{% if missing > 0 %} · {{ missing }} nedostupných{% endif %}</td></tr>
+{% if !date_from.is_empty() %}<tr><td>Období</td><td>{{ date_from }} – {{ date_to }}</td></tr>{% endif %}
+<tr><td>Další</td><td>s polohou (GPS) {{ with_gps }} · oblíbené {{ favorites }} · v albech {{ in_albums }}</td></tr>
+</table>
+
+{% if !by_year.is_empty() %}
+<h2>Po letech</h2>
+<table class="grid">
+{% for y in by_year %}<tr><td>{{ y.year }}</td><td class="num">{{ y.count }}</td></tr>
+{% endfor %}</table>
+{% endif %}
+
+<h2>Alba{% if !albums.is_empty() %} ({{ albums.len() }}){% endif %}</h2>
+{% if !albums.is_empty() %}<table class="grid">
+{% for a in albums %}<tr><td>{{ a.name }}</td><td class="num">{{ a.count }}</td></tr>
+{% endfor %}</table>
+{% else %}<p class="muted">Žádná pojmenovaná alba.</p>{% endif %}
+
+</body></html>

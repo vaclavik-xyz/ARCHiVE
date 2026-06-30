@@ -207,6 +207,12 @@ enum Command {
         /// Skip file extraction (metadata catalog only).
         #[arg(long)]
         no_files: bool,
+        /// Render a text-only summary report (no gallery, no files copied):
+        /// device, totals, quality, period, per-year and per-album counts.
+        /// Writes `<out>/photos-summary.<ext>` (html/pdf). Fast — probes the
+        /// backup for quality counts without copying media.
+        #[arg(long)]
+        summary: bool,
     },
     /// Recover "Recently Deleted" photos/videos still inside the 30-day purge
     /// window (files on by default; --no-files to skip).
@@ -493,7 +499,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::SafariBookmarks { format } => run_safari_bookmarks(&cli, password.as_deref(), format),
         Command::Calendar { format } => run_calendar(&cli, password.as_deref(), format),
         Command::Notes { format } => run_notes(&cli, password.as_deref(), format),
-        Command::Photos { format, no_files } => run_photos(&cli, password.as_deref(), format, *no_files),
+        Command::Photos { format, no_files, summary } => run_photos(&cli, password.as_deref(), format, *no_files, *summary),
         Command::PhotosRecentlyDeleted { format, no_files } => {
             run_photos_recently_deleted(&cli, password.as_deref(), format, *no_files)
         }
@@ -2782,7 +2788,7 @@ fn run_notes(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
     }))
 }
 
-fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -> Result<serde_json::Value, AppError> {
+fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool, summary: bool) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "photos")?;
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export photos"))?;
     let backup = open_backup(cli, password)?;
@@ -2794,6 +2800,10 @@ fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -
             "note": "this backup has no photos", "device": device
         }));
     };
+
+    if summary {
+        return run_photos_summary(&backup, &items, out, format, device, cli);
+    }
 
     let summary = if no_files {
         None
@@ -2825,6 +2835,35 @@ fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -
         });
     }
     Ok(envelope)
+}
+
+/// Text-only summary report for `photos --summary`: no gallery, no files copied.
+/// Quality counts come from a backup availability probe (cheap), so a quick
+/// overview can be produced without the multi-gigabyte media extraction.
+fn run_photos_summary(
+    backup: &archive_core::Backup,
+    items: &[photos::Photo],
+    out: &std::path::Path,
+    format: Format,
+    device: serde_json::Value,
+    cli: &Cli,
+) -> Result<serde_json::Value, AppError> {
+    if !matches!(format, Format::Html | Format::Pdf) {
+        return Err(AppError::usage("--summary supports only -f html or -f pdf"));
+    }
+    let (originals, thumbnails, missing) = photos::availability(backup, items);
+    let generated = chrono::Utc::now().to_rfc3339();
+    let rendered =
+        format::photos_summary_html(items, backup.device_info(), &generated, originals, thumbnails, missing);
+    let out_file = out.join(format!("photos-summary.{}", format.extension()));
+    write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
+    eprintln!("Wrote summary report ({} item(s)) to {}", items.len(), out_file.display());
+    Ok(serde_json::json!({
+        "ok": true, "command": "photos", "mode": "summary", "count": items.len(),
+        "outputs": [out_file.to_string_lossy()],
+        "files": { "extracted": originals, "thumbnails": thumbnails, "missing": missing },
+        "device": device
+    }))
 }
 
 fn run_photos_recently_deleted(
@@ -4121,12 +4160,16 @@ mod cli_tests {
     fn parses_photos_invocation_with_no_files_flag() {
         let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "photos", "-f", "json", "--no-files"]).unwrap();
         match cli.command {
-            Command::Photos { format, no_files } => {
+            Command::Photos { format, no_files, summary } => {
                 assert_eq!(format, "json");
                 assert!(no_files);
+                assert!(!summary);
             }
             _ => panic!("expected Photos"),
         }
+        // --summary parses too
+        let s2 = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/out", "photos", "-f", "pdf", "--summary"]).unwrap();
+        assert!(matches!(s2.command, Command::Photos { summary, .. } if summary));
         let s = KNOWN_STORES.iter().find(|(n, ..)| *n == "photos").unwrap();
         assert!(s.1, "photos must now be supported");
     }

@@ -81,6 +81,7 @@ archive --backup ~/Backup/<UDID> -o out safari-bookmarks -f json
 archive --backup ~/Backup/<UDID> -o out calendar        -f html
 archive --backup ~/Backup/<UDID> -o out notes           -f html  # body decoded from gzip+protobuf
 archive --backup ~/Backup/<UDID> -o out photos          -f html  # gallery: albums, hidden, Live/burst, GPS; thumbnail fallback for iCloud-only originals
+archive --backup ~/Backup/<UDID> -o out photos --summary -f pdf   # text-only overview report (no gallery/media): device, totals, period, per-year/album
 archive --backup ~/Backup/<UDID> -o out photos-recently-deleted -f html  # recover trashed photos still in the 30-day window
 archive --backup ~/Backup/<UDID> -o out attachments     -f html  # Messages media gallery
 archive --backup ~/Backup/<UDID> -o out whatsapp        -f html  # transcript + media

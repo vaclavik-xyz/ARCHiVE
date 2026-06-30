@@ -479,8 +479,17 @@ or `empty`. Rich formatting, inline images, and attachments are not recovered
 ### `photos` — export Camera Roll metadata and files
 
 ```
-archive --backup <DIR> [--password <PW>] -o <OUT> photos -f <FORMAT> [--no-files]
+archive --backup <DIR> [--password <PW>] -o <OUT> photos -f <FORMAT> [--no-files] [--summary]
 ```
+
+**`--summary`** (with `-f html|pdf`) writes a text-only overview report to
+`<OUT>/photos-summary.<ext>` — no gallery and **no media copied**: device
+identity, totals (photo/video split), quality split, capture-date range, and
+per-year / per-album counts. Quality counts come from a cheap backup availability
+probe, so it is fast. The envelope carries `"mode": "summary"` and `files`
+(`extracted`/`thumbnails`/`missing`) but no `dir`. `--summary` requires
+`-f html` or `-f pdf` (it rejects `csv`/`json`). The rest of this section
+describes the default gallery mode.
 
 `FORMAT` is one of `csv | json | html`. Writes `<OUT>/photos.<ext>`. **Files are
 extracted by default** into `<OUT>/photos/` (the camera roll can be many

@@ -619,6 +619,33 @@ fn report_summary(items: &[crate::photos::Photo], device: &archive_core::DeviceI
     }
 }
 
+/// Item counts grouped by capture year (from `created`), oldest year first.
+/// Assets without a parseable year are omitted.
+fn year_counts(items: &[crate::photos::Photo]) -> Vec<(i32, usize)> {
+    use std::collections::BTreeMap;
+    let mut by_year: BTreeMap<i32, usize> = BTreeMap::new();
+    for p in items {
+        if let Ok(y) = p.created.get(0..4).unwrap_or("").parse::<i32>() {
+            *by_year.entry(y).or_default() += 1;
+        }
+    }
+    by_year.into_iter().collect()
+}
+
+/// Album names with their item counts, most populous first (ties broken by name).
+fn album_counts(items: &[crate::photos::Photo]) -> Vec<(String, usize)> {
+    use std::collections::HashMap;
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for p in items {
+        for a in &p.albums {
+            *counts.entry(a.as_str()).or_default() += 1;
+        }
+    }
+    let mut out: Vec<(String, usize)> = counts.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    out
+}
+
 #[derive(Template)]
 #[template(path = "photos.html")]
 struct PhotosTemplate<'a> {
@@ -628,6 +655,77 @@ struct PhotosTemplate<'a> {
 
 pub fn photos_html(items: &[crate::photos::Photo], device: &archive_core::DeviceInfo, files_extracted: bool) -> String {
     PhotosTemplate { photos: items, summary: report_summary(items, device, files_extracted) }.render().unwrap()
+}
+
+/// A `(year, count)` row for the summary template (named fields for Askama).
+struct YearRow {
+    year: i32,
+    count: usize,
+}
+
+/// An `(album, count)` row for the summary template.
+struct AlbumRow {
+    name: String,
+    count: usize,
+}
+
+#[derive(Template)]
+#[template(path = "photos-summary.html")]
+struct PhotoSummaryTemplate {
+    device_name: String,
+    model: String,
+    ios: String,
+    generated: String,
+    total: usize,
+    photos: usize,
+    videos: usize,
+    originals: usize,
+    thumbnails: usize,
+    missing: usize,
+    date_from: String,
+    date_to: String,
+    with_gps: usize,
+    favorites: usize,
+    in_albums: usize,
+    by_year: Vec<YearRow>,
+    albums: Vec<AlbumRow>,
+}
+
+/// Text-only summary report (no gallery): device identity plus recovery totals,
+/// quality split, capture period, and per-year / per-album counts — so a reader
+/// sees at a glance what the backup holds. `originals`/`thumbnails`/`missing`
+/// come from a backup availability probe (the summary copies no files);
+/// `generated` is an ISO-8601 timestamp, shown as a Czech date.
+pub fn photos_summary_html(
+    items: &[crate::photos::Photo],
+    device: &archive_core::DeviceInfo,
+    generated: &str,
+    originals: usize,
+    thumbnails: usize,
+    missing: usize,
+) -> String {
+    let s = report_summary(items, device, true);
+    PhotoSummaryTemplate {
+        device_name: s.device_name,
+        model: s.model,
+        ios: s.ios,
+        generated: cz_date(generated),
+        total: s.total,
+        photos: s.photos,
+        videos: s.videos,
+        originals,
+        thumbnails,
+        missing,
+        date_from: s.date_from,
+        date_to: s.date_to,
+        with_gps: s.with_gps,
+        favorites: s.favorites,
+        in_albums: s.in_albums,
+        by_year: year_counts(items).into_iter().map(|(year, count)| YearRow { year, count }).collect(),
+        albums: album_counts(items).into_iter().map(|(name, count)| AlbumRow { name, count }).collect(),
+    }
+    .render()
+    .unwrap()
 }
 
 pub fn photos_deleted_csv(items: &[crate::photos_deleted::DeletedAsset]) -> String {
@@ -1866,6 +1964,53 @@ mod tests {
         partial.longitude = None; // a partial coordinate is not a real fix
         let s = report_summary(&[partial], &test_device(), true);
         assert_eq!(s.with_gps, 0);
+    }
+
+    #[test]
+    fn photos_summary_html_renders_report_sections() {
+        let mut a = sample_photo();
+        a.created = "2022-10-09T10:00:00+00:00".into();
+        a.albums = vec!["Dovolená".into()];
+        let mut v = sample_photo();
+        v.kind = "video".into();
+        v.created = "2024-06-28T09:00:00+00:00".into();
+        v.albums = vec![];
+        // quality counts come from the availability probe (2 originals here)
+        let html = photos_summary_html(&[a, v], &test_device(), "2026-07-01T00:00:00+00:00", 2, 0, 0);
+        assert!(html.contains("Souhrn zálohy"));
+        assert!(html.contains("iPad Air (iPad4,1)"));
+        assert!(html.contains("vytvořeno 1. 7. 2026"));
+        assert!(html.contains("2 v plné kvalitě"));
+        assert!(html.contains("Po letech"));
+        assert!(html.contains("2022"));
+        assert!(html.contains("Dovolená"));
+    }
+
+    #[test]
+    fn year_counts_groups_by_capture_year_oldest_first() {
+        let mut a = sample_photo();
+        a.created = "2022-10-09T10:00:00+00:00".into();
+        let mut b = sample_photo();
+        b.created = "2024-01-01T10:00:00+00:00".into();
+        let mut c = sample_photo();
+        c.created = "2022-12-31T10:00:00+00:00".into();
+        let mut d = sample_photo();
+        d.created = String::new(); // undated → omitted
+        assert_eq!(year_counts(&[a, b, c, d]), vec![(2022, 2), (2024, 1)]);
+    }
+
+    #[test]
+    fn album_counts_sorted_by_count_then_name() {
+        let mut a = sample_photo();
+        a.albums = vec!["Rodina".into(), "Dovolená".into()];
+        let mut b = sample_photo();
+        b.albums = vec!["Dovolená".into()];
+        let mut c = sample_photo();
+        c.albums = vec![];
+        assert_eq!(
+            album_counts(&[a, b, c]),
+            vec![("Dovolená".to_string(), 2), ("Rodina".to_string(), 1)]
+        );
     }
 
     #[test]
