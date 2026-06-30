@@ -2790,6 +2790,11 @@ fn run_notes(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
 
 fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool, summary: bool) -> Result<serde_json::Value, AppError> {
     let format = export_format(format, "photos")?;
+    // Validate the summary/format combo up front, before opening the backup, so a
+    // bad invocation fails the same way regardless of what the backup contains.
+    if summary && !matches!(format, Format::Html | Format::Pdf) {
+        return Err(AppError::usage("--summary supports only -f html or -f pdf"));
+    }
     let out = cli.out.as_deref().ok_or_else(|| AppError::usage("--out is required to export photos"))?;
     let backup = open_backup(cli, password)?;
     let device = device_json(backup.device_info());
@@ -2848,9 +2853,7 @@ fn run_photos_summary(
     device: serde_json::Value,
     cli: &Cli,
 ) -> Result<serde_json::Value, AppError> {
-    if !matches!(format, Format::Html | Format::Pdf) {
-        return Err(AppError::usage("--summary supports only -f html or -f pdf"));
-    }
+    // Format is validated by the caller (run_photos) before the backup is opened.
     let (originals, thumbnails, missing) = photos::availability(backup, items);
     let generated = chrono::Utc::now().to_rfc3339();
     let rendered =
@@ -3750,6 +3753,17 @@ mod cli_tests {
         let cli = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "schema-check", "-f", "vcf"]).unwrap();
         let err = run_schema_check(&cli, None, "vcf").unwrap_err();
         assert_eq!(err.kind, "usage");
+    }
+
+    #[test]
+    fn photos_summary_rejects_csv_and_json_before_opening_backup() {
+        // --summary is text-report only; csv/json must be rejected as a usage error
+        // up front, regardless of (and without opening) the backup.
+        for fmt in ["csv", "json"] {
+            let cli = Cli::try_parse_from(["archive", "--backup", "/no/such/backup", "-o", "/o", "photos", "-f", fmt, "--summary"]).unwrap();
+            let err = run_photos(&cli, None, fmt, false, true).unwrap_err();
+            assert_eq!(err.kind, "usage", "format {fmt} should be rejected");
+        }
     }
 
     #[test]
