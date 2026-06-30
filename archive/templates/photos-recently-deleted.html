@@ -6,12 +6,14 @@
 .item img{width:200px;height:200px;object-fit:cover;border:1px solid #ddd;display:block}
 .item.isthumb img{border:2px solid #e0a000}
 .cap{color:#555;margin-top:2px}.purge{color:#b00}.thumb{color:#a60;font-weight:600}
+.summary{font-size:14px;color:#333;margin:4px 0}
 .legend{color:#a60;font-size:13px;background:#fff8e6;border:1px solid #f0d890;padding:8px 10px;border-radius:6px;max-width:640px}</style></head><body>
 <h1>Nedávno smazané fotky a videa ({{ assets.len() }})</h1>
 <p>Položky z alba „Nedávno smazané". iOS je drží ~30 dní, než je trvale odstraní —
 záloha pořízená v tomto okně stále obsahuje původní soubory, takže je lze obnovit.
 „Trvale odstraněno po" je odhad (smazáno + 30 dní).</p>
-{% if has_thumbnails %}<p class="legend">🔍 <b>náhled</b> = snížená kvalita — originál v plné kvalitě není v této záloze (typicky iCloud sdílené album). Pro plnou kvalitu je potřeba iCloud účet nebo zařízení.</p>{% endif %}
+{% if thumbnails > 0 %}<p class="summary"><b>{{ originals }}</b> v plné kvalitě · <b>{{ thumbnails }}</b> jako náhled (snížená kvalita)</p>
+<p class="legend">🔍 <b>náhled</b> = snížená kvalita — originál v plné kvalitě není v této záloze (typicky iCloud sdílené album). Pro plnou kvalitu je potřeba iCloud účet nebo zařízení.</p>{% endif %}
 <div class="gallery">
 {% for a in assets %}
 <div class="item{% if a.photo.file_is_thumbnail %} isthumb{% endif %}">

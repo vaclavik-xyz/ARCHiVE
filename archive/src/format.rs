@@ -555,12 +555,14 @@ pub fn photos_json(items: &[crate::photos::Photo]) -> String {
 #[template(path = "photos.html")]
 struct PhotosTemplate<'a> {
     photos: &'a [crate::photos::Photo],
-    has_thumbnails: bool,
+    originals: usize,
+    thumbnails: usize,
 }
 
 pub fn photos_html(items: &[crate::photos::Photo]) -> String {
-    let has_thumbnails = items.iter().any(|p| p.file_is_thumbnail);
-    PhotosTemplate { photos: items, has_thumbnails }.render().unwrap()
+    let thumbnails = items.iter().filter(|p| p.file_is_thumbnail).count();
+    let originals = items.iter().filter(|p| p.file.is_some() && !p.file_is_thumbnail).count();
+    PhotosTemplate { photos: items, originals, thumbnails }.render().unwrap()
 }
 
 pub fn photos_deleted_csv(items: &[crate::photos_deleted::DeletedAsset]) -> String {
@@ -598,12 +600,14 @@ pub fn photos_deleted_json(items: &[crate::photos_deleted::DeletedAsset]) -> Str
 #[template(path = "photos-recently-deleted.html")]
 struct PhotosDeletedTemplate<'a> {
     assets: &'a [crate::photos_deleted::DeletedAsset],
-    has_thumbnails: bool,
+    originals: usize,
+    thumbnails: usize,
 }
 
 pub fn photos_deleted_html(items: &[crate::photos_deleted::DeletedAsset]) -> String {
-    let has_thumbnails = items.iter().any(|d| d.photo.file_is_thumbnail);
-    PhotosDeletedTemplate { assets: items, has_thumbnails }.render().unwrap()
+    let thumbnails = items.iter().filter(|d| d.photo.file_is_thumbnail).count();
+    let originals = items.iter().filter(|d| d.photo.file.is_some() && !d.photo.file_is_thumbnail).count();
+    PhotosDeletedTemplate { assets: items, originals, thumbnails }.render().unwrap()
 }
 
 pub fn homescreen_csv(items: &[crate::homescreen::IconSlot]) -> String {
@@ -1751,6 +1755,25 @@ mod tests {
         assert!(html.contains("◉Live")); // Live marker
         assert!(html.contains("Dovolená")); // album shown
         assert!(html.contains("Západ")); // title shown
+    }
+
+    #[test]
+    fn photos_html_reports_thumbnail_breakdown() {
+        let orig = sample_photo(); // full-quality original
+        let mut thumb = sample_photo();
+        thumb.filename = "IMG_0099.JPG".into();
+        thumb.file = Some("photos/thumbnails/2_IMG_0099.jpg".into());
+        thumb.file_is_thumbnail = true;
+        let html = photos_html(&[orig, thumb]);
+        // The report header states how many are full-quality vs thumbnail.
+        assert!(html.contains(">1</b> v plné kvalitě"), "missing originals count: {html}");
+        assert!(html.contains(">1</b> jako náhled"), "missing thumbnail count: {html}");
+    }
+
+    #[test]
+    fn photos_html_no_thumbnail_breakdown_when_none() {
+        let html = photos_html(&[sample_photo()]);
+        assert!(!html.contains("jako náhled"));
     }
 
     #[test]
