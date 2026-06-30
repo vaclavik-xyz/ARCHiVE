@@ -1775,7 +1775,10 @@ fn live_keys(db_path: &std::path::Path, store: &str) -> recover_deleted::LiveKey
         "notes" => rowid_live_keys(&conn, "SELECT Z_PK FROM ZICCLOUDSYNCINGOBJECT", &mut keys.rowids),
         "calendar" => rowid_live_keys(&conn, "SELECT ROWID FROM CalendarItem", &mut keys.rowids),
         "safari" => safari_live_keys(&conn, &mut keys),
-        "photos" => rowid_live_keys(&conn, "SELECT Z_PK FROM ZASSET", &mut keys.rowids),
+        "photos" => {
+            let table = photos_live_table(&conn);
+            rowid_live_keys(&conn, &format!("SELECT Z_PK FROM {table}"), &mut keys.rowids)
+        }
         _ => Ok(()),
     };
     keys
@@ -1791,6 +1794,20 @@ fn message_live_keys(conn: &rusqlite::Connection, keys: &mut recover_deleted::Li
         }
     }
     Ok(())
+}
+
+/// The Camera Roll asset table present in `conn`: `ZASSET` on iOS 13+,
+/// `ZGENERICASSET` on iOS ≤12 (renamed in iOS 13). Falls back to the canonical
+/// `ZASSET` so a backup missing both still yields a best-effort (empty) result.
+/// Shares the rename knowledge with `schema_check::table_candidates`.
+fn photos_live_table(conn: &rusqlite::Connection) -> &'static str {
+    schema_check::table_candidates("ZASSET")
+        .into_iter()
+        .find(|t| {
+            conn.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", [*t], |_| Ok(()))
+                .is_ok()
+        })
+        .unwrap_or("ZASSET")
 }
 
 fn rowid_live_keys(conn: &rusqlite::Connection, sql: &str, out: &mut std::collections::HashSet<i64>) -> rusqlite::Result<()> {
@@ -3651,6 +3668,29 @@ mod cli_tests {
         assert!(matches!(d.command, Command::RecoverDeleted { ref format, ref store } if format == "html" && store == "all"));
         let m = Cli::try_parse_from(["archive", "--backup", "/b", "-o", "/o", "recover-deleted", "-f", "csv", "--store", "messages"]).unwrap();
         assert!(matches!(m.command, Command::RecoverDeleted { ref store, .. } if store == "messages"));
+    }
+
+    #[test]
+    fn photos_live_keys_read_from_ios12_zgenericasset() {
+        // recover-deleted excludes still-live assets via the photos table; on iOS
+        // ≤12 that table is ZGENERICASSET (renamed to ZASSET in iOS 13), so
+        // live_keys must read it or every live photo is wrongly carved as deleted.
+        let dir = std::env::temp_dir().join(format!("be-rd-gen-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("Photos.sqlite");
+        let _ = std::fs::remove_file(&db);
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE ZGENERICASSET (Z_PK INTEGER PRIMARY KEY);
+             INSERT INTO ZGENERICASSET VALUES (1), (2), (3);",
+        )
+        .unwrap();
+        drop(conn);
+
+        let keys = live_keys(&db, "photos");
+        assert_eq!(keys.rowids.len(), 3, "iOS 12 ZGENERICASSET live keys must be read");
+        assert!(keys.rowids.contains(&1) && keys.rowids.contains(&3));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
