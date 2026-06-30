@@ -6,9 +6,11 @@
 .item img{width:200px;height:200px;object-fit:cover;border:1px solid #ddd;display:block}
 .item.isthumb img{border:2px solid #e0a000}
 .cap{color:#555;margin-top:2px}.thumb{color:#a60;font-weight:600}
+.summary{font-size:14px;color:#333;margin:4px 0}
 .legend{color:#a60;font-size:13px;background:#fff8e6;border:1px solid #f0d890;padding:8px 10px;border-radius:6px;max-width:640px}</style></head><body>
 <h1>Fotky a videa ({{ photos.len() }})</h1>
-{% if has_thumbnails %}<p class="legend">🔍 <b>náhled</b> = snížená kvalita — originál v plné kvalitě není v této záloze (typicky položky z iCloud sdíleného alba, které se streamují z iCloudu). Pro plnou kvalitu je potřeba iCloud účet nebo zařízení.</p>{% endif %}
+{% if thumbnails > 0 %}<p class="summary"><b>{{ originals }}</b> v plné kvalitě · <b>{{ thumbnails }}</b> jako náhled (snížená kvalita)</p>
+<p class="legend">🔍 <b>náhled</b> = snížená kvalita — originál v plné kvalitě není v této záloze (typicky položky z iCloud sdíleného alba, které se streamují z iCloudu). Pro plnou kvalitu je potřeba iCloud účet nebo zařízení.</p>{% endif %}
 <div class="gallery">
 {% for p in photos %}
 <div class="item{% if p.file_is_thumbnail %} isthumb{% endif %}">
