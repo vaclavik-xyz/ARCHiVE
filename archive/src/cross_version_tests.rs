@@ -44,10 +44,12 @@ fn make_table(conn: &Connection, table: &str, cols: &[&str]) {
     conn.execute_batch(&format!("CREATE TABLE \"{table}\" ({body});")).unwrap();
 }
 
-/// The live column set as `schema_check` sees it (empty/`None` ⇒ table absent).
-fn live(conn: &Connection, table: &str) -> Option<HashSet<String>> {
-    let cols = table_columns(conn, table).ok()?;
-    if cols.is_empty() { None } else { Some(cols) }
+/// The live column set as `schema_check` sees it (empty/`None` ⇒ table absent),
+/// following known cross-iOS table renames: the first candidate present wins.
+fn live(conn: &Connection, table: &'static str) -> Option<HashSet<String>> {
+    crate::schema_check::table_candidates(table)
+        .into_iter()
+        .find_map(|t| table_columns(conn, t).ok().filter(|c| !c.is_empty()))
 }
 
 fn all_cols(need: &TableNeed) -> Vec<&'static str> {
@@ -121,6 +123,20 @@ fn matrix_dropping_any_required_column_drifts() {
             }
         }
     }
+}
+
+#[test]
+fn photos_ios12_zgenericasset_is_not_drift() {
+    // iOS ≤12 stores the Camera Roll under ZGENERICASSET (iOS 13 renamed it to
+    // ZASSET). The columns are compatible, so schema-check must accept the legacy
+    // table in ZASSET's place instead of reporting the photos store as drifted.
+    let store = EXPECTATIONS.iter().find(|s| s.command == "photos").unwrap();
+    let conn = Connection::open_in_memory().unwrap();
+    for need in store.needs {
+        make_table(&conn, "ZGENERICASSET", &all_cols(need));
+    }
+    let reports: Vec<_> = store.needs.iter().map(|n| check_table(n, live(&conn, n.table).as_ref())).collect();
+    assert_eq!(store_status(&reports), "ok", "iOS 12 ZGENERICASSET schema must not drift the photos store");
 }
 
 #[test]

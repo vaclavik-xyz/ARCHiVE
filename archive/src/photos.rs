@@ -1,5 +1,6 @@
-//! Read Camera Roll metadata from `Photos.sqlite` (`ZASSET`) and extract the
-//! photo/video files from `CameraRollDomain`.
+//! Read Camera Roll metadata from `Photos.sqlite` (`ZASSET` on iOS 13+,
+//! `ZGENERICASSET` on iOS ≤12) and extract the photo/video files from
+//! `CameraRollDomain`.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -90,6 +91,20 @@ fn table_exists(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
     Ok(n > 0)
 }
 
+/// The Camera Roll asset table name: `ZASSET` on iOS 13+, `ZGENERICASSET` on
+/// iOS ≤12 (Apple renamed it). Columns are otherwise compatible, so resolving
+/// the table name is all that's needed to read either schema. Prefers `ZASSET`
+/// when present and falls back to the historical name (so a backup missing both
+/// still fails with the familiar `no such table: ZASSET`).
+fn asset_table_name(conn: &Connection) -> rusqlite::Result<String> {
+    for name in ["ZASSET", "ZGENERICASSET"] {
+        if table_exists(conn, name)? {
+            return Ok(name.to_string());
+        }
+    }
+    Ok("ZASSET".to_string())
+}
+
 /// Discover the album↔asset many-to-many join (a `Z_<n>ASSETS` table with an
 /// `…ALBUMS` and an `…ASSETS` column — the number is schema-version-dependent) and
 /// build `asset_pk → album titles`. Empty when no such join / `ZGENERICALBUM`.
@@ -141,7 +156,8 @@ fn album_membership(conn: &Connection) -> rusqlite::Result<HashMap<i64, Vec<Stri
 /// missing optional columns and tables across iOS versions.
 pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Photo>> {
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let cols = table_columns(&conn, "ZASSET")?;
+    let asset_table = asset_table_name(&conn)?;
+    let cols = table_columns(&conn, &asset_table)?;
     let albums = album_membership(&conn)?;
     // Qualified ZASSET column, or NULL when absent (joined as alias `a`).
     let col = |n: &str| -> String { if cols.contains(n) { format!("a.{n}") } else { "NULL".into() } };
@@ -166,7 +182,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Photo>> {
     let sql = format!(
         "SELECT a.Z_PK, a.ZFILENAME, a.ZDIRECTORY, {created}, {modif}, {added}, {kind}, {subtype}, \
          {fav}, {hidden}, {trash}, {edited}, {w}, {h}, {lat}, {lon}, {dur}, {avalanche}, {orig_sel}, {title_sel}, {tdate} \
-         FROM ZASSET a {aa_join} ORDER BY {order}",
+         FROM {asset_table} a {aa_join} ORDER BY {order}",
         created = col("ZDATECREATED"),
         modif = col("ZMODIFICATIONDATE"),
         added = col("ZADDEDDATE"),
@@ -393,6 +409,33 @@ mod tests {
         assert_eq!(a.title, "");
         assert!(a.burst_id.is_none());
         assert!(a.albums.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parses_ios12_zgenericasset_table() {
+        // iOS ≤12 names the Camera Roll asset table ZGENERICASSET; iOS 13
+        // renamed it to ZASSET. The columns are otherwise compatible, so the
+        // extractor must resolve whichever table the backup actually has.
+        let dir = std::env::temp_dir().join(format!("be-photos-gen-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("Photos.sqlite");
+        let _ = std::fs::remove_file(&db);
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE ZGENERICASSET (Z_PK INTEGER PRIMARY KEY, ZFILENAME TEXT, ZDIRECTORY TEXT, ZKIND INTEGER, ZDATECREATED REAL);
+             INSERT INTO ZGENERICASSET VALUES (1, 'IMG_5301.JPG', 'DCIM/105APPLE', 0, 600000000.0);
+             INSERT INTO ZGENERICASSET VALUES (2, 'IMG_5350.MOV', 'DCIM/105APPLE', 1, 600000100.0);",
+        )
+        .unwrap();
+        drop(conn);
+
+        let assets = parse(&db).unwrap();
+        assert_eq!(assets.len(), 2);
+        assert_eq!(assets[0].filename, "IMG_5301.JPG");
+        assert_eq!(assets[0].kind, "image");
+        assert_eq!(assets[0].source_path, "Media/DCIM/105APPLE/IMG_5301.JPG");
+        assert_eq!(assets[1].kind, "video");
         std::fs::remove_dir_all(&dir).ok();
     }
 
