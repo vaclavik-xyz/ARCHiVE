@@ -2803,7 +2803,7 @@ fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool) -
     let rendered = match format {
         Format::Csv => format::photos_csv(&items),
         Format::Json => format::photos_json(&items),
-        Format::Html | Format::Pdf => format::photos_html(&items),
+        Format::Html | Format::Pdf => format::photos_html(&items, backup.device_info()),
         Format::Vcf => unreachable!("export_format rejects vcf"),
     };
     let out_file = out.join(format!("photos.{}", format.extension()));
@@ -3152,7 +3152,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
                 "photos",
             )
         };
-        rec.add("photos", "Fotky a videa", "photos.html", format::photos_html(&items), items.len(), media)?;
+        rec.add("photos", "Fotky a videa", "photos.html", format::photos_html(&items, backup.device_info()), items.len(), media)?;
 
         // Recently Deleted: a dedicated recovery view (own folder + estimated
         // purge dates). `items` is consumed here as the photos section is done.
