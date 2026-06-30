@@ -390,6 +390,47 @@ pub fn extract_into(
     Ok(summarize(items, subdir))
 }
 
+/// Backup-relative prefix of the iOS ≤12 thumbnail store.
+const THUMBNAIL_STORE: &str = "Media/PhotoData/Thumbnails/V2/";
+
+/// Whether a path is an image by extension (for thumbnail candidates).
+fn is_thumb_image(path: &str) -> bool {
+    let ext = basename(path).rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    THUMB_IMAGE_EXTS.contains(&ext.as_str())
+}
+
+/// Classify each asset's availability in the backup WITHOUT copying any files:
+/// `(originals, thumbnails, missing)` — how many full-resolution originals are
+/// present, how many would fall back to a thumbnail, and how many have neither.
+/// The cheap counterpart of [`extract_into`], for the `--summary` report. Scans
+/// the manifest once into in-memory sets, then probes each asset in O(1) (a
+/// per-asset `Backup::has`/`list` would rescan the whole manifest each call).
+pub fn availability(backup: &archive_core::Backup, items: &[Photo]) -> (usize, usize, usize) {
+    use std::collections::HashSet;
+    let present: HashSet<String> =
+        backup.list("CameraRollDomain", "").unwrap_or_default().into_iter().collect();
+    // Thumbnail directories (kept with a trailing '/') that hold ≥1 image file.
+    let thumb_dirs: HashSet<String> = present
+        .iter()
+        .filter(|p| p.starts_with(THUMBNAIL_STORE) && is_thumb_image(p))
+        .filter_map(|p| p.rsplit_once('/').map(|(dir, _)| format!("{dir}/")))
+        .collect();
+
+    let (mut originals, mut thumbnails, mut missing) = (0, 0, 0);
+    for item in items {
+        if item.source_path.is_empty() {
+            missing += 1;
+        } else if present.contains(&item.source_path) {
+            originals += 1;
+        } else if thumbnail_prefix(&item.source_path).is_some_and(|p| thumb_dirs.contains(&p)) {
+            thumbnails += 1;
+        } else {
+            missing += 1;
+        }
+    }
+    (originals, thumbnails, missing)
+}
+
 /// Fetch an asset's best thumbnail into `thumb_dir` when the full-resolution
 /// original is missing from the backup. Returns the written output filename on
 /// success. Best-effort: a missing thumbnail directory or any list/fetch failure
