@@ -10,9 +10,13 @@ use serde::Serialize;
 pub struct RecoverMedia {
     /// Output-relative media directory.
     pub dir: String,
-    /// Files written.
+    /// Full-resolution originals written.
     pub extracted: usize,
-    /// Items with no file in the backup.
+    /// Reduced-quality thumbnail fallbacks written (under `<dir>/thumbnails/`);
+    /// 0 for media types that have no thumbnail fallback. Counting these keeps
+    /// `extracted + thumbnails + missing == count`.
+    pub thumbnails: usize,
+    /// Items with no file at all in the backup.
     pub missing: usize,
 }
 
@@ -96,7 +100,7 @@ mod tests {
                 label: "Fotky".into(),
                 file: "photos.html".into(),
                 count: 1240,
-                media: Some(RecoverMedia { dir: "photos".into(), extracted: 1238, missing: 2 }),
+                media: Some(RecoverMedia { dir: "photos".into(), extracted: 1236, thumbnails: 2, missing: 2 }),
             },
         ]
     }
@@ -115,7 +119,8 @@ mod tests {
         assert!(html.contains("1234"));
         assert!(html.contains("href=\"photos.html\""));
         assert!(html.contains("href=\"photos\"") || html.contains("href=\"photos/\""));
-        assert!(html.contains("1238"));
+        assert!(html.contains("1236"));
+        assert!(html.contains("náhled")); // thumbnail count shown when > 0
         assert!(html.contains("2026-06-27T12:00:00+00:00"));
     }
 
@@ -140,7 +145,8 @@ mod tests {
         assert!(v[0].get("data_type").is_none());
         // Media section: `files` object present.
         assert_eq!(v[1]["type"], "photos");
-        assert_eq!(v[1]["files"]["extracted"], 1238);
+        assert_eq!(v[1]["files"]["extracted"], 1236);
+        assert_eq!(v[1]["files"]["thumbnails"], 2);
         assert_eq!(v[1]["files"]["missing"], 2);
     }
 

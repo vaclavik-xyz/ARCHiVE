@@ -2986,11 +2986,11 @@ impl Recovery<'_> {
 /// Wrap an `extract_*` summary into `RecoverMedia`, logging and yielding `None`
 /// on error (best-effort; the metadata HTML is still written).
 fn media_or_log(
-    result: std::io::Result<(String, usize, usize)>,
+    result: std::io::Result<(String, usize, usize, usize)>,
     what: &str,
 ) -> Option<recover::RecoverMedia> {
     match result {
-        Ok((dir, extracted, missing)) => Some(recover::RecoverMedia { dir, extracted, missing }),
+        Ok((dir, extracted, thumbnails, missing)) => Some(recover::RecoverMedia { dir, extracted, thumbnails, missing }),
         Err(e) => {
             eprintln!("recover: {what} files: {e}");
             None
@@ -3113,7 +3113,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         } else {
             media_or_log(
                 voicemail_audio::extract_audio(&backup, &mut items, out, audio::AudioFormat::Amr)
-                    .map(|s| (s.dir, s.extracted, s.missing)),
+                    .map(|s| (s.dir, s.extracted, 0, s.missing)),
                 "voicemail",
             )
         };
@@ -3125,7 +3125,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         } else {
             media_or_log(
                 voice_memos::extract_voice_memos(&backup, &mut items, out, None)
-                    .map(|s| (s.dir, s.extracted, s.missing)),
+                    .map(|s| (s.dir, s.extracted, 0, s.missing)),
                 "voice-memos",
             )
         };
@@ -3148,7 +3148,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
             None
         } else {
             media_or_log(
-                photos::extract_photos(&backup, &mut items, out).map(|s| (s.dir, s.extracted, s.missing)),
+                photos::extract_photos(&backup, &mut items, out).map(|s| (s.dir, s.extracted, s.thumbnails, s.missing)),
                 "photos",
             )
         };
@@ -3168,7 +3168,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
             } else {
                 media_or_log(
                     photos::extract_into(&backup, &mut trashed, out, photos_deleted::DELETED_DIR)
-                        .map(|s| (s.dir, s.extracted, s.missing)),
+                        .map(|s| (s.dir, s.extracted, s.thumbnails, s.missing)),
                     "photos-recently-deleted",
                 )
             };
@@ -3188,7 +3188,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
             None
         } else {
             media_or_log(
-                attachments::extract_attachments(&backup, &mut items, out).map(|s| (s.dir, s.extracted, s.missing)),
+                attachments::extract_attachments(&backup, &mut items, out).map(|s| (s.dir, s.extracted, 0, s.missing)),
                 "attachments",
             )
         };
@@ -3202,7 +3202,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
             None
         } else {
             media_or_log(
-                whatsapp::extract_media(&backup, &mut items, out).map(|s| (s.dir, s.extracted, s.missing)),
+                whatsapp::extract_media(&backup, &mut items, out).map(|s| (s.dir, s.extracted, 0, s.missing)),
                 "whatsapp",
             )
         };

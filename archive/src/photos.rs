@@ -649,7 +649,7 @@ mod tests {
         let out = scratch.path().join("out");
         let summary = extract_photos(&backup, &mut items, &out).expect("extract");
         assert_eq!(summary.dir, "photos");
-        assert_eq!(summary.extracted + summary.missing, items.len());
+        assert_eq!(summary.extracted + summary.thumbnails + summary.missing, items.len());
         for v in items.iter().filter_map(|p| p.file.as_ref()) {
             let p = out.join(v);
             assert!(p.is_file(), "linked file should exist: {}", p.display());
