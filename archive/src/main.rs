@@ -3358,11 +3358,27 @@ fn run_messages(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     }
 
     eprintln!("Messages exported to {}", export_dir.display());
-    Ok(serde_json::json!({
+
+    // Best-effort per-folder summary read straight from sms.db. The exporter owns
+    // the transcript; a missing/odd store here must never fail the export, so any
+    // error degrades to "no summary".
+    let summary_file = (|| -> Option<String> {
+        let scratch = tempfile::TempDir::new().ok()?;
+        let tmp = scratch.path().join("sms.db");
+        let db = backup.fetch("HomeDomain", "Library/SMS/sms.db", &tmp).ok()??;
+        let stats = messages::stats(&db).ok()?;
+        write_type_summary(out, backup.device_info(), &messages::summary(&stats)).ok()
+    })();
+
+    let mut envelope = serde_json::json!({
         "ok": true, "command": "messages",
         "format": fmt, "output": export_dir.to_string_lossy(),
         "device": device
-    }))
+    });
+    if let Some(path) = summary_file {
+        envelope["summary"] = serde_json::Value::String(path);
+    }
+    Ok(envelope)
 }
 
 fn run_backup(cli: &Cli, password: Option<&str>, full: bool) -> Result<serde_json::Value, AppError> {
