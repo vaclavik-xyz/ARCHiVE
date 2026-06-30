@@ -117,6 +117,20 @@ pub fn store_status(tables: &[TableReport]) -> &'static str {
     }
 }
 
+/// Table names to try for a store's `TableNeed`, highest-priority first: the
+/// canonical name plus any known cross-iOS rename alias. iOS 13 renamed the
+/// Camera Roll asset table `ZGENERICASSET` → `ZASSET` (compatible column sets),
+/// so a schema-check of an iOS ≤12 backup must accept `ZGENERICASSET` in
+/// `ZASSET`'s place rather than report the photos store as drifted. The caller
+/// reads columns from the first candidate present. Mirrors how `locations`
+/// tolerates a store's database moving across iOS versions.
+pub fn table_candidates(table: &'static str) -> Vec<&'static str> {
+    match table {
+        "ZASSET" => vec!["ZASSET", "ZGENERICASSET"],
+        other => vec![other],
+    }
+}
+
 /// Every SQLite store the tool extracts from, with its load-bearing schema. Kept
 /// in sync by hand with the extractor modules' `SELECT`s and the canonical
 /// domain/paths in `KNOWN_STORES`; the required/optional split mirrors each

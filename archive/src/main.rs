@@ -1918,10 +1918,13 @@ fn run_schema_check(cli: &Cli, password: Option<&str>, format: &str) -> Result<s
                             .needs
                             .iter()
                             .map(|need| {
-                                let cols = sqlite_util::table_columns(&conn, need.table).ok();
+                                // Try the table's known cross-iOS names (e.g. photos'
+                                // ZASSET ⇄ ZGENERICASSET); the first present one wins.
                                 // PRAGMA returns an empty set for a missing table.
-                                let actual = cols.as_ref().filter(|c| !c.is_empty());
-                                schema_check::check_table(need, actual)
+                                let cols = schema_check::table_candidates(need.table)
+                                    .into_iter()
+                                    .find_map(|t| sqlite_util::table_columns(&conn, t).ok().filter(|c| !c.is_empty()));
+                                schema_check::check_table(need, cols.as_ref())
                             })
                             .collect();
                         (schema_check::store_status(&tables), tables)
