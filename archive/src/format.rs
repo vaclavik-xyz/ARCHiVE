@@ -551,18 +551,83 @@ pub fn photos_json(items: &[crate::photos::Photo]) -> String {
     serde_json::to_string_pretty(items).unwrap()
 }
 
+/// Customer-facing summary panel for the photos report: device identity plus
+/// at-a-glance recovery totals, so a reader immediately sees what was recovered.
+pub struct PhotoReportSummary {
+    pub device_name: String,
+    pub model: String,
+    pub ios: String,
+    /// Total catalogued assets.
+    pub total: usize,
+    /// Photos (everything that is not a video) and videos.
+    pub photos: usize,
+    pub videos: usize,
+    /// Full-resolution originals written vs reduced-quality thumbnail fallbacks.
+    pub originals: usize,
+    pub thumbnails: usize,
+    /// Capture-date range as "D. M. YYYY" (empty when no dated assets).
+    pub date_from: String,
+    pub date_to: String,
+    /// Assets with a GPS fix, marked favorite, and in at least one album.
+    pub with_gps: usize,
+    pub favorites: usize,
+    pub in_albums: usize,
+    /// Whether files were extracted this run; false under `--no-files`, where the
+    /// quality row is meaningless (nothing was written) and is hidden.
+    pub files_extracted: bool,
+}
+
+/// Reformat an ISO-8601 timestamp's date part to Czech "D. M. YYYY"; empty in /
+/// unparseable in → empty out.
+fn cz_date(iso: &str) -> String {
+    let date = iso.get(0..10).unwrap_or("");
+    let mut parts = date.split('-');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(y), Some(m), Some(d)) if y.len() == 4 && m.len() == 2 && d.len() == 2 => {
+            let m = m.trim_start_matches('0');
+            let d = d.trim_start_matches('0');
+            format!("{d}. {m}. {y}")
+        }
+        _ => String::new(),
+    }
+}
+
+/// Build the report summary panel data from the catalogue and device identity.
+/// `files_extracted` is false for a `--no-files` metadata-only export.
+fn report_summary(items: &[crate::photos::Photo], device: &archive_core::DeviceInfo, files_extracted: bool) -> PhotoReportSummary {
+    let total = items.len();
+    let videos = items.iter().filter(|p| p.kind == "video").count();
+    let thumbnails = items.iter().filter(|p| p.file_is_thumbnail).count();
+    let originals = items.iter().filter(|p| p.file.is_some() && !p.file_is_thumbnail).count();
+    let mut dated: Vec<&str> = items.iter().map(|p| p.created.as_str()).filter(|s| !s.is_empty()).collect();
+    dated.sort_unstable(); // ISO-8601 sorts chronologically
+    PhotoReportSummary {
+        device_name: device.device_name.clone(),
+        model: device.model.clone(),
+        ios: device.product_version.clone(),
+        total,
+        photos: total - videos,
+        videos,
+        originals,
+        thumbnails,
+        date_from: dated.first().map(|s| cz_date(s)).unwrap_or_default(),
+        date_to: dated.last().map(|s| cz_date(s)).unwrap_or_default(),
+        with_gps: items.iter().filter(|p| p.latitude.is_some() && p.longitude.is_some()).count(),
+        favorites: items.iter().filter(|p| p.favorite).count(),
+        in_albums: items.iter().filter(|p| !p.albums.is_empty()).count(),
+        files_extracted,
+    }
+}
+
 #[derive(Template)]
 #[template(path = "photos.html")]
 struct PhotosTemplate<'a> {
     photos: &'a [crate::photos::Photo],
-    originals: usize,
-    thumbnails: usize,
+    summary: PhotoReportSummary,
 }
 
-pub fn photos_html(items: &[crate::photos::Photo]) -> String {
-    let thumbnails = items.iter().filter(|p| p.file_is_thumbnail).count();
-    let originals = items.iter().filter(|p| p.file.is_some() && !p.file_is_thumbnail).count();
-    PhotosTemplate { photos: items, originals, thumbnails }.render().unwrap()
+pub fn photos_html(items: &[crate::photos::Photo], device: &archive_core::DeviceInfo, files_extracted: bool) -> String {
+    PhotosTemplate { photos: items, summary: report_summary(items, device, files_extracted) }.render().unwrap()
 }
 
 pub fn photos_deleted_csv(items: &[crate::photos_deleted::DeletedAsset]) -> String {
@@ -1704,6 +1769,16 @@ mod tests {
         assert!(!html.contains("<script>alert"));
     }
 
+    fn test_device() -> archive_core::DeviceInfo {
+        archive_core::DeviceInfo {
+            device_name: "Lenka ipad".into(),
+            product_version: "12.5.8".into(),
+            model: "iPad4,1".into(),
+            serial: "DMP".into(),
+            udid: "e316".into(),
+        }
+    }
+
     fn sample_photo() -> crate::photos::Photo {
         crate::photos::Photo {
             filename: "IMG_0001.HEIC".into(),
@@ -1750,7 +1825,7 @@ mod tests {
         assert_eq!(back[0]["duration_seconds"], serde_json::Value::Null);
         assert_eq!(back[0]["live_photo"], true);
         assert_eq!(back[0]["albums"][0], "Dovolená");
-        let html = photos_html(&p);
+        let html = photos_html(&p, &test_device(), true);
         assert!(html.contains("<img src=\"photos/1_IMG_0001.HEIC\""));
         assert!(html.contains("◉Live")); // Live marker
         assert!(html.contains("Dovolená")); // album shown
@@ -1764,23 +1839,79 @@ mod tests {
         thumb.filename = "IMG_0099.JPG".into();
         thumb.file = Some("photos/thumbnails/2_IMG_0099.jpg".into());
         thumb.file_is_thumbnail = true;
-        let html = photos_html(&[orig, thumb]);
-        // The report header states how many are full-quality vs thumbnail.
-        assert!(html.contains(">1</b> v plné kvalitě"), "missing originals count: {html}");
+        let html = photos_html(&[orig, thumb], &test_device(), true);
+        // The report panel states how many are full-quality vs thumbnail.
+        assert!(html.contains("1 v plné kvalitě"), "missing originals count: {html}");
         assert!(html.contains(">1</b> jako náhled"), "missing thumbnail count: {html}");
     }
 
     #[test]
     fn photos_html_no_thumbnail_breakdown_when_none() {
-        let html = photos_html(&[sample_photo()]);
+        let html = photos_html(&[sample_photo()], &test_device(), true);
         assert!(!html.contains("jako náhled"));
+    }
+
+    #[test]
+    fn photos_html_hides_quality_row_under_no_files() {
+        // --no-files extracts nothing, so a "0 v plné kvalitě" quality row would
+        // mislead; it must be hidden while the rest of the panel still shows.
+        let html = photos_html(&[sample_photo()], &test_device(), false);
+        assert!(!html.contains("v plné kvalitě"));
+        assert!(html.contains("Zachráněno"));
+    }
+
+    #[test]
+    fn report_summary_gps_requires_both_coordinates() {
+        let mut partial = sample_photo(); // latitude + longitude both set
+        partial.longitude = None; // a partial coordinate is not a real fix
+        let s = report_summary(&[partial], &test_device(), true);
+        assert_eq!(s.with_gps, 0);
+    }
+
+    #[test]
+    fn cz_date_reformats_iso_to_czech() {
+        assert_eq!(cz_date("2014-03-14T10:40:00+00:00"), "14. 3. 2014");
+        assert_eq!(cz_date("2026-06-28"), "28. 6. 2026");
+        assert_eq!(cz_date(""), "");
+        assert_eq!(cz_date("not-a-date"), "");
+    }
+
+    #[test]
+    fn report_summary_counts_kinds_period_and_attributes() {
+        let mut a = sample_photo(); // image, favorite, GPS, in albums
+        a.created = "2014-03-14T10:00:00+00:00".into();
+        let mut v = sample_photo();
+        v.kind = "video".into();
+        v.created = "2026-06-28T09:00:00+00:00".into();
+        v.favorite = false;
+        v.latitude = None;
+        v.albums = vec![];
+        let s = report_summary(&[a, v], &test_device(), true);
+        assert_eq!((s.total, s.photos, s.videos), (2, 1, 1));
+        assert_eq!((s.date_from.as_str(), s.date_to.as_str()), ("14. 3. 2014", "28. 6. 2026"));
+        assert_eq!((s.favorites, s.with_gps, s.in_albums), (1, 1, 1));
+        assert_eq!(s.device_name, "Lenka ipad");
+        assert_eq!(s.ios, "12.5.8");
+    }
+
+    #[test]
+    fn photos_html_panel_shows_device_and_period() {
+        let mut a = sample_photo();
+        a.created = "2014-03-14T10:00:00+00:00".into();
+        let mut v = sample_photo();
+        v.kind = "video".into();
+        v.created = "2026-06-28T09:00:00+00:00".into();
+        let html = photos_html(&[a, v], &test_device(), true);
+        assert!(html.contains("Lenka ipad"));
+        assert!(html.contains("iOS 12.5.8"));
+        assert!(html.contains("14. 3. 2014 – 28. 6. 2026"));
     }
 
     #[test]
     fn photos_html_escapes_album_title() {
         let mut p = sample_photo();
         p.albums = vec!["<script>alert(1)</script>".into()];
-        let html = photos_html(&[p]);
+        let html = photos_html(&[p], &test_device(), true);
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
     }
@@ -1789,7 +1920,7 @@ mod tests {
     fn photos_html_shows_burst_marker() {
         let mut p = sample_photo();
         p.burst_id = Some("BURST1".into());
-        let html = photos_html(&[p]);
+        let html = photos_html(&[p], &test_device(), true);
         assert!(html.contains("🔥BURST1"));
     }
 
@@ -1798,7 +1929,7 @@ mod tests {
         let mut p = sample_photo();
         p.file = None;
         p.filename = "<script>alert(1)</script>".into();
-        let html = photos_html(&[p]);
+        let html = photos_html(&[p], &test_device(), true);
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
     }
@@ -1890,7 +2021,7 @@ mod tests {
         // A crafted file path must not break out of the src/href attribute.
         let mut p = sample_photo();
         p.file = Some("photos/1_a\"><script>.jpg".into());
-        let html = photos_html(&[p]);
+        let html = photos_html(&[p], &test_device(), true);
         assert!(!html.contains("\"><script>"));
         assert!(html.contains("&#34;") || html.contains("&#62;"));
     }
