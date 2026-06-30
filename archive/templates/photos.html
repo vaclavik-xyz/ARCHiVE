@@ -15,7 +15,7 @@
 <table class="summary">
 <tr><td>Zařízení</td><td>{{ summary.device_name }} — {{ summary.model }}, iOS {{ summary.ios }}</td></tr>
 <tr><td>Zachráněno</td><td><b>{{ summary.total }}</b> položek — {{ summary.photos }} fotek, {{ summary.videos }} videí</td></tr>
-<tr><td>Kvalita</td><td>{{ summary.originals }} v plné kvalitě{% if summary.thumbnails > 0 %} · <b>{{ summary.thumbnails }}</b> jako náhled (snížená kvalita){% endif %}</td></tr>
+{% if summary.files_extracted %}<tr><td>Kvalita</td><td>{{ summary.originals }} v plné kvalitě{% if summary.thumbnails > 0 %} · <b>{{ summary.thumbnails }}</b> jako náhled (snížená kvalita){% endif %}</td></tr>{% endif %}
 {% if !summary.date_from.is_empty() %}<tr><td>Období</td><td>{{ summary.date_from }} – {{ summary.date_to }}</td></tr>{% endif %}
 <tr><td>Další</td><td>s polohou (GPS) {{ summary.with_gps }} · oblíbené {{ summary.favorites }} · v albech {{ summary.in_albums }}</td></tr>
 </table>

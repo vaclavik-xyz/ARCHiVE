@@ -572,6 +572,9 @@ pub struct PhotoReportSummary {
     pub with_gps: usize,
     pub favorites: usize,
     pub in_albums: usize,
+    /// Whether files were extracted this run; false under `--no-files`, where the
+    /// quality row is meaningless (nothing was written) and is hidden.
+    pub files_extracted: bool,
 }
 
 /// Reformat an ISO-8601 timestamp's date part to Czech "D. M. YYYY"; empty in /
@@ -590,7 +593,8 @@ fn cz_date(iso: &str) -> String {
 }
 
 /// Build the report summary panel data from the catalogue and device identity.
-fn report_summary(items: &[crate::photos::Photo], device: &archive_core::DeviceInfo) -> PhotoReportSummary {
+/// `files_extracted` is false for a `--no-files` metadata-only export.
+fn report_summary(items: &[crate::photos::Photo], device: &archive_core::DeviceInfo, files_extracted: bool) -> PhotoReportSummary {
     let total = items.len();
     let videos = items.iter().filter(|p| p.kind == "video").count();
     let thumbnails = items.iter().filter(|p| p.file_is_thumbnail).count();
@@ -608,9 +612,10 @@ fn report_summary(items: &[crate::photos::Photo], device: &archive_core::DeviceI
         thumbnails,
         date_from: dated.first().map(|s| cz_date(s)).unwrap_or_default(),
         date_to: dated.last().map(|s| cz_date(s)).unwrap_or_default(),
-        with_gps: items.iter().filter(|p| p.latitude.is_some()).count(),
+        with_gps: items.iter().filter(|p| p.latitude.is_some() && p.longitude.is_some()).count(),
         favorites: items.iter().filter(|p| p.favorite).count(),
         in_albums: items.iter().filter(|p| !p.albums.is_empty()).count(),
+        files_extracted,
     }
 }
 
@@ -621,8 +626,8 @@ struct PhotosTemplate<'a> {
     summary: PhotoReportSummary,
 }
 
-pub fn photos_html(items: &[crate::photos::Photo], device: &archive_core::DeviceInfo) -> String {
-    PhotosTemplate { photos: items, summary: report_summary(items, device) }.render().unwrap()
+pub fn photos_html(items: &[crate::photos::Photo], device: &archive_core::DeviceInfo, files_extracted: bool) -> String {
+    PhotosTemplate { photos: items, summary: report_summary(items, device, files_extracted) }.render().unwrap()
 }
 
 pub fn photos_deleted_csv(items: &[crate::photos_deleted::DeletedAsset]) -> String {
@@ -1820,7 +1825,7 @@ mod tests {
         assert_eq!(back[0]["duration_seconds"], serde_json::Value::Null);
         assert_eq!(back[0]["live_photo"], true);
         assert_eq!(back[0]["albums"][0], "Dovolená");
-        let html = photos_html(&p, &test_device());
+        let html = photos_html(&p, &test_device(), true);
         assert!(html.contains("<img src=\"photos/1_IMG_0001.HEIC\""));
         assert!(html.contains("◉Live")); // Live marker
         assert!(html.contains("Dovolená")); // album shown
@@ -1834,7 +1839,7 @@ mod tests {
         thumb.filename = "IMG_0099.JPG".into();
         thumb.file = Some("photos/thumbnails/2_IMG_0099.jpg".into());
         thumb.file_is_thumbnail = true;
-        let html = photos_html(&[orig, thumb], &test_device());
+        let html = photos_html(&[orig, thumb], &test_device(), true);
         // The report panel states how many are full-quality vs thumbnail.
         assert!(html.contains("1 v plné kvalitě"), "missing originals count: {html}");
         assert!(html.contains(">1</b> jako náhled"), "missing thumbnail count: {html}");
@@ -1842,8 +1847,25 @@ mod tests {
 
     #[test]
     fn photos_html_no_thumbnail_breakdown_when_none() {
-        let html = photos_html(&[sample_photo()], &test_device());
+        let html = photos_html(&[sample_photo()], &test_device(), true);
         assert!(!html.contains("jako náhled"));
+    }
+
+    #[test]
+    fn photos_html_hides_quality_row_under_no_files() {
+        // --no-files extracts nothing, so a "0 v plné kvalitě" quality row would
+        // mislead; it must be hidden while the rest of the panel still shows.
+        let html = photos_html(&[sample_photo()], &test_device(), false);
+        assert!(!html.contains("v plné kvalitě"));
+        assert!(html.contains("Zachráněno"));
+    }
+
+    #[test]
+    fn report_summary_gps_requires_both_coordinates() {
+        let mut partial = sample_photo(); // latitude + longitude both set
+        partial.longitude = None; // a partial coordinate is not a real fix
+        let s = report_summary(&[partial], &test_device(), true);
+        assert_eq!(s.with_gps, 0);
     }
 
     #[test]
@@ -1864,7 +1886,7 @@ mod tests {
         v.favorite = false;
         v.latitude = None;
         v.albums = vec![];
-        let s = report_summary(&[a, v], &test_device());
+        let s = report_summary(&[a, v], &test_device(), true);
         assert_eq!((s.total, s.photos, s.videos), (2, 1, 1));
         assert_eq!((s.date_from.as_str(), s.date_to.as_str()), ("14. 3. 2014", "28. 6. 2026"));
         assert_eq!((s.favorites, s.with_gps, s.in_albums), (1, 1, 1));
@@ -1879,7 +1901,7 @@ mod tests {
         let mut v = sample_photo();
         v.kind = "video".into();
         v.created = "2026-06-28T09:00:00+00:00".into();
-        let html = photos_html(&[a, v], &test_device());
+        let html = photos_html(&[a, v], &test_device(), true);
         assert!(html.contains("Lenka ipad"));
         assert!(html.contains("iOS 12.5.8"));
         assert!(html.contains("14. 3. 2014 – 28. 6. 2026"));
@@ -1889,7 +1911,7 @@ mod tests {
     fn photos_html_escapes_album_title() {
         let mut p = sample_photo();
         p.albums = vec!["<script>alert(1)</script>".into()];
-        let html = photos_html(&[p], &test_device());
+        let html = photos_html(&[p], &test_device(), true);
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
     }
@@ -1898,7 +1920,7 @@ mod tests {
     fn photos_html_shows_burst_marker() {
         let mut p = sample_photo();
         p.burst_id = Some("BURST1".into());
-        let html = photos_html(&[p], &test_device());
+        let html = photos_html(&[p], &test_device(), true);
         assert!(html.contains("🔥BURST1"));
     }
 
@@ -1907,7 +1929,7 @@ mod tests {
         let mut p = sample_photo();
         p.file = None;
         p.filename = "<script>alert(1)</script>".into();
-        let html = photos_html(&[p], &test_device());
+        let html = photos_html(&[p], &test_device(), true);
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
     }
@@ -1999,7 +2021,7 @@ mod tests {
         // A crafted file path must not break out of the src/href attribute.
         let mut p = sample_photo();
         p.file = Some("photos/1_a\"><script>.jpg".into());
-        let html = photos_html(&[p], &test_device());
+        let html = photos_html(&[p], &test_device(), true);
         assert!(!html.contains("\"><script>"));
         assert!(html.contains("&#34;") || html.contains("&#62;"));
     }
