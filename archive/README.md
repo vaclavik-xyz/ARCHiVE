@@ -70,6 +70,8 @@ archive --backup <backup-dir> -o <out> calendar         -f html
 archive --backup <backup-dir> -o <out> notes -f html
 
 # Camera Roll: metadata + extract photo/video files into <out>/photos/ (--no-files for catalog only)
+# Originals absent from the backup (iCloud Shared Album / iCloud-optimized) fall back to
+# their on-device thumbnail in <out>/photos/thumbnails/, flagged file_is_thumbnail.
 archive --backup <backup-dir> -o <out> photos -f html
 
 # Recently Deleted: recover trashed photos/videos still in the 30-day window into <out>/recently-deleted/
@@ -172,7 +174,7 @@ written under `<out>/messages`.
 - [x] voice-memos — csv, json, html (metadata) + audio extraction (native copy by default, or ffmpeg `m4a`/`wav`)
 - [x] safari-history · safari-bookmarks · calendar — csv, json, html
 - [x] notes — csv, json, html (body decoded from gzip+protobuf, snippet fallback)
-- [x] photos — csv, json, html gallery + file extraction; albums, hidden, Live/burst, edited, GPS, original name/title
+- [x] photos — csv, json, html gallery + file extraction; albums, hidden, Live/burst, edited, GPS, original name/title; thumbnail fallback (`file_is_thumbnail`) into `photos/thumbnails/` for originals absent from the backup (iCloud Shared Album / iCloud-optimized)
 - [x] photos-recently-deleted — csv, json, html + file recovery of trashed assets still in the 30-day purge window (with estimated purge date)
 - [x] attachments — csv, json, html gallery + Messages attachment file extraction
 - [x] recover — one-shot: all in-process data-store extractors + customer index.html (device sheet + links; excludes `messages` and `apps`)

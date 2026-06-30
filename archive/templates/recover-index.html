@@ -24,7 +24,7 @@ a{color:#0366d6;text-decoration:none}a:hover{text-decoration:underline}</style><
 <td>{{ s.label }}</td>
 <td>{{ s.count }}</td>
 <td><a href="{{ s.file }}">{{ s.file }}</a></td>
-<td>{% if let Some(m) = s.media.as_ref() %}<a href="{{ m.dir }}/">{{ m.dir }}/</a> ({{ m.extracted }} souborů, {{ m.missing }} chybí){% endif %}</td>
+<td>{% if let Some(m) = s.media.as_ref() %}<a href="{{ m.dir }}/">{{ m.dir }}/</a> ({{ m.extracted }} souborů{% if m.thumbnails > 0 %}, {{ m.thumbnails }} náhledů{% endif %}, {{ m.missing }} chybí){% endif %}</td>
 </tr>
 {% endfor %}
 </table>
