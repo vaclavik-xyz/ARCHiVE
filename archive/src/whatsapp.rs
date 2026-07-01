@@ -165,10 +165,84 @@ pub fn extract_media(
     Ok(WaSummary { dir: WA_DIR.to_string(), extracted, missing: with_media - extracted })
 }
 
+/// Build a customer-facing summary of the recovered WhatsApp messages.
+pub fn summary(items: &[WaMessage]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+    use std::collections::HashSet;
+
+    // Conversation key: chat name, else the resolved contact, else a placeholder.
+    let convo = |m: &WaMessage| -> String {
+        if !m.chat.is_empty() {
+            m.chat.clone()
+        } else if !m.contact_name.is_empty() {
+            m.contact_name.clone()
+        } else {
+            "neznámé".to_string()
+        }
+    };
+    let sent = items.iter().filter(|m| m.from_me).count();
+    let received = items.iter().filter(|m| !m.from_me).count();
+    let with_text = items.iter().filter(|m| !m.text.is_empty()).count();
+    let with_media = items.iter().filter(|m| !m.source_path.is_empty()).count();
+    let conversations = items.iter().map(convo).filter(|k| k != "neznámé").collect::<HashSet<_>>().len();
+    let top_convos: Vec<(String, usize)> = tally(items.iter().map(convo)).into_iter().take(12).collect();
+
+    Summary::new("whatsapp", "WhatsApp", "zpráv", items.len())
+        .count("Odeslaných", sent)
+        .count("Přijatých", received)
+        .count("S textem", with_text)
+        .count("S přílohou", with_media)
+        .count("Konverzací", conversations)
+        .period_from(iso_range(items.iter().map(|m| m.date.as_str())))
+        .breakdown("Po letech", year_rows(items.iter().map(|m| m.date.as_str())))
+        .breakdown("Konverzace", top_convos)
+        .breakdown("Podle směru", vec![("Odeslané".to_string(), sent), ("Přijaté".to_string(), received)])
+        .note("Statistiky médií vycházejí ze záznamů; s --no-files se soubory nekopírují.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_fixtures::make_whatsapp;
+
+    fn wa(chat: &str, sender: &str, from_me: bool, date: &str, text: &str, source_path: &str, contact: &str) -> WaMessage {
+        WaMessage {
+            chat: chat.into(),
+            chat_jid: String::new(),
+            sender: sender.into(),
+            from_me,
+            date: date.into(),
+            text: text.into(),
+            source_path: source_path.into(),
+            media_file: None,
+            contact_name: contact.into(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let msgs = vec![
+            wa("Jana", "", true, "2023-05-01T10:00:00+00:00", "Ahoj", "", ""),
+            wa("Jana", "420776452878@s.whatsapp.net", false, "2024-06-01T10:00:00+00:00", "", "Message/Media/x.jpg", ""),
+            wa("", "999@s.whatsapp.net", false, "", "Měj se", "", "Petr"),
+        ];
+        let s = summary(&msgs);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "zpráv");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Odeslaných"), Some(1));
+        assert_eq!(get("Přijatých"), Some(2));
+        assert_eq!(get("S textem"), Some(2));
+        assert_eq!(get("S přílohou"), Some(1));
+        assert_eq!(get("Konverzací"), Some(2)); // Jana + Petr (fallback to contact_name)
+        let yr = s.breakdowns.iter().find(|b| b.title == "Po letech").unwrap();
+        assert_eq!(yr.rows, vec![("2023".to_string(), 1), ("2024".to_string(), 1)]);
+        let convo = s.breakdowns.iter().find(|b| b.title == "Konverzace").unwrap();
+        assert_eq!(convo.rows[0], ("Jana".to_string(), 2));
+        let dir = s.breakdowns.iter().find(|b| b.title == "Podle směru").unwrap();
+        assert_eq!(dir.rows, vec![("Odeslané".to_string(), 1), ("Přijaté".to_string(), 2)]);
+        assert!(s.period.is_some()); // derived from the two dated messages
+    }
 
     #[test]
     fn parses_messages_with_chat_sender_and_media() {

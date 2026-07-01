@@ -143,10 +143,64 @@ fn date_key(d: &plist::Dictionary, keys: &[&str]) -> Option<String> {
     None
 }
 
+/// Build a customer-facing summary of the recovered saved Wi-Fi networks.
+pub fn summary(items: &[KnownNetwork]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+
+    let hidden = items.iter().filter(|n| n.hidden == Some(true)).count();
+    let with_time = items.iter().filter(|n| !n.last_joined.is_empty()).count();
+    let with_security = items.iter().filter(|n| !n.security.is_empty()).count();
+    let with_bssid = items.iter().filter(|n| !n.bssid.is_empty()).count();
+
+    let security = |n: &KnownNetwork| -> String {
+        if n.security.is_empty() { "Neznámé".to_string() } else { n.security.clone() }
+    };
+
+    Summary::new("known-networks", "Uložené Wi-Fi sítě", "sítí", items.len())
+        .count("Skrytých", hidden)
+        .count("S časem připojení", with_time)
+        .count("Se známým zabezpečením", with_security)
+        .count("Se záznamem MAC (BSSID)", with_bssid)
+        .period_from(iso_range(items.iter().map(|n| n.last_joined.as_str())))
+        .breakdown("Podle zabezpečení", tally(items.iter().map(security)))
+        .breakdown("Po letech (připojeno)", year_rows(items.iter().map(|n| n.last_joined.as_str())))
+        .note("Na iOS 16+ bývá prázdné (seznam se přesunul do klíčenky — viz příkaz wifi). Bez hesel.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use plist::{Date, Dictionary, Value};
+
+    fn net(ssid: &str, bssid: &str, last_joined: &str, hidden: Option<bool>, security: &str) -> KnownNetwork {
+        KnownNetwork {
+            ssid: ssid.into(),
+            bssid: bssid.into(),
+            last_joined: last_joined.into(),
+            hidden,
+            security: security.into(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let nets = vec![
+            net("HomeNet", "aa:bb:cc:dd:ee:ff", "2020-01-06T10:40:00+00:00", Some(true), "WPA2 Personal"),
+            net("CafeWiFi", "11:22:33:44:55:66", "2022-05-01T08:00:00+00:00", Some(false), "WPA2 Personal"),
+            net("OpenGuest", "", "", None, ""),
+        ];
+        let s = summary(&nets);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "sítí");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Skrytých"), Some(1));
+        assert_eq!(get("S časem připojení"), Some(2));
+        assert_eq!(get("Se známým zabezpečením"), Some(2));
+        assert_eq!(get("Se záznamem MAC (BSSID)"), Some(2));
+        let sec = s.breakdowns.iter().find(|b| b.title == "Podle zabezpečení").unwrap();
+        assert_eq!(sec.rows[0], ("WPA2 Personal".to_string(), 2));
+        assert!(s.period.is_some()); // derived from the two dated networks
+    }
 
     fn to_bytes(v: &Value) -> Vec<u8> {
         let mut buf = Vec::new();

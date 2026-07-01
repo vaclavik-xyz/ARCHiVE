@@ -579,7 +579,7 @@ pub struct PhotoReportSummary {
 
 /// Reformat an ISO-8601 timestamp's date part to Czech "D. M. YYYY"; empty in /
 /// unparseable in → empty out.
-fn cz_date(iso: &str) -> String {
+pub(crate) fn cz_date(iso: &str) -> String {
     let date = iso.get(0..10).unwrap_or("");
     let mut parts = date.split('-');
     match (parts.next(), parts.next(), parts.next()) {

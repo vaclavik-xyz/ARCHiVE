@@ -39,6 +39,7 @@ mod search;
 mod significant_locations;
 mod sqlite_util;
 mod stats;
+mod summary;
 mod timeline;
 mod voice_memos;
 mod voicemail;
@@ -592,9 +593,11 @@ fn run_contacts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     // Human progress to stderr; the machine-readable result goes to stdout.
     eprintln!("Wrote {} contact(s) to {}", people.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &contacts::summary(&people))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "contacts", "count": people.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -655,9 +658,11 @@ fn run_calls(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} call(s) to {}", calls.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &calls::summary(&calls))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "calls", "count": calls.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -699,9 +704,11 @@ fn run_accounts(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} account(s) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &accounts::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "accounts", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -764,9 +771,11 @@ fn run_known_networks(cli: &Cli, password: Option<&str>, format: &str) -> Result
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} known network(s) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &known_networks::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "known-networks", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -839,9 +848,11 @@ fn run_bluetooth_devices(cli: &Cli, password: Option<&str>, format: &str) -> Res
     let named = items.iter().filter(|d| d.is_named()).count();
     eprintln!("Wrote {} Bluetooth device(s) ({named} named) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &bluetooth::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "bluetooth-devices", "count": items.len(), "named": named,
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -900,9 +911,11 @@ fn run_significant_locations(cli: &Cli, password: Option<&str>, format: &str) ->
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} location fix(es) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &significant_locations::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "significant-locations", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -1017,9 +1030,11 @@ fn run_homescreen(cli: &Cli, password: Option<&str>, format: &str) -> Result<ser
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} icon slot(s) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &homescreen::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "homescreen-layout", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -1062,9 +1077,11 @@ fn run_data_usage(cli: &Cli, password: Option<&str>, format: &str) -> Result<ser
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote data usage for {} process(es) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &data_usage::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "data-usage", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -1112,9 +1129,11 @@ fn run_device_usage(cli: &Cli, password: Option<&str>, format: &str) -> Result<s
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote app usage for {} app(s) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &device_usage::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "device-usage", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -1162,9 +1181,11 @@ fn run_interactions(cli: &Cli, password: Option<&str>, format: &str) -> Result<s
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote interaction history for {} contact(s) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &interactions::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "interactions", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -1274,9 +1295,11 @@ fn run_voicemail(
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} voicemail(s) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &voicemail::summary(&items))?;
+
     let mut envelope = serde_json::json!({
         "ok": true, "command": "voicemail", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     });
     if let Some(s) = audio_summary {
         eprintln!(
@@ -1403,9 +1426,11 @@ fn run_voice_memos(
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} voice memo(s) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &voice_memos::summary(&items))?;
+
     let mut envelope = serde_json::json!({
         "ok": true, "command": "voice-memos", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     });
     if let Some(s) = vm_summary {
         eprintln!(
@@ -1460,6 +1485,21 @@ fn write_or_pdf(
     };
     let _ = std::fs::remove_file(&tmp_html);
     outcome
+}
+
+/// Write the per-folder `<type>-summary.md` next to a just-exported file and
+/// return its path (for the command envelope's `outputs`). Markdown is
+/// dependency-free, so this never needs a browser and never fails the export.
+fn write_type_summary(
+    out: &std::path::Path,
+    device: &archive_core::DeviceInfo,
+    s: &summary::Summary,
+) -> Result<String, AppError> {
+    let generated = chrono::Utc::now().to_rfc3339();
+    let mut outputs: Vec<std::path::PathBuf> = Vec::new();
+    summary::write_summary_md(out, &generated, device, s, &mut outputs)
+        .map_err(|e| AppError::other(e.to_string()))?;
+    Ok(outputs[0].to_string_lossy().into_owned())
 }
 
 /// Fetch + parse a single SQLite store into memory via a secure auto-cleaned temp
@@ -1591,9 +1631,11 @@ fn run_safari_history(cli: &Cli, password: Option<&str>, format: &str) -> Result
     let out_file = out.join(format!("safari-history.{}", format.extension()));
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} history visit(s) to {}", items.len(), out_file.display());
+    let summary_file = write_type_summary(out, backup.device_info(), &safari::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "safari-history", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -1645,9 +1687,11 @@ fn run_calendar(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     let out_file = out.join(format!("calendar.{}", format.extension()));
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} event(s) to {}", items.len(), out_file.display());
+    let summary_file = write_type_summary(out, backup.device_info(), &calendar::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "calendar", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -1672,9 +1716,11 @@ fn run_reminders(cli: &Cli, password: Option<&str>, format: &str) -> Result<serd
     let out_file = out.join(format!("reminders.{}", format.extension()));
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} reminder(s) to {}", items.len(), out_file.display());
+    let summary_file = write_type_summary(out, backup.device_info(), &reminders::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "reminders", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -1700,9 +1746,11 @@ fn run_mail(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_jso
     let out_file = out.join(format!("mail.{}", format.extension()));
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} mail message(s) to {}", items.len(), out_file.display());
+    let summary_file = write_type_summary(out, backup.device_info(), &mail::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "mail", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -2752,7 +2800,8 @@ fn run_health(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_j
         data.quantity_summary.len(),
         out.display()
     );
-    let outputs: Vec<String> = outputs.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    let mut outputs: Vec<String> = outputs.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    outputs.push(write_type_summary(out, backup.device_info(), &health::summary(&data))?);
     Ok(serde_json::json!({
         "ok": true, "command": "health",
         "count": data.workouts.len() + data.quantity_summary.len(),
@@ -2782,9 +2831,11 @@ fn run_notes(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde_js
     let out_file = out.join(format!("notes.{}", format.extension()));
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} note(s) to {}", items.len(), out_file.display());
+    let summary_file = write_type_summary(out, backup.device_info(), &notes::summary(&items))?;
+
     Ok(serde_json::json!({
         "ok": true, "command": "notes", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     }))
 }
 
@@ -2921,9 +2972,11 @@ fn run_photos_recently_deleted(
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} recently-deleted asset(s) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &photos_deleted::summary(&items, !no_files))?;
+
     let mut envelope = serde_json::json!({
         "ok": true, "command": "photos-recently-deleted", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     });
     if let Some(s) = summary {
         eprintln!(
@@ -2966,9 +3019,11 @@ fn run_attachments(cli: &Cli, password: Option<&str>, format: &str, no_files: bo
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} attachment(s) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &attachments::summary(&items, !no_files))?;
+
     let mut envelope = serde_json::json!({
         "ok": true, "command": "attachments", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     });
     if let Some(s) = summary {
         eprintln!("Extracted {} file(s) ({} missing) to {}/{}", s.extracted, s.missing, out.display(), s.dir);
@@ -3073,9 +3128,11 @@ fn run_whatsapp(cli: &Cli, password: Option<&str>, format: &str, no_files: bool)
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} WhatsApp message(s) to {}", items.len(), out_file.display());
 
+    let summary_file = write_type_summary(out, backup.device_info(), &whatsapp::summary(&items))?;
+
     let mut envelope = serde_json::json!({
         "ok": true, "command": "whatsapp", "count": items.len(),
-        "outputs": [out_file.to_string_lossy()], "device": device
+        "outputs": [out_file.to_string_lossy(), summary_file], "device": device
     });
     if let Some(s) = summary {
         eprintln!("Extracted {} media file(s) ({} missing) to {}/{}", s.extracted, s.missing, out.display(), s.dir);
@@ -3271,6 +3328,22 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     // index.html leads the outputs list.
     let mut all_outputs = vec![index_path.to_string_lossy().into_owned()];
     all_outputs.extend(rec.outputs);
+
+    // Root one-pager covering every recovered type. Markdown is always written
+    // (dependency-free); the polished summary.pdf needs a headless browser, so a
+    // missing one degrades to md-only rather than failing the whole package.
+    let summary_md_path = out.join("summary.md");
+    std::fs::write(&summary_md_path, recover::summary_md(device, &generated, &rec.sections))
+        .map_err(|e| AppError::other(e.to_string()))?;
+    all_outputs.push(summary_md_path.to_string_lossy().into_owned());
+
+    let summary_pdf_path = out.join("summary.pdf");
+    let summary_html = recover::render_summary_html(device, &generated, &rec.sections);
+    match write_or_pdf(&summary_pdf_path, &summary_html, Format::Pdf, cli.chrome_path.as_deref()) {
+        Ok(()) => all_outputs.push(summary_pdf_path.to_string_lossy().into_owned()),
+        Err(e) => eprintln!("summary.pdf skipped ({}); summary.md written", e.message),
+    }
+
     Ok(serde_json::json!({
         "ok": true, "command": "recover",
         "outputs": all_outputs, "sections": rec.sections, "device": device_json(device)
@@ -3340,11 +3413,27 @@ fn run_messages(cli: &Cli, password: Option<&str>, format: &str) -> Result<serde
     }
 
     eprintln!("Messages exported to {}", export_dir.display());
-    Ok(serde_json::json!({
+
+    // Best-effort per-folder summary read straight from sms.db. The exporter owns
+    // the transcript; a missing/odd store here must never fail the export, so any
+    // error degrades to "no summary".
+    let summary_file = (|| -> Option<String> {
+        let scratch = tempfile::TempDir::new().ok()?;
+        let tmp = scratch.path().join("sms.db");
+        let db = backup.fetch("HomeDomain", "Library/SMS/sms.db", &tmp).ok()??;
+        let stats = messages::stats(&db).ok()?;
+        write_type_summary(out, backup.device_info(), &messages::summary(&stats)).ok()
+    })();
+
+    let mut envelope = serde_json::json!({
         "ok": true, "command": "messages",
         "format": fmt, "output": export_dir.to_string_lossy(),
         "device": device
-    }))
+    });
+    if let Some(path) = summary_file {
+        envelope["summary"] = serde_json::Value::String(path);
+    }
+    Ok(envelope)
 }
 
 fn run_backup(cli: &Cli, password: Option<&str>, full: bool) -> Result<serde_json::Value, AppError> {

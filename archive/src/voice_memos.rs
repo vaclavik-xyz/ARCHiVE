@@ -61,6 +61,38 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<VoiceMemo>> {
     rows.collect()
 }
 
+/// Build a customer-facing summary of the recovered voice memos.
+pub fn summary(items: &[VoiceMemo]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, year_rows, Summary};
+
+    let total_min = (items.iter().map(|m| m.duration_seconds.max(0)).sum::<i64>() / 60) as usize;
+    let named = items.iter().filter(|m| !m.title.is_empty()).count();
+    let unnamed = items.iter().filter(|m| m.title.is_empty()).count();
+
+    // Manual length buckets: sums of records per range, kept in this fixed order
+    // (no sort). Only non-empty buckets are listed.
+    let mut length_rows: Vec<(String, usize)> = Vec::new();
+    for (label, n) in [
+        ("do 1 min", items.iter().filter(|m| m.duration_seconds < 60).count()),
+        ("1–5 min", items.iter().filter(|m| (60..300).contains(&m.duration_seconds)).count()),
+        ("5–15 min", items.iter().filter(|m| (300..900).contains(&m.duration_seconds)).count()),
+        ("nad 15 min", items.iter().filter(|m| m.duration_seconds >= 900).count()),
+    ] {
+        if n > 0 {
+            length_rows.push((label.to_string(), n));
+        }
+    }
+
+    Summary::new("voice-memos", "Hlasové záznamy", "záznamů", items.len())
+        .count("Celkový čas (min)", total_min)
+        .count("Pojmenovaných", named)
+        .count("Bez názvu", unnamed)
+        .period_from(iso_range(items.iter().map(|m| m.date.as_str())))
+        .breakdown("Po letech", year_rows(items.iter().map(|m| m.date.as_str())))
+        .breakdown("Podle délky", length_rows)
+        .note("Audio se kopíruje, pokud není zadán přepínač --no-audio.")
+}
+
 /// Last path component of a (possibly `/`-containing) `ZPATH`.
 pub(crate) fn basename(p: &str) -> String {
     p.rsplit('/').next().unwrap_or(p).to_string()
@@ -239,6 +271,37 @@ fn extract_from(
 mod tests {
     use super::*;
     use crate::test_fixtures::make_voicememos;
+
+    fn memo(title: &str, date: &str, dur: i64) -> VoiceMemo {
+        VoiceMemo {
+            title: title.into(),
+            date: date.into(),
+            duration_seconds: dur,
+            source_file: String::new(),
+            audio_file: None,
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let memos = vec![
+            memo("Schůzka", "2021-05-01T10:00:00+00:00", 30), // do 1 min
+            memo("", "2023-06-01T10:00:00+00:00", 200),       // 1–5 min, unnamed
+            memo("Nápad", "2023-07-01T10:00:00+00:00", 1000), // nad 15 min
+        ];
+        let s = summary(&memos);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "záznamů");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Celkový čas (min)"), Some(20)); // (30+200+1000)/60
+        assert_eq!(get("Pojmenovaných"), Some(2));
+        assert_eq!(get("Bez názvu"), Some(1));
+        let yr = s.breakdowns.iter().find(|b| b.title == "Po letech").unwrap();
+        assert_eq!(yr.rows, vec![("2021".to_string(), 1), ("2023".to_string(), 2)]);
+        let len = s.breakdowns.iter().find(|b| b.title == "Podle délky").unwrap();
+        assert_eq!(len.rows[0], ("do 1 min".to_string(), 1));
+        assert!(s.period.is_some());
+    }
 
     #[test]
     fn parses_two_memos_with_cocoa_dates() {

@@ -167,6 +167,37 @@ pub fn merge(mut devices: Vec<BluetoothDevice>) -> Vec<BluetoothDevice> {
     deduped
 }
 
+/// Build a customer-facing summary of the known Bluetooth devices.
+pub fn summary(items: &[BluetoothDevice]) -> crate::summary::Summary {
+    use crate::summary::{tally, Summary};
+
+    let named = items.iter().filter(|d| d.is_named()).count();
+    let paired = items.iter().filter(|d| d.kind == "paired").count();
+    let classic = items.iter().filter(|d| d.kind == "classic").count();
+    let other = items.iter().filter(|d| d.kind == "other").count();
+    let resolved = items.iter().filter(|d| !d.resolved_address.is_empty()).count();
+
+    // Named-vs-anonymous split, summed (not occurrence-counted) and built by hand
+    // so empty buckets are simply not pushed and the breakdown degrades cleanly.
+    let mut named_vs: Vec<(String, usize)> = Vec::new();
+    if named > 0 {
+        named_vs.push(("Pojmenovaná".to_string(), named));
+    }
+    if items.len() - named > 0 {
+        named_vs.push(("Anonymní".to_string(), items.len() - named));
+    }
+
+    Summary::new("bluetooth-devices", "Bluetooth zařízení", "zařízení", items.len())
+        .count("Pojmenovaných", named)
+        .count("Spárovaných", paired)
+        .count("Klasických", classic)
+        .count("Ostatních/v okolí", other)
+        .count("S rozpoznanou identitou", resolved)
+        .breakdown("Podle typu", tally(items.iter().map(|d| d.kind.to_string())))
+        .breakdown("Pojmenovaná vs anonymní", named_vs)
+        .note("Zdroj nemá použitelné časové razítko. „Ostatní\" jsou často anonymní zařízení v okolí.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,5 +302,32 @@ mod tests {
         assert_eq!(merged[2].name, "Zeppelin");
         assert_eq!(merged[3].address, "CC");
         assert_eq!(merged[3].name, "");
+    }
+
+    fn dev(name: &str, kind: &'static str, address: &str, resolved: &str) -> BluetoothDevice {
+        BluetoothDevice { name: name.into(), address: address.into(), resolved_address: resolved.into(), kind }
+    }
+
+    #[test]
+    fn summary_counts_and_breakdowns() {
+        let devices = vec![
+            dev("AirPods Pro", "paired", "11:22:33:44:55:66", ""),
+            dev("Honda CarPlay", "classic", "64:17:CD:F6:54:D1", ""),
+            dev("", "other", "aa:bb:cc:dd:ee:ff", "00:11:22:33:44:55"),
+        ];
+        let s = summary(&devices);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "zařízení");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Pojmenovaných"), Some(2));
+        assert_eq!(get("Spárovaných"), Some(1));
+        assert_eq!(get("Klasických"), Some(1));
+        assert_eq!(get("Ostatních/v okolí"), Some(1));
+        assert_eq!(get("S rozpoznanou identitou"), Some(1));
+        let by_kind = s.breakdowns.iter().find(|b| b.title == "Podle typu").unwrap();
+        assert!(by_kind.rows.contains(&("paired".to_string(), 1)));
+        let named_vs = s.breakdowns.iter().find(|b| b.title == "Pojmenovaná vs anonymní").unwrap();
+        assert_eq!(named_vs.rows, vec![("Pojmenovaná".to_string(), 2), ("Anonymní".to_string(), 1)]);
+        assert!(s.period.is_none()); // no usable timestamp → never temporal
     }
 }

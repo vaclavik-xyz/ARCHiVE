@@ -87,9 +87,84 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<AppUsage>> {
     rows.collect()
 }
 
+/// Build a customer-facing summary of recovered per-app foreground usage.
+pub fn summary(items: &[AppUsage]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, Summary};
+
+    let is_apple = |a: &AppUsage| a.bundle.starts_with("com.apple.");
+    let minutes = |secs: i64| (secs.max(0) / 60) as usize;
+
+    let sessions = items.iter().map(|a| a.sessions.max(0)).sum::<i64>() as usize;
+    let foreground_min = minutes(items.iter().map(|a| a.total_seconds.max(0)).sum());
+    let apple = items.iter().filter(|a| is_apple(a)).count();
+    let third_party = items.len() - apple;
+
+    // Items already arrive sorted by total foreground time (parse: ORDER BY … DESC).
+    let top_apps: Vec<(String, usize)> = items
+        .iter()
+        .map(|a| (a.bundle.clone(), minutes(a.total_seconds)))
+        .take(15)
+        .collect();
+
+    let apple_min = minutes(items.iter().filter(|a| is_apple(a)).map(|a| a.total_seconds.max(0)).sum());
+    let third_min = minutes(items.iter().filter(|a| !is_apple(a)).map(|a| a.total_seconds.max(0)).sum());
+    let by_vendor = vec![
+        ("Apple/systém".to_string(), apple_min),
+        ("Třetí strany".to_string(), third_min),
+    ];
+
+    Summary::new("device-usage", "Využití aplikací", "aplikací", items.len())
+        .count("Relací v popředí", sessions)
+        .count("Čas v popředí (min)", foreground_min)
+        .count("Apple/systémových", apple)
+        .count("Aplikací třetích stran", third_party)
+        .period_from(iso_range(
+            items
+                .iter()
+                .map(|a| a.first_used.as_str())
+                .chain(items.iter().map(|a| a.last_used.as_str())),
+        ))
+        .breakdown("Nejpoužívanější aplikace", top_apps)
+        .breakdown("Podle výrobce", by_vendor)
+        .note("knowledgeC.db drží jen nedávné období (řádově týdny), ne celoživotní statistiku.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn app(bundle: &str, total_seconds: i64, sessions: i64, first: &str, last: &str) -> AppUsage {
+        AppUsage {
+            bundle: bundle.into(),
+            total_seconds,
+            sessions,
+            first_used: first.into(),
+            last_used: last.into(),
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        // Already in descending total_seconds order, as parse() returns them.
+        let items = vec![
+            app("com.apple.mobilesafari", 600, 5, "2024-01-01T10:00:00+00:00", "2024-02-01T10:00:00+00:00"),
+            app("com.burbn.instagram", 300, 3, "2024-01-15T10:00:00+00:00", "2024-03-01T10:00:00+00:00"),
+            app("com.apple.mobilemail", 120, 2, "2023-12-01T10:00:00+00:00", "2024-01-10T10:00:00+00:00"),
+        ];
+        let s = summary(&items);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "aplikací");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Relací v popředí"), Some(10)); // 5+3+2
+        assert_eq!(get("Čas v popředí (min)"), Some(17)); // (600+300+120)/60
+        assert_eq!(get("Apple/systémových"), Some(2));
+        assert_eq!(get("Aplikací třetích stran"), Some(1));
+        let top = s.breakdowns.iter().find(|b| b.title == "Nejpoužívanější aplikace").unwrap();
+        assert_eq!(top.rows[0], ("com.apple.mobilesafari".to_string(), 10)); // 600/60
+        let vendor = s.breakdowns.iter().find(|b| b.title == "Podle výrobce").unwrap();
+        assert_eq!(vendor.rows, vec![("Apple/systém".to_string(), 12), ("Třetí strany".to_string(), 5)]);
+        assert!(s.period.is_some()); // derived from first_used/last_used
+    }
 
     fn make_db(path: &Path) {
         let conn = Connection::open(path).unwrap();

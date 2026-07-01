@@ -72,6 +72,80 @@ pub fn render_index(
     .unwrap()
 }
 
+/// Total media files recovered across every section (originals + thumbnails).
+fn media_files(sections: &[RecoverSection]) -> usize {
+    sections.iter().filter_map(|s| s.media.as_ref()).map(|m| m.extracted + m.thumbnails).sum()
+}
+
+/// The root unified summary as plain markdown (`summary.md`): a customer one-pager
+/// covering every recovered type, built on the generic [`crate::summary`] model so
+/// it shares the renderer and escaping with the per-type reports.
+pub fn summary_md(device: &archive_core::DeviceInfo, generated: &str, sections: &[RecoverSection]) -> String {
+    let total: usize = sections.iter().map(|s| s.count).sum();
+    let rows: Vec<(String, usize)> = sections.iter().map(|s| (s.label.clone(), s.count)).collect();
+    let s = crate::summary::Summary::new("recover", "Záloha", "položek", total)
+        .count("Datových typů", sections.len())
+        .count("Obnovených souborů (média)", media_files(sections))
+        .breakdown("Obnoveno podle typu", rows)
+        .note("Podrobnosti k jednotlivým typům najdete v index.html a ve stránkách <typ>.html.");
+    crate::summary::summary_md(device, generated, &s)
+}
+
+/// One row of the root summary one-pager: a section's label, item count, and a
+/// human files string (empty for non-media types).
+struct SummaryRow {
+    label: String,
+    count: usize,
+    files: String,
+}
+
+#[derive(Template)]
+#[template(path = "recover-summary.html")]
+struct SummaryTemplate<'a> {
+    name: &'a str,
+    model: String,
+    ios: &'a str,
+    generated: String,
+    total: usize,
+    media_files: usize,
+    rows: Vec<SummaryRow>,
+}
+
+/// The root unified summary as HTML, for rendering `summary.pdf` (the polished
+/// customer one-pager). Mirrors [`summary_md`] but escaped for HTML/PDF.
+pub fn render_summary_html(device: &archive_core::DeviceInfo, generated: &str, sections: &[RecoverSection]) -> String {
+    let rows = sections
+        .iter()
+        .map(|s| {
+            let files = match &s.media {
+                Some(m) => {
+                    let mut f = format!("{} souborů", m.extracted);
+                    if m.thumbnails > 0 {
+                        f.push_str(&format!(" + {} náhledů", m.thumbnails));
+                    }
+                    if m.missing > 0 {
+                        f.push_str(&format!(", {} chybí", m.missing));
+                    }
+                    f
+                }
+                None => String::new(),
+            };
+            SummaryRow { label: s.label.clone(), count: s.count, files }
+        })
+        .collect();
+    SummaryTemplate {
+        name: &device.device_name,
+        model: crate::device_model::display_model(&device.model),
+        ios: &device.product_version,
+        generated: crate::format::cz_date(generated),
+        total: sections.iter().map(|s| s.count).sum(),
+        media_files: media_files(sections),
+        rows,
+    }
+    .render()
+    .unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +229,30 @@ mod tests {
         let html = render_index(&device(), "2026-06-27T12:00:00+00:00", &[]);
         assert!(html.contains("Janin iPhone"));
         assert!(html.contains("<html"));
+    }
+
+    #[test]
+    fn summary_md_lists_sections_and_grand_total() {
+        let md = summary_md(&device(), "2026-06-27T12:00:00+00:00", &sections());
+        assert!(md.contains("# Záloha — souhrn"));
+        assert!(md.contains("Janin iPhone"));
+        // grand total = 1234 + 1240
+        assert!(md.contains("**Zachráněno:** 2474 položek"));
+        assert!(md.contains("- Kontakty — 1234"));
+        assert!(md.contains("- Fotky — 1240"));
+        // media files = 1236 + 2 thumbnails
+        assert!(md.contains("Obnovených souborů (média): 1238"));
+    }
+
+    #[test]
+    fn summary_html_shows_sections_and_files_and_escapes() {
+        let mut d = device();
+        d.device_name = "<script>".into();
+        let html = render_summary_html(&d, "2026-06-27T12:00:00+00:00", &sections());
+        assert!(html.contains("Souhrn zálohy"));
+        assert!(html.contains("Kontakty"));
+        assert!(html.contains("1236 souborů + 2 náhledů, 2 chybí"));
+        assert!(html.contains("&#60;script&#62;"));
+        assert!(!html.contains("<script>"));
     }
 }

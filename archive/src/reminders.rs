@@ -330,10 +330,116 @@ fn col(name: &Option<String>, alias: &str) -> String {
     }
 }
 
+/// Build a customer-facing summary of the recovered reminders.
+pub fn summary(items: &[Reminder]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+    use std::collections::HashSet;
+
+    let done = items.iter().filter(|r| r.completed).count();
+    let open = items.iter().filter(|r| !r.completed).count();
+    let with_due = items.iter().filter(|r| r.due.is_some()).count();
+    let flagged = items.iter().filter(|r| r.flagged).count();
+    let with_priority = items.iter().filter(|r| r.priority != 0).count();
+    let with_notes = items.iter().filter(|r| !r.notes.is_empty()).count();
+    let lists = items
+        .iter()
+        .filter(|r| !r.list.is_empty())
+        .map(|r| r.list.clone())
+        .collect::<HashSet<_>>()
+        .len();
+
+    // Apple stores priority as 1/5/9 (high/medium/low); 0 means none.
+    let priority_label = |p: i64| -> String {
+        match p {
+            1 => "Vysoká",
+            5 => "Střední",
+            9 => "Nízká",
+            0 => "Žádná",
+            _ => "Jiná",
+        }
+        .to_string()
+    };
+
+    Summary::new("reminders", "Připomínky", "připomínek", items.len())
+        .count("Dokončených", done)
+        .count("Otevřených", open)
+        .count("S termínem", with_due)
+        .count("Označených vlajkou", flagged)
+        .count("S prioritou", with_priority)
+        .count("S poznámkou", with_notes)
+        .count("Seznamů", lists)
+        .period_from(iso_range(items.iter().map(|r| r.created.as_deref().unwrap_or(""))))
+        .breakdown(
+            "Podle seznamu",
+            tally(items.iter().map(|r| {
+                if r.list.is_empty() {
+                    "Nezařazené".to_string()
+                } else {
+                    r.list.clone()
+                }
+            })),
+        )
+        .breakdown(
+            "Podle stavu",
+            vec![("Dokončené".to_string(), done), ("Otevřené".to_string(), open)],
+        )
+        .breakdown(
+            "Podle priority",
+            tally(items.iter().map(|r| priority_label(r.priority))),
+        )
+        .breakdown(
+            "Po letech",
+            year_rows(items.iter().map(|r| r.created.as_deref().unwrap_or(""))),
+        )
+        .note("Některé údaje (priorita, termín, vlajka) nemusí být na starších iOS uložené.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_fixtures::make_reminders;
+
+    fn rem(
+        list: &str,
+        completed: bool,
+        due: Option<&str>,
+        flagged: bool,
+        priority: i64,
+        notes: &str,
+        created: Option<&str>,
+    ) -> Reminder {
+        Reminder {
+            list: list.into(),
+            title: "T".into(),
+            notes: notes.into(),
+            due: due.map(String::from),
+            completed,
+            completed_date: None,
+            priority,
+            created: created.map(String::from),
+            flagged,
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let items = vec![
+            rem("Nákup", true, Some("2023-01-02T10:00:00+00:00"), false, 1, "", Some("2023-01-01T10:00:00+00:00")),
+            rem("Nákup", false, None, true, 0, "2 litry", Some("2024-06-01T10:00:00+00:00")),
+            rem("", false, Some("2025-03-03T10:00:00+00:00"), false, 9, "", None),
+        ];
+        let s = summary(&items);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "připomínek");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Dokončených"), Some(1));
+        assert_eq!(get("Otevřených"), Some(2));
+        assert_eq!(get("S termínem"), Some(2)); // first + third have a due date
+        assert_eq!(get("Seznamů"), Some(1)); // only "Nákup" is a non-empty list
+        let lists = s.breakdowns.iter().find(|b| b.title == "Podle seznamu").unwrap();
+        assert_eq!(lists.rows[0], ("Nákup".to_string(), 2));
+        assert!(s.period.is_some()); // derived from the two dated reminders
+    }
 
     #[test]
     fn is_store_path_matches_uuid_store_only() {

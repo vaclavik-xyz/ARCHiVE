@@ -83,6 +83,45 @@ pub fn parse_bookmarks(db_path: &Path) -> rusqlite::Result<Vec<Bookmark>> {
     rows.collect()
 }
 
+/// Host (authority) of a URL: drop the `scheme://` prefix, then take everything
+/// up to the first `/`, `:` (port) or `?`. Empty when the URL has no authority.
+fn host(url: &str) -> String {
+    let after_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
+    after_scheme
+        .split(['/', ':', '?'])
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Build a customer-facing summary of the recovered Safari history.
+pub fn summary(items: &[HistoryVisit]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, tally, year_rows, Summary};
+    use std::collections::HashSet;
+
+    let pages = items.iter().map(|v| v.url.clone()).collect::<HashSet<_>>().len();
+    let sites = items
+        .iter()
+        .map(|v| host(&v.url))
+        .filter(|h| !h.is_empty())
+        .collect::<HashSet<_>>()
+        .len();
+    let dated = items.iter().filter(|v| !v.date.is_empty()).count();
+    let top_sites: Vec<(String, usize)> = tally(items.iter().map(|v| host(&v.url)).filter(|h| !h.is_empty()))
+        .into_iter()
+        .take(15)
+        .collect();
+
+    Summary::new("safari-history", "Historie Safari", "návštěv", items.len())
+        .count("Unikátních stránek", pages)
+        .count("Unikátních webů", sites)
+        .count("S datem", dated)
+        .period_from(iso_range(items.iter().map(|v| v.date.as_str())))
+        .breakdown("Po letech", year_rows(items.iter().map(|v| v.date.as_str())))
+        .breakdown("Nejnavštěvovanější weby", top_sites)
+        .note("Návštěva = jedno otevření stránky; web se může opakovat. Historii lze na zařízení mazat.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +131,29 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("be-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    fn visit(url: &str, title: &str, date: &str, vc: i64) -> HistoryVisit {
+        HistoryVisit { url: url.into(), title: title.into(), date: date.into(), visit_count: vc }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let visits = vec![
+            visit("https://apple.com", "Apple", "2023-05-01T10:00:00+00:00", 5),
+            visit("https://apple.com/store", "Store", "2024-06-01T10:00:00+00:00", 2),
+            visit("https://bbc.com/news", "BBC News", "", 1),
+        ];
+        let s = summary(&visits);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "návštěv");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("Unikátních stránek"), Some(3)); // three distinct URLs
+        assert_eq!(get("Unikátních webů"), Some(2)); // apple.com, bbc.com
+        assert_eq!(get("S datem"), Some(2)); // two dated visits
+        let sites = s.breakdowns.iter().find(|b| b.title == "Nejnavštěvovanější weby").unwrap();
+        assert_eq!(sites.rows[0], ("apple.com".to_string(), 2)); // host() collapses both apple paths
+        assert!(s.period.is_some()); // derived from the two dated visits
     }
 
     #[test]

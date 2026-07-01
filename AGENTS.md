@@ -37,6 +37,24 @@ on macOS, a headless browser elsewhere; `--chrome-path` is forwarded), and keeps
 the messages envelope (`output` directory). The `recover` one-shot package has no
 `-f pdf` and stays HTML.
 
+**Per-folder summaries:** every collection export also writes a dependency-free
+markdown overview `<OUT>/<type>-summary.md` next to its main file — device
+identity, recovery totals, a time period, and per-category breakdowns — and adds
+its path to the envelope `outputs`. It is built from records already in memory
+(no extra IO, no media copied) and needs **no browser**. Emitted by `contacts`,
+`calls`, `accounts`, `known-networks`, `homescreen-layout`, `data-usage`,
+`device-usage`, `interactions`, `bluetooth-devices`, `significant-locations`,
+`voicemail`, `voice-memos`, `safari-history`, `calendar`, `reminders`, `mail`,
+`notes`, `photos-recently-deleted`, `attachments`, `whatsapp`, `health`, and —
+read straight from `sms.db` — `messages` (whose envelope carries the path under
+`summary` rather than in `outputs`). Stores that are absent/empty (`count: 0`)
+write no summary. `recover` additionally writes a **root one-pager** covering
+every recovered type: `summary.md` always, plus a polished `summary.pdf` when a
+headless browser is available (it degrades to md-only otherwise, never failing
+the package). The flat-list types `safari-bookmarks`, `apps`, `certificates`, and
+`keyboard-lexicon` have no per-folder summary. (`photos` keeps its richer,
+separate `--summary -f html|pdf` report described below.)
+
 **Contact enrichment:** when the backup has an address book, `calls`,
 `voicemail`, `whatsapp`, `timeline` and `recover` automatically resolve phone
 numbers / emails / WhatsApp JIDs to a `contact_name`. Matching is best-effort:

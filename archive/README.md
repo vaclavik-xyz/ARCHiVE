@@ -78,6 +78,10 @@ archive --backup <backup-dir> -o <out> photos -f html
 # per-year + per-album counts → <out>/photos-summary.pdf (or .html)
 archive --backup <backup-dir> -o <out> photos -f pdf --summary
 
+# Every collection export also drops a dependency-free <type>-summary.md (totals,
+# period, per-category breakdowns; no browser) next to its main file; `recover`
+# writes a root summary.md (+ summary.pdf when a browser is available). See AGENTS.md.
+
 # Recently Deleted: recover trashed photos/videos still in the 30-day window into <out>/recently-deleted/
 archive --backup <backup-dir> -o <out> photos-recently-deleted -f html
 
@@ -163,6 +167,7 @@ written under `<out>/messages`.
 ## Status
 
 - [x] inspect — store discovery (read-only)
+- [x] per-folder summaries — every collection export drops a dependency-free `<type>-summary.md` (device, recovery totals, time period, per-category breakdowns; built from in-memory records, **no browser**) next to its main file and lists it in `outputs`; `recover` adds a root `summary.md` (plus `summary.pdf` when a headless browser is available) over all types. Covers contacts, calls, accounts, known-networks, homescreen-layout, data-usage, device-usage, interactions, bluetooth-devices, significant-locations, voicemail, voice-memos, safari-history, calendar, reminders, mail, notes, photos-recently-deleted, attachments, whatsapp, health, and `messages` (read from `sms.db`; path under `summary`). Flat lists (safari-bookmarks, apps, certificates, keyboard-lexicon) have none
 - [x] contacts — csv, json, vcf, html (incl. postal addresses)
 - [x] calls — csv, json, html (numbers resolved to `contact_name` from the address book when available)
 - [x] accounts — csv, json, html: configured accounts (Apple ID, Google, Exchange, …) from `Accounts3.sqlite`; metadata only, no passwords

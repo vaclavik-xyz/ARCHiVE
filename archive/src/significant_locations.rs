@@ -80,9 +80,79 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<LocationFix>> {
     rows.collect()
 }
 
+/// Build a customer-facing recovery summary from already-parsed location fixes.
+pub fn summary(items: &[LocationFix]) -> crate::summary::Summary {
+    use crate::summary::{iso_range, year_rows, Summary};
+
+    let with_time = items.iter().filter(|f| !f.timestamp.is_empty()).count();
+    let moving = items.iter().filter(|f| f.speed > 0.0).count();
+    let still = items.iter().filter(|f| f.speed == 0.0).count();
+    let with_altitude = items.iter().filter(|f| f.altitude != 0.0).count();
+    let unknown_speed = items.iter().filter(|f| f.speed < 0.0).count();
+
+    // Rows are scalar bucket counts (not occurrence tallies), so build them by
+    // hand and drop empty buckets to keep the breakdown clean.
+    let mut motion: Vec<(String, usize)> = Vec::new();
+    for (label, n) in [("V pohybu", moving), ("V klidu", still), ("Neznámé", unknown_speed)] {
+        if n > 0 {
+            motion.push((label.to_string(), n));
+        }
+    }
+
+    Summary::new("significant-locations", "Významná místa", "polohových záznamů", items.len())
+        .count("S časem", with_time)
+        .count("V pohybu", moving)
+        .count("V klidu", still)
+        .count("S nadmořskou výškou", with_altitude)
+        .period_from(iso_range(items.iter().map(|f| f.timestamp.as_str())))
+        .breakdown("Po letech", year_rows(items.iter().map(|f| f.timestamp.as_str())))
+        .breakdown("Podle pohybu", motion)
+        .note("Bez reverzního geokódování — pouze souřadnice. Obvykle jen z forenzních záloh (cache se běžně nezálohuje).")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fix(timestamp: &str, speed: f64, altitude: f64) -> LocationFix {
+        LocationFix {
+            timestamp: timestamp.into(),
+            latitude: 50.0,
+            longitude: 14.0,
+            altitude,
+            horizontal_accuracy: 10.0,
+            speed,
+        }
+    }
+
+    #[test]
+    fn summary_counts_breakdowns_and_period() {
+        let fixes = vec![
+            fix("2023-05-01T10:00:00+00:00", 1.5, 200.0),
+            fix("2024-06-01T10:00:00+00:00", 0.0, 0.0),
+            fix("", -1.0, 35.0),
+        ];
+        let s = summary(&fixes);
+        assert_eq!(s.total, 3);
+        assert_eq!(s.total_label, "polohových záznamů");
+        let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
+        assert_eq!(get("S časem"), Some(2));
+        assert_eq!(get("V pohybu"), Some(1));
+        assert_eq!(get("V klidu"), Some(1));
+        assert_eq!(get("S nadmořskou výškou"), Some(2));
+        let yr = s.breakdowns.iter().find(|b| b.title == "Po letech").unwrap();
+        assert_eq!(yr.rows, vec![("2023".to_string(), 1), ("2024".to_string(), 1)]);
+        let motion = s.breakdowns.iter().find(|b| b.title == "Podle pohybu").unwrap();
+        assert_eq!(
+            motion.rows,
+            vec![
+                ("V pohybu".to_string(), 1),
+                ("V klidu".to_string(), 1),
+                ("Neznámé".to_string(), 1),
+            ]
+        );
+        assert!(s.period.is_some());
+    }
 
     fn make_db(path: &Path, full: bool) {
         let conn = Connection::open(path).unwrap();
