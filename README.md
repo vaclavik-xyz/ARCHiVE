@@ -55,8 +55,8 @@ archive --backup ~/Backup/<UDID> inspect
 archive --backup ~/Backup/<UDID> integrity
 
 # One-shot: recover every in-process data-store extractor into out/ with a
-# customer-ready index.html (the `messages` transcript and `apps` inventory are
-# separate commands)
+# customer-ready index.html plus a root summary.md + summary.pdf one-pager (the
+# `messages` transcript and `apps` inventory are separate commands)
 archive --backup ~/Backup/<UDID> -o out recover        # --no-files for metadata only
 
 # Or capture a fresh backup from a USB-connected iPhone first (libimobiledevice)
@@ -110,6 +110,12 @@ archive --backup ~/Backup/<UDID> -o out vpn-creds       -f html  # best-effort V
 The `messages` command drives the `imessage-exporter` binary (built in the same
 workspace, found next to `archive` or on `PATH`, or via
 `ARCHIVE_IMESSAGE_EXPORTER`) and writes the transcript under `<out>/messages`.
+
+**Per-folder summaries:** most collection commands also write a dependency-free
+markdown overview `<out>/<type>-summary.md` (device, recovery totals, time
+period, per-category breakdowns) next to their main output — no browser needed —
+and `recover` adds a root `summary.md` + `summary.pdf` one-pager covering every
+recovered type. See [AGENTS.md](AGENTS.md) for the full list and envelope shape.
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 The canonical, machine-readable contract (every command's flags, envelope, and
