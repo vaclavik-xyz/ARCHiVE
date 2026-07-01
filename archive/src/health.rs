@@ -435,7 +435,7 @@ pub fn summary(data: &HealthData) -> crate::summary::Summary {
         .collect();
     measure_rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
-    Summary::new("health", "Zdraví", "tréninků", data.workouts.len())
+    Summary::new("health", "Zdraví", "položek", data.workouts.len() + data.quantity_summary.len())
         .count("Tréninků", data.workouts.len())
         .count("Typů měření", data.quantity_summary.len())
         .count("Měření celkem", measurements_total)
@@ -447,7 +447,9 @@ pub fn summary(data: &HealthData) -> crate::summary::Summary {
             data.workouts
                 .iter()
                 .map(|w| w.start.as_str())
-                .chain(data.workouts.iter().map(|w| w.end.as_str())),
+                .chain(data.workouts.iter().map(|w| w.end.as_str()))
+                .chain(data.quantity_summary.iter().map(|q| q.first.as_str()))
+                .chain(data.quantity_summary.iter().map(|q| q.last.as_str())),
         ))
         .breakdown("Podle typu tréninku", tally(data.workouts.iter().map(activity)))
         .breakdown(
@@ -502,8 +504,8 @@ mod tests {
             ],
         };
         let s = summary(&data);
-        assert_eq!(s.total, 2);
-        assert_eq!(s.total_label, "tréninků");
+        assert_eq!(s.total, 5); // 2 workouts + 3 quantity types (matches the command count)
+        assert_eq!(s.total_label, "položek");
         let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
         assert_eq!(get("Tréninků"), Some(2));
         assert_eq!(get("Měření celkem"), Some(7)); // 2 + 2 + 3

@@ -148,14 +148,24 @@ pub fn stats(db_path: &Path) -> rusqlite::Result<MessageStats> {
     let imessage = if cols.contains("service") { count_where("service = 'iMessage'")? } else { 0 };
     // Everything that is not iMessage (SMS/MMS/RCS); 0 when the column is absent.
     let sms = if cols.contains("service") { total - imessage } else { 0 };
-    let with_attachments = if cols.contains("cache_has_attachments") {
-        count_where("cache_has_attachments = 1")?
-    } else {
-        0
-    };
-    // `chat` may be absent on unusual schemas; treat a read failure as zero chats.
+    // Prefer the authoritative join table; fall back to the denormalized cache
+    // column when it is absent (older/odd schemas) or the join table is missing.
+    let with_attachments = conn
+        .query_row("SELECT COUNT(DISTINCT message_id) FROM message_attachment_join", [], |r| r.get::<_, i64>(0))
+        .map(|n| n as usize)
+        .or_else(|_| {
+            if cols.contains("cache_has_attachments") {
+                count_where("cache_has_attachments = 1")
+            } else {
+                Ok(0)
+            }
+        })
+        .unwrap_or(0);
+    // Conversations that actually contain messages; fall back to the raw `chat`
+    // table (which can include empty/deleted threads) when the join is absent.
     let chats = conn
-        .query_row("SELECT COUNT(*) FROM chat", [], |r| r.get::<_, i64>(0))
+        .query_row("SELECT COUNT(DISTINCT chat_id) FROM chat_message_join", [], |r| r.get::<_, i64>(0))
+        .or_else(|_| conn.query_row("SELECT COUNT(*) FROM chat", [], |r| r.get::<_, i64>(0)))
         .map(|n| n as usize)
         .unwrap_or(0);
 
@@ -207,11 +217,15 @@ mod tests {
         conn.execute_batch(&format!(
             "CREATE TABLE message (ROWID INTEGER PRIMARY KEY, text TEXT, service TEXT, is_from_me INTEGER, date INTEGER, cache_has_attachments INTEGER);
              CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, guid TEXT);
+             CREATE TABLE message_attachment_join (message_id INTEGER, attachment_id INTEGER);
+             CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
              INSERT INTO message VALUES (1,'ahoj','iMessage',1,{d},0);
              INSERT INTO message VALUES (2,'cau','iMessage',0,{d},1);
              INSERT INTO message VALUES (3,'sms','SMS',0,{d},0);
              INSERT INTO chat VALUES (1,'g1');
-             INSERT INTO chat VALUES (2,'g2');",
+             INSERT INTO chat VALUES (2,'g2');
+             INSERT INTO message_attachment_join VALUES (2,100);
+             INSERT INTO chat_message_join VALUES (1,1),(1,2),(2,3);",
             d = d2023
         ))
         .unwrap();

@@ -152,7 +152,7 @@ pub fn extract_attachments(
 }
 
 /// Build a customer-facing summary of the recovered message attachments.
-pub fn summary(items: &[Attachment]) -> crate::summary::Summary {
+pub fn summary(items: &[Attachment], files_extracted: bool) -> crate::summary::Summary {
     use crate::summary::{iso_range, tally, year_rows, Summary};
 
     // Top-level MIME token (the part before `/`); empty when the MIME is unknown.
@@ -171,18 +171,22 @@ pub fn summary(items: &[Attachment]) -> crate::summary::Summary {
     // Empty MIME, or a top-level type that is none of image/video/audio.
     let documents = items.iter().filter(|a| !matches!(top(a), "image" | "video" | "audio")).count();
     let total_mb = (items.iter().map(|a| a.total_bytes).filter(|&b| b > 0).sum::<i64>() / 1_048_576) as usize;
-    let present = items.iter().filter(|a| !a.source_path.is_empty()).count();
-    let absent = items.iter().filter(|a| a.source_path.is_empty()).count();
 
-    Summary::new("attachments", "Přílohy zpráv", "příloh", items.len())
+    let mut s = Summary::new("attachments", "Přílohy zpráv", "příloh", items.len())
         .count("Obrázků", images)
         .count("Videí", videos)
         .count("Audio zpráv", audio)
         .count("Dokumentů a ostatní", documents)
-        .count("Celková velikost (MB)", total_mb)
-        .count("Dohledatelných v záloze", present)
-        .count("Chybí v záloze", absent)
-        .period_from(iso_range(items.iter().map(|a| a.created.as_str())))
+        .count("Celková velikost (MB)", total_mb);
+    // Real backup presence is known only after extraction and matches the envelope's
+    // extracted/missing counts; a non-empty source_path alone does not guarantee the
+    // file is in the backup, so these are omitted under --no-files.
+    if files_extracted {
+        let recovered = items.iter().filter(|a| a.file.is_some()).count();
+        let missing = items.iter().filter(|a| a.file.is_none()).count();
+        s = s.count("Souborů obnoveno", recovered).count("Chybí v záloze", missing);
+    }
+    s.period_from(iso_range(items.iter().map(|a| a.created.as_str())))
         .breakdown("Po letech", year_rows(items.iter().map(|a| a.created.as_str())))
         .breakdown(
             "Podle typu",
@@ -216,12 +220,15 @@ mod tests {
 
     #[test]
     fn summary_counts_breakdowns_and_period() {
-        let items = vec![
+        let mut items = vec![
             att("photo.jpg", "image/jpeg", "2023-05-01T10:00:00+00:00", 2_097_152, "Library/SMS/Attachments/a/photo.jpg"),
             att("clip.mov", "video/quicktime", "2024-06-01T10:00:00+00:00", 1_048_576, "Library/SMS/Attachments/b/clip.mov"),
             att("notes.pdf", "", "", 0, ""),
         ];
-        let s = summary(&items);
+        // Two files were extracted, one was absent from the backup.
+        items[0].file = Some("attachments/photo.jpg".into());
+        items[1].file = Some("attachments/clip.mov".into());
+        let s = summary(&items, true);
         assert_eq!(s.total, 3);
         assert_eq!(s.total_label, "příloh");
         let get = |label: &str| s.counts.iter().find(|(l, _)| l == label).map(|(_, n)| *n);
@@ -229,11 +236,15 @@ mod tests {
         assert_eq!(get("Videí"), Some(1));
         assert_eq!(get("Dokumentů a ostatní"), Some(1)); // empty-MIME pdf
         assert_eq!(get("Celková velikost (MB)"), Some(3)); // (2 MiB + 1 MiB) / 1_048_576
-        assert_eq!(get("Dohledatelných v záloze"), Some(2));
-        assert_eq!(get("Chybí v záloze"), Some(1));
+        assert_eq!(get("Souborů obnoveno"), Some(2)); // file.is_some()
+        assert_eq!(get("Chybí v záloze"), Some(1)); // file.is_none()
         let yr = s.breakdowns.iter().find(|b| b.title == "Po letech").unwrap();
         assert_eq!(yr.rows, vec![("2023".to_string(), 1), ("2024".to_string(), 1)]);
         assert!(s.period.is_some()); // derived from the two dated attachments
+
+        // Under --no-files, availability is unknown and those counts are omitted.
+        let meta_only = summary(&items, false);
+        assert!(meta_only.counts.iter().all(|(l, _)| l != "Souborů obnoveno" && l != "Chybí v záloze"));
     }
 
     #[test]

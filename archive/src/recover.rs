@@ -87,7 +87,7 @@ pub fn summary_md(device: &archive_core::DeviceInfo, generated: &str, sections: 
         .count("Datových typů", sections.len())
         .count("Obnovených souborů (média)", media_files(sections))
         .breakdown("Obnoveno podle typu", rows)
-        .note("Každý typ má i vlastní podrobný report (soubor <typ>-summary.md a <typ>.html).");
+        .note("Podrobnosti k jednotlivým typům najdete v index.html a ve stránkách <typ>.html.");
     crate::summary::summary_md(device, generated, &s)
 }
 

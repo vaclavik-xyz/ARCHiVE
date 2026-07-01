@@ -56,7 +56,7 @@ pub fn into_deleted(items: Vec<Photo>) -> Vec<DeletedAsset> {
 }
 
 /// Build a customer-facing summary of the recovered recently-deleted assets.
-pub fn summary(items: &[DeletedAsset]) -> crate::summary::Summary {
+pub fn summary(items: &[DeletedAsset], files_extracted: bool) -> crate::summary::Summary {
     use crate::summary::{iso_range, tally, year_rows, Summary};
 
     let img = items.iter().filter(|d| d.photo.kind == "image").count();
@@ -89,13 +89,18 @@ pub fn summary(items: &[DeletedAsset]) -> crate::summary::Summary {
             .take(15)
             .collect();
 
-    Summary::new("photos-recently-deleted", "Nedávno smazané fotky", "obnovitelných položek", items.len())
+    let mut s = Summary::new("photos-recently-deleted", "Nedávno smazané fotky", "obnovitelných položek", items.len())
         .count("Fotek", img)
-        .count("Videí", vid)
-        .count("V plné kvalitě", full_quality)
-        .count("Jen náhled", thumbnail)
-        .count("Chybí v záloze", missing)
-        .count("S GPS", with_gps)
+        .count("Videí", vid);
+    // Quality/availability is only known when files were actually extracted;
+    // under --no-files every `file` is None, so these counts would be meaningless.
+    if files_extracted {
+        s = s
+            .count("V plné kvalitě", full_quality)
+            .count("Jen náhled", thumbnail)
+            .count("Chybí v záloze", missing);
+    }
+    s.count("S GPS", with_gps)
         .count("Oblíbených", favorites)
         .count("Bylo v albu", in_album)
         .period_from(iso_range(items.iter().map(|d| d.photo.trashed_date.as_str())))
@@ -212,7 +217,7 @@ mod tests {
             asset("image", "2023-07-01T10:00:00+00:00", "2024-02-06T10:45:00+00:00", None, false, false, false, &["Dovolená"]),
             asset("video", "2021-05-01T10:00:00+00:00", "2025-03-06T10:45:00+00:00", Some("photos/b.mov"), true, false, false, &[]),
         ];
-        let s = summary(&items);
+        let s = summary(&items, true);
         assert_eq!(s.total, 3);
         assert_eq!(s.total_label, "obnovitelných položek");
 
@@ -230,6 +235,13 @@ mod tests {
         assert_eq!(albums.rows[0], ("Dovolená".to_string(), 2));
 
         assert!(s.period.is_some()); // derived from the trashed dates
+
+        // Under --no-files nothing was extracted, so quality counts are omitted.
+        let meta_only = summary(&items, false);
+        assert!(meta_only
+            .counts
+            .iter()
+            .all(|(l, _)| l != "V plné kvalitě" && l != "Jen náhled" && l != "Chybí v záloze"));
     }
 
     #[test]

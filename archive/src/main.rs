@@ -2972,7 +2972,7 @@ fn run_photos_recently_deleted(
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} recently-deleted asset(s) to {}", items.len(), out_file.display());
 
-    let summary_file = write_type_summary(out, backup.device_info(), &photos_deleted::summary(&items))?;
+    let summary_file = write_type_summary(out, backup.device_info(), &photos_deleted::summary(&items, !no_files))?;
 
     let mut envelope = serde_json::json!({
         "ok": true, "command": "photos-recently-deleted", "count": items.len(),
@@ -3019,7 +3019,7 @@ fn run_attachments(cli: &Cli, password: Option<&str>, format: &str, no_files: bo
     write_or_pdf(&out_file, &rendered, format, cli.chrome_path.as_deref())?;
     eprintln!("Wrote {} attachment(s) to {}", items.len(), out_file.display());
 
-    let summary_file = write_type_summary(out, backup.device_info(), &attachments::summary(&items))?;
+    let summary_file = write_type_summary(out, backup.device_info(), &attachments::summary(&items, !no_files))?;
 
     let mut envelope = serde_json::json!({
         "ok": true, "command": "attachments", "count": items.len(),

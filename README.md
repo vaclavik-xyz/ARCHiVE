@@ -114,8 +114,9 @@ workspace, found next to `archive` or on `PATH`, or via
 **Per-folder summaries:** most collection commands also write a dependency-free
 markdown overview `<out>/<type>-summary.md` (device, recovery totals, time
 period, per-category breakdowns) next to their main output — no browser needed —
-and `recover` adds a root `summary.md` + `summary.pdf` one-pager covering every
-recovered type. See [AGENTS.md](AGENTS.md) for the full list and envelope shape.
+and `recover` adds a root `summary.md` (plus a `summary.pdf` when a headless
+browser is available) covering every recovered type. See [AGENTS.md](AGENTS.md)
+for the full list and envelope shape.
 
 Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
 The canonical, machine-readable contract (every command's flags, envelope, and
