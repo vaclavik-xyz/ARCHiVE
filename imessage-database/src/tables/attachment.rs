@@ -19,9 +19,9 @@ use crate::{
     tables::{
         capabilities::Capabilities,
         diagnostic::AttachmentDiagnostic,
-        messages::Message,
+        messages::{Message, query_parts::from_clause},
         table::{
-            ATTACHMENT, ATTRIBUTION_INFO, CHAT_MESSAGE_JOIN, MESSAGE, MESSAGE_ATTACHMENT_JOIN,
+            ATTACHMENT, ATTRIBUTION_INFO, MESSAGE_ATTACHMENT_JOIN,
             STICKER_USER_INFO, Table,
         },
     },
@@ -383,16 +383,19 @@ impl Attachment {
         context: &QueryContext,
     ) -> Result<u64, TableError> {
         let statement = if context.has_filters() {
+            // Use the same chat associations and recoverable-message filter
+            // as the export query, while keeping the public API unchanged.
+            let capabilities = Capabilities::determine(db)?;
+            let associations = from_clause(&capabilities);
             format!(
                 "SELECT IFNULL(SUM(a.total_bytes), 0) FROM {ATTACHMENT} a \
              WHERE a.ROWID IN ( \
                  SELECT maj.attachment_id \
-                 FROM {MESSAGE_ATTACHMENT_JOIN} maj \
-                 JOIN {MESSAGE} m ON m.ROWID = maj.message_id \
-                 LEFT JOIN {CHAT_MESSAGE_JOIN} c ON c.message_id = m.ROWID \
+                 {associations} \
+                 JOIN {MESSAGE_ATTACHMENT_JOIN} maj ON m.ROWID = maj.message_id \
                  {} \
              )",
-                Message::generate_filter_statement(context, false)
+                Message::generate_filter_statement(context, capabilities.recoverable_messages)
             )
         } else {
             format!("SELECT IFNULL(SUM(total_bytes), 0) FROM {ATTACHMENT}")
@@ -1054,6 +1057,32 @@ mod tests {
         context.set_selected_handle_ids(BTreeSet::from([1, 2, 3]));
 
         assert!(Attachment::get_total_attachment_bytes(&connection, &context).is_ok());
+    }
+
+    #[test]
+    fn attachment_bytes_include_filtered_recoverable_messages_once() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE message (ROWID INTEGER PRIMARY KEY, date INTEGER);
+             CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY, total_bytes INTEGER);
+             CREATE TABLE message_attachment_join (message_id INTEGER, attachment_id INTEGER);
+             CREATE TABLE chat_message_join (message_id INTEGER, chat_id INTEGER);
+             CREATE TABLE chat_recoverable_message_join (message_id INTEGER, chat_id INTEGER);
+             INSERT INTO message VALUES (1, 100), (2, 100), (3, 100), (4, 1);
+             INSERT INTO attachment VALUES (1, 100), (2, 200), (3, 400), (4, 800);
+             INSERT INTO message_attachment_join VALUES (1, 1), (2, 1), (2, 2), (3, 3), (4, 4);
+             INSERT INTO chat_message_join VALUES (1, 7);
+             INSERT INTO chat_recoverable_message_join VALUES (2, 7), (3, 8), (4, 7);"
+        ).unwrap();
+        let mut context = QueryContext::default();
+        context.set_selected_chat_ids(BTreeSet::from([7]));
+        context.start = Some(50);
+        // Count the active and recoverable messages, exclude the other chat
+        // and the old message, and count their shared attachment only once.
+        assert_eq!(Attachment::get_total_attachment_bytes(&db, &context).unwrap(), 300);
+        // Legacy backups have no recoverable join table: keep the active sum.
+        db.execute_batch("DROP TABLE chat_recoverable_message_join;").unwrap();
+        assert_eq!(Attachment::get_total_attachment_bytes(&db, &context).unwrap(), 100);
     }
 
     #[test]
