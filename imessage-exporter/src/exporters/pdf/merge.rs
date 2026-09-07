@@ -57,10 +57,10 @@ pub(super) fn merge_pdfs(inputs: &[std::path::PathBuf], output: &Path) -> Result
             Some(b"Pages") => {
                 if let Ok(dict) = object.as_dict() {
                     let mut dict = dict.clone();
-                    if let Some((_, older)) = pages_object.as_ref() {
-                        if let Ok(older_dict) = older.as_dict() {
-                            dict.extend(older_dict);
-                        }
+                    if let Some((_, older)) = pages_object.as_ref()
+                        && let Ok(older_dict) = older.as_dict()
+                    {
+                        dict.extend(older_dict);
                     }
                     let id = pages_object.as_ref().map_or(*object_id, |(id, _)| *id);
                     pages_object = Some((id, Object::Dictionary(dict)));

@@ -164,7 +164,7 @@ Documentation for the library is located [here](imessage-database/README.md).
 
 ### Supported Features
 
-This component supports every iMessage feature as of macOS Tahoe 26.5.1 (25F80) and iOS 26.5.1 (23F81):
+This component supports every iMessage feature as of macOS Golden Gate 27.0 and iOS 27.0:
 
 - iMessage, RCS, SMS, and MMS
 - Multi-part messages

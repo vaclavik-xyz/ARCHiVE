@@ -52,6 +52,7 @@ use crate::{
     app::{
         compatibility::models::{Converter, ImageConverter, PdfConverter},
         error::RuntimeError,
+        file_times::set_file_times,
         options::PdfEngine,
         runtime::Config,
     },
@@ -125,6 +126,7 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
             &attachments,
             config.options.pdf.max_image_size,
             config.options.pdf.image_quality,
+            config.options.use_message_times,
         );
     }
 
@@ -156,6 +158,11 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
             image_quality,
         ) {
             Ok(()) => {
+                if config.options.use_message_times {
+                    // HTML teardown has already applied the message date span.
+                    // Stamp the final PDF after rendering/merging/recompression.
+                    copy_transcript_times(html, &pdf);
+                }
                 if !config.options.pdf.keep_html {
                     let _ = remove_file(html);
                 }
@@ -179,6 +186,15 @@ pub fn run_pdf_export(config: &Config) -> Result<(), RuntimeError> {
         )));
     }
     Ok(())
+}
+
+/// Carry the HTML transcript's message dates through the final PDF conversion.
+/// Keep timestamp failures non-fatal, as in the upstream transcript exporter.
+fn copy_transcript_times(html: &Path, pdf: &Path) {
+    match html.metadata() {
+        Ok(metadata) => set_file_times(pdf, metadata.created().ok(), metadata.modified().ok(), None),
+        Err(why) => eprintln!("Unable to read {} metadata: {why}", html.display()),
+    }
 }
 
 /// Refuse to export when `dir` already holds top-level `.html` files. The HTML
@@ -219,7 +235,7 @@ fn collect_html_files(dir: &Path) -> Result<Vec<PathBuf>, RuntimeError> {
 /// `max_size` pixels, re-encoding JPEGs at `quality`. Resizing is a best-effort
 /// pass: a missing converter or a single failure is reported and skipped rather
 /// than aborting the export.
-fn downscale_images(dir: &Path, max_size: u32, quality: u8) {
+fn downscale_images(dir: &Path, max_size: u32, quality: u8, use_message_times: bool) {
     let Some(converter) = ImageConverter::determine() else {
         eprintln!(
             "No image downscaler (sips or ImageMagick) is available; images will be embedded at full size."
@@ -235,8 +251,12 @@ fn downscale_images(dir: &Path, max_size: u32, quality: u8) {
 
     let mut resized = 0u64;
     for image in &images {
+        let original_times = use_message_times.then(|| image.metadata().ok()).flatten();
         if resize_image(&converter, image, max_size, quality) {
             resized += 1;
+        }
+        if let Some(metadata) = original_times {
+            set_file_times(image, metadata.created().ok(), metadata.modified().ok(), None);
         }
     }
     if resized > 0 {
@@ -693,6 +713,28 @@ fn split_html_into_chunks(html: &str, messages_per_chunk: usize) -> Vec<String> 
 mod tests {
     use super::{file_url, has_extension, is_image};
     use std::path::Path;
+
+    #[test]
+    fn pdf_inherits_message_dates_after_rendering() {
+        use crate::app::{file_times::set_file_times, test_dir::unique_test_dir};
+        use std::{fs, time::{Duration, UNIX_EPOCH}};
+
+        let dir = unique_test_dir("pdf-message-times");
+        let html = dir.join("chat.html");
+        let pdf = dir.join("chat.pdf");
+        fs::write(&html, "transcript").unwrap();
+        let first = UNIX_EPOCH + Duration::from_secs(1_600_000_000);
+        let last = first + Duration::from_secs(3600);
+        set_file_times(&html, Some(first), Some(last), None);
+        fs::write(&pdf, "%PDF-1.7 rendered").unwrap();
+
+        super::copy_transcript_times(&html, &pdf);
+        fs::remove_file(&html).unwrap();
+        let metadata = fs::metadata(&pdf).unwrap();
+        assert_eq!(metadata.modified().unwrap(), last);
+        #[cfg(any(target_vendor = "apple", windows))]
+        assert_eq!(metadata.created().unwrap(), first);
+    }
 
     #[test]
     fn file_url_encodes_spaces_and_plus() {
