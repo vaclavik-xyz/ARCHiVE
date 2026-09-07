@@ -12,6 +12,9 @@ The 2026-09-07 synchronization imports upstream commit
 `--use-message-times` stamps the final PDF after rendering, recompression and
 chunk merging. Image resizing preserves the attachment timestamps when enabled.
 
+`rust-toolchain.toml` pins the compiler and Clippy version for both local work
+and CI. Update that pin explicitly and validate before adopting new lint rules.
+
 Before delivering an upstream synchronization:
 
 ```sh

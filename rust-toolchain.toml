@@ -1,0 +1,5 @@
+# Keep local validation and CI on the same compiler and Clippy rules.
+[toolchain]
+channel = "1.96.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
