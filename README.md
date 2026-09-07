@@ -1,205 +1,172 @@
 # ARCHiVE
 
-Extract your personal data from iOS backups — messages, photos & videos,
-contacts, calls, voicemail, voice memos, notes, Safari history/bookmarks,
-calendar, WhatsApp, and more — from the command line, built to be driven equally
-well by humans and AI agents.
+<img src="docs/brand/logo.png" alt="ARCHiVE" width="560">
 
-ARCHiVE is a Rust workspace bundling two CLIs that read an on-disk iPhone/iPad
-backup (encrypted or not) and give you full ownership of your data in open,
-portable formats:
+**Your iPhone backup. Your data.**
 
-- **`archive`** — a full iOS-backup **recovery toolset**: contacts, calls,
-  voicemail, voice memos, Safari, calendar, notes, photos & videos, message
-  attachments, WhatsApp, iMessage/SMS/RCS transcripts, Health, Reminders, Mail,
-  an installed-app inventory, a configured-accounts inventory, a saved Wi-Fi
-  network list (`known-networks`), a paired/seen Bluetooth device roster
-  (`bluetooth-devices`), recorded location history
-  (`significant-locations`), the user's custom keyboard words
-  (`keyboard-lexicon`), the Home Screen layout
-  (`homescreen-layout`), per-process network `data-usage`, a unified
-  chronological `timeline`, an activity `stats` dashboard, a per-app database
-  recoverability report (`app-databases`), per-app document/media extraction
-  (`app-files`) — plus a
-  one-shot `recover` package, deleted-record recovery (`recover-deleted`, SQLite
-  carving), a `schema-check` that flags when a store's columns have drifted across
-  iOS versions, a case-file `search` across every record, a combined SQLite
-  `db-export` for cross-store SQL, a file-level `diff` of two backups, an
-  AES-256-encrypted `package` of the output, Recently Deleted photo/video recovery
-  (`photos-recently-deleted`), saved Wi-Fi passwords (`wifi`) and website/app
-  passwords (`passwords`) from the keychain, X.509 `certificates` recovered from
-  the keychain (PEM bundle, public certs only), best-effort VPN / enterprise-Wi-Fi
-  credentials (`vpn-creds`) from the keychain, on-device `backup`
-  capture, and a backup `integrity` check (agent-first JSON output)
-- **`imessage-exporter`** — iMessage / SMS / RCS conversations and attachments
+Recover and export messages, photos, contacts, notes, and more from iPhone and
+iPad backups. A local-first command-line toolkit with encrypted-backup support
+and exports you can read, search, and keep.
 
-```bash
-cargo build --release   # binaries: target/release/{archive, imessage-exporter}
-```
+[Quick start](#quick-start) · [What you can export](#what-you-can-export) ·
+[Command reference](archive/README.md) · [Agent API](AGENTS.md) ·
+[Brand assets](docs/brand/README.md)
 
----
+## What you can export
 
-## `archive` — iOS backup recovery toolset
+| Data | Examples |
+| --- | --- |
+| Conversations | iMessage, SMS, RCS, WhatsApp, and message attachments |
+| Photos and audio | Photos, videos, Voice Memos, voicemail, and available Recently Deleted items |
+| Personal records | Contacts, calls, notes, calendars, reminders, Safari history and bookmarks |
+| Device and app data | Installed apps, Home Screen layout, network usage, Bluetooth devices, app files and databases |
+| Health and accounts | Workouts, quantity summaries, configured accounts, and supported keychain records |
 
-An **agent-first** extractor: every command prints exactly one JSON object to
-stdout, human progress goes to stderr, and exit codes are stable. Export formats
-are `csv` / `json` / `vcf` / `html` depending on the data type; the per-type
-export commands also render **`pdf`** via a headless Chrome/Chromium/Edge (the
-`messages` transcript renders PDF through the bundled exporter instead; the
-`recover` package stays HTML). Media-bearing types also extract the actual files
-(photos, videos, audio, attachments).
+Export to **HTML, PDF, JSON, CSV, vCard, or text**, depending on the command.
+Media exports also recover the files available in the backup. Most collection
+exports include a Markdown summary with totals and a time range.
+
+Beyond individual exports, ARCHiVE can build a recovery package, combine records
+into a timeline or SQLite database, search exported records, compare two backups,
+and check backup integrity. Deleted-record recovery is best-effort.
+
+**Availability depends on the backup.** ARCHiVE can recover only data present in
+it. iCloud-only originals, purged files, and stores excluded by iOS may be absent.
+See the [per-type reference](archive/README.md) for availability and limitations.
+
+## Quick start
+
+Build from source with Rust. The repository pins its toolchain in
+[rust-toolchain.toml](rust-toolchain.toml).
 
 ```bash
-# Triage a backup (read-only): what's in it, and is it complete?
-archive --backup ~/Backup/<UDID> inspect
-archive --backup ~/Backup/<UDID> integrity
-
-# One-shot: recover every in-process data-store extractor into out/ with a
-# customer-ready index.html plus a root summary.md + summary.pdf one-pager (the
-# `messages` transcript and `apps` inventory are separate commands)
-archive --backup ~/Backup/<UDID> -o out recover        # --no-files for metadata only
-
-# Or capture a fresh backup from a USB-connected iPhone first (libimobiledevice)
-archive -o out backup                                   # writes out/<UDID>/
-
-# Per data type (csv | json | vcf | html; media types extract files by default)
-archive --backup ~/Backup/<UDID> -o out contacts        -f vcf   # incl. postal addresses
-archive --backup ~/Backup/<UDID> -o out calls           -f json  # numbers resolved to contact names (also voicemail/whatsapp/timeline)
-archive --backup ~/Backup/<UDID> -o out accounts        -f json  # configured accounts (Apple ID, Google, Exchange, …)
-archive --backup ~/Backup/<UDID> -o out known-networks  -f json  # saved Wi-Fi SSIDs, no passwords (often empty on iOS 16+)
-archive --backup ~/Backup/<UDID> -o out homescreen-layout -f html # home screen layout: pages, dock, folders, widgets
-archive --backup ~/Backup/<UDID> -o out data-usage      -f html  # per-process cellular/Wi-Fi byte counters
-archive --backup ~/Backup/<UDID> -o out device-usage    -f html  # per-app foreground time (knowledgeC.db; often absent on iOS 16+)
-archive --backup ~/Backup/<UDID> -o out interactions    -f html  # per-contact communication history (who, which app, how often; interactionC.db)
-archive --backup ~/Backup/<UDID> -o out bluetooth-devices -f html # paired + previously-seen Bluetooth devices (names, MAC addresses)
-archive --backup ~/Backup/<UDID> -o out significant-locations -f html # routined location history (usually excluded from standard backups)
-archive --backup ~/Backup/<UDID> -o out keyboard-lexicon  -f html  # user's custom "Add to Dictionary" keyboard words
-archive --backup ~/Backup/<UDID> -o out voicemail       -f json --audio
-archive --backup ~/Backup/<UDID> -o out voice-memos     -f html
-archive --backup ~/Backup/<UDID> -o out safari-history  -f json
-archive --backup ~/Backup/<UDID> -o out safari-bookmarks -f json
-archive --backup ~/Backup/<UDID> -o out calendar        -f html
-archive --backup ~/Backup/<UDID> -o out notes           -f html  # body decoded from gzip+protobuf
-archive --backup ~/Backup/<UDID> -o out photos          -f html  # gallery: albums, hidden, Live/burst, GPS; thumbnail fallback for iCloud-only originals
-archive --backup ~/Backup/<UDID> -o out photos --summary -f pdf   # text-only overview report (no gallery/media): device, totals, period, per-year/album
-archive --backup ~/Backup/<UDID> -o out photos-recently-deleted -f html  # recover trashed photos still in the 30-day window
-archive --backup ~/Backup/<UDID> -o out attachments     -f html  # Messages media gallery
-archive --backup ~/Backup/<UDID> -o out whatsapp        -f html  # transcript + media
-archive --backup ~/Backup/<UDID> -o out messages        -f html  # iMessage/SMS/RCS transcript (txt|html|pdf)
-archive --backup ~/Backup/<UDID> -o out health          -f html  # workouts + quantity summaries
-archive --backup ~/Backup/<UDID> -o out reminders       -f html  # lists, items, due/completion
-archive --backup ~/Backup/<UDID> -o out mail            -f html  # local/POP3 .emlx (often empty on iOS)
-archive --backup ~/Backup/<UDID> -o out apps            -f json  # installed app bundle ids
-archive --backup ~/Backup/<UDID> -o out timeline        -f html  # everything merged chronologically
-archive --backup ~/Backup/<UDID> -o out stats           -f html  # activity dashboard: per-category counts + date ranges
-archive --backup ~/Backup/<UDID> -o out app-databases   -f html  # per-app DB recoverability: readable SQLite vs encrypted/other
-archive --backup ~/Backup/<UDID> -o out app-files --app viber -f html  # extract an app's media (add --all for every file)
-archive --backup ~/Backup/<UDID> -o out recover-deleted -f html  # carve deleted rows (best-effort)
-archive --backup ~/Backup/<UDID> -o out schema-check     -f html  # do live DB schemas still match what extractors need?
-archive --backup ~/Backup/<UDID> -o out search -q "Jan"  -f html  # find a term across every record + the address book
-archive --backup ~/Backup/<UDID> -o out db-export                 # one queryable archive.sqlite for cross-store SQL
-archive --backup ~/Backup/<A> -o out diff --against ~/Backup/<B> -f html  # file-level diff of two backups
-archive -o out package --source out --zip-password <pw>           # AES-256 encrypted zip of the export dir
-archive --backup ~/Backup/<UDID> -o out wifi            -f html  # saved Wi-Fi passwords (encrypted backups)
-archive --backup ~/Backup/<UDID> -o out passwords       -f html  # saved website/app passwords (encrypted backups)
-archive --backup ~/Backup/<UDID> -o out keychain-inventory -f json  # keychain census: per-item metadata, NO secrets
-archive --backup ~/Backup/<UDID> -o out certificates    -f html  # X.509 certs from the keychain → certificates.pem + metadata (no private keys)
-archive --backup ~/Backup/<UDID> -o out vpn-creds       -f html  # best-effort VPN / enterprise-Wi-Fi (EAP) credentials from the keychain (plaintext)
+git clone https://github.com/vaclavik-xyz/ARCHiVE.git
+cd ARCHiVE
+cargo build --release --workspace --locked
 ```
 
-The `messages` command drives the `imessage-exporter` binary (built in the same
-workspace, found next to `archive` or on `PATH`, or via
-`ARCHIVE_IMESSAGE_EXPORTER`) and writes the transcript under `<out>/messages`.
+The build produces `target/release/archive` and
+`target/release/imessage-exporter` (`.exe` on Windows). Keep the binaries together:
+`archive messages` uses the bundled exporter for conversation transcripts.
+The shell examples below use the binaries directly from the build directory.
 
-**Per-folder summaries:** most collection commands also write a dependency-free
-markdown overview `<out>/<type>-summary.md` (device, recovery totals, time
-period, per-category breakdowns) next to their main output — no browser needed —
-and `recover` adds a root `summary.md` (plus a `summary.pdf` when a headless
-browser is available) covering every recovered type. See [AGENTS.md](AGENTS.md)
-for the full list and envelope shape.
+```bash
+# Discover the available data without exporting it
+./target/release/archive --backup /path/to/backup inspect
 
-Encrypted backups: pass `--password` or set `ARCHIVE_PASSWORD` (never prompts).
-The canonical, machine-readable contract (every command's flags, envelope, and
-exit codes) lives in **[AGENTS.md](AGENTS.md)**; a per-type checklist is in
-**[archive/README.md](archive/README.md)**. Crates: `archive` (the CLI) over
-`archive-core` (the crabapple-backed open/decrypt/fetch layer); neither depends
-on the Messages tooling below.
+# Export a browsable recovery package
+./target/release/archive --backup /path/to/backup -o out recover
 
----
+# Export full iMessage / SMS / RCS conversations separately
+./target/release/archive --backup /path/to/backup -o out messages -f html
+```
 
-## `imessage-exporter` — iMessage, SMS & RCS
+`recover` creates `out/index.html` and a root `summary.md`, plus `summary.pdf`
+when a headless browser is available. It does **not** include the full Messages
+transcript or the `apps` inventory; run those commands separately.
+Use `recover --no-files` for a metadata-only package.
 
-This component provides both a library to interact with iMessage data and a
-binary that performs useful read-only operations using that data. The aim is to
-provide the most comprehensive and accurate representation of iMessage data
-available. It can:
+### Encrypted backups
 
-- Save, export, backup, and archive iMessage data to open, portable formats
-- Preserve multimedia content (images, videos, audio) from conversations
-- Facilitate easy migration of message history between devices and platforms
-- Run diagnostics on the iMessage database
-- Give you full ownership and control over your communication history
-- Support compliance with data retention policies or legal requirements
-- Run on macOS, Linux, and Windows
+Supply the password through `ARCHIVE_PASSWORD` or the `--password` flag.
+Headless runs never prompt. In a Bash or Zsh terminal, you can read the password
+without putting its value in shell history:
 
-### Example Export
+```bash
+printf 'Backup password: '
+read -r -s ARCHIVE_PASSWORD
+printf '\n'
+export ARCHIVE_PASSWORD
+./target/release/archive --backup /path/to/backup inspect
+unset ARCHIVE_PASSWORD
+```
 
-![HTML Export Sample](/docs/hero.png)
+### Common exports
 
-### Binary
+```bash
+# Contacts you can import into an address book
+./target/release/archive --backup /path/to/backup -o out contacts -f vcf
 
-The `imessage-exporter` binary exports iMessage data to `txt`, `html`, or `pdf`
-formats. PDF export renders one document per conversation using Apple's Quartz
-engine on macOS or a headless Chrome/Chromium/Edge browser elsewhere. It can also
-run diagnostics to find problems with the iMessage database.
+# Photo gallery with available media files
+./target/release/archive --backup /path/to/backup -o out photos -f html
 
-Installation instructions for the binary are located [here](imessage-exporter/README.md).
+# Apple Notes as structured data
+./target/release/archive --backup /path/to/backup -o out notes -f json
 
-### Library
+# WhatsApp transcript and media
+./target/release/archive --backup /path/to/backup -o out whatsapp -f html
 
-The `imessage_database` library provides models that allow us to access iMessage
-information as native, cross-platform data structures.
+# A combined chronological view
+./target/release/archive --backup /path/to/backup -o out timeline -f html
 
-Documentation for the library is located [here](imessage-database/README.md).
+# Verify backup completeness
+./target/release/archive --backup /path/to/backup integrity
+```
 
-### Supported Features
+For the full command list and flags, see [archive/README.md](archive/README.md)
+and [AGENTS.md](AGENTS.md), or run `./target/release/archive --help`.
 
-This component supports every iMessage feature as of macOS Golden Gate 27.0 and iOS 27.0:
+### Optional tools
 
-- iMessage, RCS, SMS, and MMS
-- Multi-part messages
-- Replies/Threads
-- Formatted text
-- Attachments
-- Expressives
-- Tapbacks
-- Stickers
-- Apple Pay
-- Group chats
-- Digital Touch
-- URL Previews
-- Audio messages
-- App Integrations
-- Edited messages
-- Business messages
-- Handwritten messages
+- **PDF reports:** in-process HTML exports use a headless Chrome, Chromium, or
+  Edge browser. Set `--chrome-path` if automatic detection fails. Messages PDF
+  export uses Quartz on macOS and a headless browser elsewhere.
+- **Audio conversion:** `ffmpeg` is needed when requesting audio transcoding;
+  native audio copies do not require it.
+- **Fresh device backups:** `archive -o out backup` uses `libimobiledevice` to
+  create a backup from a connected iPhone.
 
-See more detail about supported features [here](docs/features.md).
+## Built for scripts and agents
 
-This component tracks [ReagentX/imessage-exporter](https://github.com/ReagentX/imessage-exporter)
-upstream so it stays current with its active Messages development.
+The `archive` CLI returns one JSON object on stdout for handled commands,
+with progress on stderr. A successful export reports output paths and counts;
+missing stores are reported explicitly. Argument-parsing errors are a separate
+channel and may produce only stderr.
 
-## Frequently Asked Questions
+The [agent contract](AGENTS.md) documents flags, JSON envelopes, exit codes,
+authentication behavior, and empty-store handling. The separate
+`imessage-exporter` binary has its own CLI and output contract.
 
-The FAQ document is located [here](/docs/faq.md).
+## Messages exporter and library
 
-## Provenance & license
+ARCHiVE includes two upstream-derived crates:
 
-The `imessage-database` and `imessage-exporter` crates originate from
-[ReagentX/imessage-exporter](https://github.com/ReagentX/imessage-exporter) and
-are licensed **GPL-3.0**. ARCHiVE is a derivative work and is therefore released
-under **GPL-3.0-or-later** (see [LICENSE](LICENSE)). The `archive` and
-`archive-core` crates are original to this project.
+- [`imessage-exporter`](imessage-exporter/README.md) exports conversations to
+  HTML, text, or PDF and runs database diagnostics.
+- [`imessage-database`](imessage-database/README.md) exposes message data as
+  native Rust structures.
+
+The exporter preserves supported message features such as replies, tapbacks,
+edits, formatted text, and attachments. See the [feature guide](docs/features.md),
+[diagnostics guide](docs/diagnostics.md), and [Messages FAQ](docs/faq.md).
+
+<details>
+<summary>Example Messages HTML export</summary>
+
+![Messages HTML export sample](docs/hero.png)
+
+</details>
+
+## Development
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+```
+
+The workspace contains `archive` (the recovery CLI), `archive-core` (backup
+opening, decryption, and file access), and the two Messages crates above.
+
+## Provenance and license
+
+ARCHiVE builds on [ReagentX/imessage-exporter](https://github.com/ReagentX/imessage-exporter)
+and tracks its ongoing Messages development. The `imessage-database` and
+`imessage-exporter` crates originate from that project; `archive` and
+`archive-core` are original to ARCHiVE.
+
+ARCHiVE is a derivative work released under **GPL-3.0-or-later**.
+See [LICENSE](LICENSE).
 
 ## Special Thanks
 
