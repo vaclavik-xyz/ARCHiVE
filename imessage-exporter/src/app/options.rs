@@ -48,6 +48,7 @@ pub const OPTION_IMAGE_QUALITY: &str = "image-quality";
 pub const OPTION_CHROME_PATH: &str = "chrome-path";
 pub const OPTION_KEEP_HTML: &str = "keep-html";
 pub const OPTION_PDF_ENGINE: &str = "pdf-engine";
+pub const OPTION_USE_MESSAGE_TIMES: &str = "use-message-times";
 
 // Other CLI Text
 pub const SUPPORTED_FILE_TYPES: &str = "txt, html, pdf";
@@ -173,6 +174,8 @@ pub struct Options {
     pub show_progress: bool,
     /// PDF-export tuning knobs (only meaningful when `export_type` is `Pdf`).
     pub pdf: PdfOptions,
+    /// Whether to stamp transcript and attachment files with message dates.
+    pub use_message_times: bool,
 }
 
 // Redact the cleartext backup password from debug output.
@@ -200,6 +203,7 @@ impl std::fmt::Debug for Options {
             .field("contacts_path", &self.contacts_path)
             .field("show_progress", &self.show_progress)
             .field("pdf", &self.pdf)
+            .field("use_message_times", &self.use_message_times)
             .finish()
     }
 }
@@ -267,6 +271,7 @@ impl Options {
                     "--{OPTION_IMAGE_QUALITY} must be an integer between 1 and 100"
                 ))
             })?;
+        let use_message_times = args.get_flag(OPTION_USE_MESSAGE_TIMES);
 
         // Build the export type
         let export_type: Option<ExportType> = match export_file_type {
@@ -311,6 +316,7 @@ impl Options {
                 (use_caller_id, OPTION_USE_CALLER_ID),
                 (conversation_filter.is_some(), OPTION_CONVERSATION_FILTER),
                 (!show_progress, OPTION_NO_PROGRESS),
+                (use_message_times, OPTION_USE_MESSAGE_TIMES),
             ];
             for (set, opt) in format_deps {
                 if set {
@@ -319,6 +325,13 @@ impl Options {
                     )));
                 }
             }
+        }
+
+        // Absent both of these, there is no work to do: bail before any data source is opened
+        if !diagnostic && export_type.is_none() {
+            return Err(RuntimeError::InvalidOptions(format!(
+                "Neither --{OPTION_EXPORT_TYPE} nor --{OPTION_DIAGNOSTIC} was set; nothing to do! Use --help to see usage."
+            )));
         }
 
         // During `diagnostics`, none of these may be set
@@ -333,6 +346,7 @@ impl Options {
             (custom_name.is_some(), OPTION_CUSTOM_NAME),
             (conversation_filter.is_some(), OPTION_CONVERSATION_FILTER),
             (!show_progress, OPTION_NO_PROGRESS),
+            (use_message_times, OPTION_USE_MESSAGE_TIMES),
         ];
         for (set, opt) in diag_conflicts {
             if diagnostic && set {
@@ -465,6 +479,7 @@ impl Options {
                 chrome_path: chrome_path.cloned(),
                 keep_html,
             },
+            use_message_times,
         })
     }
 
@@ -706,6 +721,13 @@ fn get_command() -> Command {
                 .value_name(SUPPORTED_PDF_ENGINES)
                 .display_order(21),
         )
+        .arg(
+            Arg::new(OPTION_USE_MESSAGE_TIMES)
+                .long(OPTION_USE_MESSAGE_TIMES)
+                .help("Stamp transcripts with the earliest and latest message dates in this export\nAlso set each new attachment file's creation time to its message date\nCreation time is set only on macOS and Windows\n")
+                .action(ArgAction::SetTrue)
+                .display_order(22),
+        )
 }
 
 #[cfg(test)]
@@ -733,8 +755,11 @@ impl Options {
             conversation_filter: None,
             cleartext_password: None,
             contacts_path: None,
-            show_progress: true,
             pdf: PdfOptions::default(),
+            // The harness leaves stderr as a TTY, so a true default draws `\r`
+            // bars over test output.
+            show_progress: false,
+            use_message_times: false,
         }
     }
 }
@@ -784,6 +809,7 @@ mod arg_tests {
             contacts_path: None,
             show_progress: true,
             pdf: PdfOptions::default(),
+            use_message_times: false,
         };
 
         assert_eq!(actual, expected);
@@ -861,6 +887,7 @@ mod arg_tests {
             contacts_path: None,
             show_progress: true,
             pdf: PdfOptions::default(),
+            use_message_times: false,
         };
 
         assert_eq!(actual, expected);
@@ -893,6 +920,7 @@ mod arg_tests {
             contacts_path: None,
             show_progress: true,
             pdf: PdfOptions::default(),
+            use_message_times: false,
         };
 
         assert_eq!(actual, expected);
@@ -937,7 +965,7 @@ mod arg_tests {
     #[test]
     fn cant_build_option_invalid_platform() {
         let command = get_command();
-        let args = command.get_matches_from(["imessage-exporter", "-a", "iPad"]);
+        let args = command.get_matches_from(["imessage-exporter", "-a", "iPad", "-f", "txt"]);
         assert!(Options::from_args(&args).is_err());
     }
 
@@ -968,6 +996,7 @@ mod arg_tests {
             contacts_path: None,
             show_progress: true,
             pdf: PdfOptions::default(),
+            use_message_times: false,
         };
 
         assert_eq!(actual, expected);
@@ -1008,6 +1037,7 @@ mod arg_tests {
             contacts_path: None,
             show_progress: true,
             pdf: PdfOptions::default(),
+            use_message_times: false,
         };
 
         assert_eq!(actual, expected);
@@ -1180,6 +1210,7 @@ mod arg_tests {
             contacts_path: None,
             show_progress: true,
             pdf: PdfOptions::default(),
+            use_message_times: false,
         };
 
         assert_eq!(actual, expected);
@@ -1212,6 +1243,7 @@ mod arg_tests {
             contacts_path: None,
             show_progress: true,
             pdf: PdfOptions::default(),
+            use_message_times: false,
         };
 
         assert_eq!(actual, expected);
@@ -1245,6 +1277,7 @@ mod arg_tests {
             contacts_path: None,
             show_progress: true,
             pdf: PdfOptions::default(),
+            use_message_times: false,
         };
 
         assert_eq!(actual, expected);
@@ -1277,6 +1310,7 @@ mod arg_tests {
             contacts_path: None,
             show_progress: true,
             pdf: PdfOptions::default(),
+            use_message_times: false,
         };
 
         assert_eq!(actual, expected);
@@ -1309,6 +1343,7 @@ mod arg_tests {
             contacts_path: None,
             show_progress: true,
             pdf: PdfOptions::default(),
+            use_message_times: false,
         };
 
         assert_eq!(actual, expected);
@@ -1380,6 +1415,7 @@ mod arg_tests {
             contacts_path: None,
             show_progress: true,
             pdf: PdfOptions::default(),
+            use_message_times: false,
         };
 
         assert_eq!(actual, expected);
@@ -1387,13 +1423,31 @@ mod arg_tests {
 
     #[test]
     fn cant_build_option_invalid_attachment_root() {
-        let args = get_command().get_matches_from(["imessage-exporter", "-r", "/does/not/exist"]);
+        let args = get_command().get_matches_from([
+            "imessage-exporter",
+            "-f",
+            "txt",
+            "-r",
+            "/does/not/exist",
+        ]);
         assert!(Options::from_args(&args).is_err());
     }
 
     #[test]
     fn cant_build_option_invalid_contacts_path() {
-        let args = get_command().get_matches_from(["imessage-exporter", "-n", "/does/not/exist"]);
+        let args = get_command().get_matches_from([
+            "imessage-exporter",
+            "-f",
+            "txt",
+            "-n",
+            "/does/not/exist",
+        ]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn cant_build_option_db_path_only() {
+        let args = get_command().get_matches_from(["imessage-exporter", "-p", "/does/not/exist"]);
         assert!(Options::from_args(&args).is_err());
     }
 
@@ -1421,6 +1475,43 @@ mod arg_tests {
     #[test]
     fn cant_build_option_diagnostic_flag_with_no_progress() {
         let args = get_command().get_matches_from(["imessage-exporter", "-d", "--no-progress"]);
+        assert!(Options::from_args(&args).is_err());
+    }
+
+    #[test]
+    fn can_build_option_use_message_times() {
+        let args = get_command().get_matches_from([
+            "imessage-exporter",
+            "-f",
+            "txt",
+            "--use-message-times",
+        ]);
+        let actual = Options::from_args(&args).unwrap();
+        assert!(actual.use_message_times);
+    }
+
+    #[test]
+    fn use_message_times_defaults_to_false() {
+        let args = get_command().get_matches_from(["imessage-exporter", "-f", "txt"]);
+        let actual = Options::from_args(&args).unwrap();
+        assert!(!actual.use_message_times);
+    }
+
+    #[test]
+    fn cant_build_option_use_message_times_no_export_type() {
+        let args = get_command().get_matches_from(["imessage-exporter", "--use-message-times"]);
+        let error = Options::from_args(&args).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Invalid options!\nOption --use-message-times is enabled, which requires --format"
+        );
+    }
+
+    #[test]
+    fn cant_build_option_diagnostic_flag_with_use_message_times() {
+        let args =
+            get_command().get_matches_from(["imessage-exporter", "-d", "--use-message-times"]);
+        // `--use-message-times` requires `--format`, which diagnostics forbids.
         assert!(Options::from_args(&args).is_err());
     }
 }

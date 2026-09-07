@@ -157,7 +157,7 @@ enum Command {
         /// Output format: csv, json, html, pdf.
         #[arg(long, short = 'f')]
         format: String,
-        /// Also extract each voicemail's audio into <out>/voicemail_audio/.
+        /// Also extract each voicemail's audio into `<out>/voicemail_audio/`.
         #[arg(long)]
         audio: bool,
         /// Audio output format: amr (raw, default), m4a, or wav (m4a/wav need ffmpeg).
@@ -244,7 +244,7 @@ enum Command {
         no_files: bool,
     },
     /// Export iMessage/SMS/RCS conversations (txt, html, pdf) by driving the
-    /// bundled imessage-exporter; writes a transcript tree under <out>/messages.
+    /// bundled imessage-exporter; writes a transcript tree under `<out>/messages`.
     Messages {
         /// Output format: txt, html, pdf.
         #[arg(long, short = 'f')]
@@ -399,7 +399,7 @@ enum Command {
         #[arg(long, short = 'f')]
         format: String,
     },
-    /// Run every extractor into <out>/ and write a customer index.html package.
+    /// Run every extractor into `<out>/` and write a customer index.html package.
     Recover {
         /// Skip large media extraction (metadata + HTML only).
         #[arg(long)]
@@ -407,7 +407,7 @@ enum Command {
     },
     /// Create a fresh backup from a USB-connected iPhone via libimobiledevice.
     Backup {
-        /// Force a full backup (default: incremental when <out> already has one).
+        /// Force a full backup (default: incremental when `<out>` already has one).
         #[arg(long)]
         full: bool,
     },
