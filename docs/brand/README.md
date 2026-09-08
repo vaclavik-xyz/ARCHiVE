@@ -9,8 +9,9 @@ with the ARCHiVE wordmark (lowercase `i`).
 | [Icon](favicon.png) | 1254 × 1254 | PNG favicon or application icon |
 | [Social preview](og.png) | 1731 × 909 | Open Graph / social sharing, approximately 1.91:1 |
 
-These are PNG raster assets with white backgrounds, not SVG masters.
-The icon simplifies the modular A for small display sizes.
+These are PNG raster assets, not SVG masters. The logo and social preview use
+white backgrounds. The selected favicon (variant B, round 2) uses a white
+modular A on a cobalt blue background for small display sizes.
 
 Palette: cobalt `#1459FF`, black `#000000`, white `#FFFFFF`.
 
