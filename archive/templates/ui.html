@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARCHiVE — obnova zálohy</title>
+<style>
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #12161f; color: #e8ebf2; margin: 0; padding: 2rem 1rem; }
+main { max-width: 46rem; margin: 0 auto; }
+h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+h1 span { color: #4f8cff; }
+p.lead { color: #9aa4b5; margin-top: 0; }
+.card { background: #1a2030; border: 1px solid #2a3348; border-radius: 12px; padding: 1.25rem; margin: 1rem 0; }
+label { display: block; font-size: .85rem; color: #9aa4b5; margin: .75rem 0 .3rem; }
+input { width: 100%; padding: .6rem .75rem; border-radius: 8px; border: 1px solid #2a3348; background: #12161f; color: #e8ebf2; font-size: 1rem; }
+input:focus { outline: 2px solid #4f8cff; border-color: transparent; }
+button { background: #4f8cff; color: #fff; border: 0; border-radius: 8px; padding: .7rem 1.3rem; font-size: 1rem; cursor: pointer; margin-top: 1rem; }
+button:hover { background: #3d76e0; }
+button:disabled { background: #2a3348; color: #6b7590; cursor: wait; }
+button.ghost { background: transparent; border: 1px solid #2a3348; color: #9aa4b5; }
+table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+th, td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid #2a3348; }
+th { color: #9aa4b5; font-weight: 500; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+.ok { color: #4cc38a; } .no { color: #6b7590; }
+#status { min-height: 1.4rem; color: #9aa4b5; }
+.spinner { display: inline-block; width: 1rem; height: 1rem; border: 2px solid #2a3348; border-top-color: #4f8cff; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: .5rem; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { color: #ff6b6b; white-space: pre-wrap; }
+code.path { color: #9aa4b5; word-break: break-all; }
+details summary { cursor: pointer; color: #9aa4b5; }
+.hidden { display: none; }
+footer { color: #6b7590; font-size: .8rem; margin-top: 2rem; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+<h1><span>ARCHiVE</span> — obnova zálohy iPhonu</h1>
+<p class="lead">Vyber složku se zálohou, nech ji zkontrolovat a jedním klikem obnov všechna data. Vše běží jen na tomto počítači.</p>
+
+<div class="card" id="step1">
+  <label for="backup">Složka se zálohou</label>
+  <input id="backup" placeholder="např. ~/Backup/00008101-…" spellcheck="false">
+  <label for="password">Heslo zálohy <small>(jen u šifrované; jinak nech prázdné)</small></label>
+  <input id="password" type="password" placeholder="••••••••">
+  <button id="inspectBtn">Analyzovat zálohu</button>
+  <div id="status"></div>
+</div>
+
+<div class="card hidden" id="step2">
+  <h2 style="font-size:1.1rem; margin-top:0">Co v záloze je</h2>
+  <div id="device" style="color:#9aa4b5; margin-bottom:.75rem"></div>
+  <table id="stores">
+    <thead><tr><th>Data</th><th>Stav</th><th>Položek</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <label for="out">Kam uložit výsledek <small>(volitelné — nech prázdné pro složku vedle zálohy)</small></label>
+  <input id="out" placeholder="např. ~/Desktop/Obnova" spellcheck="false">
+  <button id="recoverBtn">Obnovit všechna data</button>
+  <button id="quitBtn" class="ghost">Konec</button>
+</div>
+
+<div class="card hidden" id="step3">
+  <h2 style="font-size:1.1rem; margin-top:0">Průběh obnovy</h2>
+  <div id="progress"><span class="spinner"></span>Obnova běží — u velkých záloh to může trvat i hodiny. Nech okno otevřené.</div>
+  <div id="result" class="hidden"></div>
+</div>
+
+<footer>ARCHiVE — lokální nástroj; heslo ani data nikam neodesílá.</footer>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const TOKEN = "__CSRF_TOKEN__";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function api(path, opts) {
+  const r = await fetch(path, {...(opts || {}), headers: {"X-Archive-Token": TOKEN, ...(opts || {}).headers}});
+  return r.json();
+}
+
+$("inspectBtn").onclick = async () => {
+  const backup = $("backup").value.trim();
+  if (!backup) { $("status").innerHTML = '<span class="error">Zadej cestu ke složce se zálohou.</span>'; return; }
+  $("inspectBtn").disabled = true;
+  $("status").innerHTML = '<span class="spinner"></span>Kontroluji zálohu…';
+  const v = await api("/api/inspect?backup=" + encodeURIComponent(backup) + "&password=" + encodeURIComponent($("password").value));
+  $("inspectBtn").disabled = false;
+  if (v.ok === false) {
+    $("status").innerHTML = '<span class="error">' + esc(v.error) + '</span>';
+    return;
+  }
+  $("status").textContent = "";
+  const d = v.device || {};
+  $("device").textContent = [d.name, d.model, d.ios ? "iOS " + d.ios : ""].filter(Boolean).join(" — ");
+  const label = {contacts:"Kontakty", calls:"Hovory", voicemail:"Hlasové zprávy", "voice-memos":"Diktafon",
+    "safari-history":"Safari historie", "safari-bookmarks":"Safari záložky", calendar:"Kalendář", notes:"Poznámky",
+    photos:"Fotky a videa", attachments:"Přílohy zpráv", whatsapp:"WhatsApp", health:"Zdraví", reminders:"Připomínky",
+    mail:"Pošta"};
+  $("stores").querySelector("tbody").innerHTML = (v.stores || []).map(s => {
+    const present = s.present && s.supported;
+    const count = (s.present && s.count != null) ? s.count.toLocaleString("cs") : "—";
+    return "<tr><td>" + esc(label[s.type] || s.type) + "</td><td class='" + (present ? "ok" : "no") + "'>"
+      + (present ? "✓ nalezeno" : (s.present ? "nepodporováno" : "není v záloze")) + "</td><td>" + count + "</td></tr>";
+  }).join("");
+  $("step2").classList.remove("hidden");
+  $("step2").scrollIntoView({behavior: "smooth"});
+};
+
+$("recoverBtn").onclick = async () => {
+  $("recoverBtn").disabled = true;
+  $("step3").classList.remove("hidden");
+  $("progress").classList.remove("hidden");
+  $("result").classList.add("hidden");
+  $("step3").scrollIntoView({behavior: "smooth"});
+  const started = await api("/api/recover", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({backup: $("backup").value.trim(), password: $("password").value, out: $("out").value.trim()})
+  });
+  if (started.ok === false) {
+    $("progress").innerHTML = '<span class="error">' + esc(started.error) + '</span>';
+    $("recoverBtn").disabled = false;
+    return;
+  }
+  poll();
+};
+
+let pollTimer;
+function poll() {
+  pollTimer = setTimeout(async () => {
+    const v = await api("/api/status");
+    if (v.running) { poll(); return; }
+    $("progress").classList.add("hidden");
+    const r = v.result;
+    const box = $("result");
+    box.classList.remove("hidden");
+    if (r && r.ok) {
+      const LABEL = {contacts:"Kontakty", calls:"Hovory", voicemail:"Hlasové zprávy", "voice-memos":"Diktafon",
+        "safari-history":"Safari historie", "safari-bookmarks":"Safari záložky", calendar:"Kalendář", notes:"Poznámky",
+        photos:"Fotky a videa", "photos-recently-deleted":"Smazané fotky", attachments:"Přílohy zpráv",
+        whatsapp:"WhatsApp", health:"Zdraví", reminders:"Připomínky", mail:"Pošta", homescreen-layout:"Plocha",
+        "data-usage":"Datový provoz", "device-usage":"Využití aplikací", interactions:"Historie kontaktů",
+        "bluetooth-devices":"Bluetooth", "significant-locations":"Historie polohy", "keyboard-lexicon":"Klávesnice"};
+      const sections = (r.sections || []).map(s => "<tr><td>" + esc(LABEL[s.type] || s.label || s.type) + "</td><td>" + (s.count || 0).toLocaleString("cs") + "</td></tr>").join("");
+      const d = r.device || {};
+      box.innerHTML = "<h2 style='font-size:1.1rem;margin-top:0'>✓ Hotovo</h2>"
+        + "<div style='color:#9aa4b5;margin-bottom:.75rem'>" + esc(d.name || "") + (d.ios ? " · iOS " + esc(d.ios) : "") + "</div>"
+        + "<table><thead><tr><th>Kategorie</th><th>Položek</th></tr></thead><tbody>" + sections + "</tbody></table>"
+        + "<p>Výsledek je v <code class='path'>" + esc(v.index_html || (r.outputs || [""])[0] || "") + "</code></p>"
+        + "<button id='openBtn'>Otevřít výsledky</button> "
+        + "<button id='againBtn' class='ghost'>Obnovit další zálohu</button>";
+      $("openBtn").onclick = () => api("/api/open", {method: "POST"});
+      $("againBtn").onclick = () => location.reload();
+    } else {
+      box.innerHTML = "<h2 style='font-size:1.1rem;margin-top:0'>✗ Obnova se nepovedla</h2>"
+        + "<p class='error'>" + esc((r && r.error) || "neznámá chyba") + "</p>"
+        + "<p>Nejsprávněji pomůže: zkontroluj cestu a heslo, případně zkus znovu.</p>"
+        + "<button onclick='location.reload()'>Zkusit znovu</button>";
+    }
+    $("recoverBtn").disabled = false;
+  }, 1500);
+}
+
+$("quitBtn").onclick = () => api("/api/quit", {method: "POST"});
+</script>
+</body>
+</html>

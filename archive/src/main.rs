@@ -29,6 +29,7 @@ mod package;
 mod pdf;
 mod photos;
 mod photos_deleted;
+mod ui;
 mod recover;
 mod recover_deleted;
 mod redact;
@@ -417,6 +418,14 @@ enum Command {
     /// Verify the backup is complete (every manifest file present). Read-only;
     /// does not need `--out`.
     Integrity,
+    /// Launch the local recovery wizard (a small web app on 127.0.0.1) that
+    /// walks a non-technical user through inspect + recover. Read-only on the
+    /// backup; does not need `--backup`.
+    Ui {
+        /// Port to listen on (default 8099).
+        #[arg(long)]
+        port: Option<u16>,
+    },
 }
 
 /// A failure with a machine-stable `kind` and a documented exit code.
@@ -527,6 +536,7 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Certificates { format } => run_certificates(&cli, password.as_deref(), format),
         Command::VpnCreds { format } => run_vpn_creds(&cli, password.as_deref(), format),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
+        Command::Ui { port } => ui::run(*port, password.as_deref()),
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
         Command::Integrity => run_integrity(&cli, password.as_deref()),

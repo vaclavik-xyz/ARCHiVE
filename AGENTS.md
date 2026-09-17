@@ -1217,6 +1217,44 @@ stdout envelope:
 read for device info (e.g. it is encrypted). Afterward, point the other commands
 at it: `archive --backup <OUT>/<udid> recover`.
 
+### `ui` — local recovery wizard (web app)
+
+```
+archive ui [--port <N>]
+```
+
+Launches a tiny local web app (the recovery wizard) on
+`http://127.0.0.1:<N>` (default 8099) and opens it in the default browser, so a
+non-technical user can inspect and recover a backup without the CLI. Does
+**not** take `--backup` (the path is entered in the UI) and is the second
+command (besides `backup`) without it.
+
+The page walks the user through: enter the backup folder (+ password for an
+encrypted backup) → `inspect` (a table of what the backup contains) →
+"recover all" (`recover` in a background thread; the UI polls its status) →
+open the resulting `index.html`. The output directory defaults to
+`<backup>/../ARCHiVE-export-<timestamp>`; `--password` is a fixed default the
+UI's per-request password overrides. `--port` picks the port. The server binds
+to `127.0.0.1` only and never writes the password anywhere (in-memory only);
+the wizard runs entirely locally — no data leaves the machine.
+
+The JSON API (all on localhost): `GET /` (the page), `GET /api/ping`,
+`GET /api/inspect?backup=&password=`, `POST /api/recover`
+(`{"backup", "password", "out"}`), `GET /api/status`, `POST /api/open` (reveals
+the last export's `index.html` — only that recorded path is openable) and
+`POST /api/quit` (stops the server). The side-effecting `/api/open` and
+`/api/quit` are POST-only so a random webpage the user visits cannot fire
+simple GETs at localhost to kill the server or open files. Implemented
+in-process over std `TcpListener` (no extra dependencies); the page is
+embedded from `templates/ui.html`. At most one recovery runs at a time;
+`Ctrl-C` or `/api/quit` stops the tool.
+
+stdout: one JSON envelope (`{ok, command: "ui", url, port, note}`) printed
+when the server starts listening, then nothing — progress goes to stderr and
+the process blocks until quit (the documented one-object-per-run contract
+applies to the startup report; the server itself is long-running, like
+`backup`'s live progress).
+
 ### `integrity` — verify the backup is complete (read-only)
 
 ```
