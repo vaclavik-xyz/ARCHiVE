@@ -544,10 +544,23 @@ stdout envelope (the `files` object is present only when extraction ran):
 {
   "ok": true, "command": "photos", "count": 1240,
   "outputs": ["<OUT>/photos.json"],
-  "files": { "dir": "photos", "extracted": 1236, "thumbnails": 2, "missing": 2 },
+  "files": { "dir": "photos", "extracted": 1236, "thumbnails": 2, "missing": 2, "uncatalogued": 16 },
   "device": { "name": "iPhone", "ios": "17.5", "udid": "00008..." }
 }
 ```
+
+**Manifest reconciliation:** after the `Photos.sqlite`-driven export, every
+regular file under `Media/DCIM/` in `Manifest.db` that no parsed asset row
+referenced is fetched into `<OUT>/photos/` under a `manifest_<n>_` name prefix
+and appended to the item list flagged `uncatalogued: true` (its `kind` is
+derived from the extension; dates, dimensions and trash state are unknown —
+they lived only in the unreadable database). This closes the gap where a
+truncated/inconsistent `Photos.sqlite` (typical of 3uTools-made backups) hides
+files that physically exist in the backup: the export never claims `missing: 0`
+while the manifest knows about DCIM media that is not in the output. The count
+surfaces as `files.uncatalogued` (or a top-level `uncatalogued` under
+`--no-files`, where nothing is copied). Reconciled entries appear in the HTML
+gallery with a `🧩 z Manifest.db` badge and as an `uncatalogued` CSV/JSON column.
 
 No photos store → `count: 0`, `outputs: []`, plus a `note`.
 
@@ -1237,7 +1250,11 @@ stdout:
 `complete` = `missing == 0 && size_mismatch == 0`. `ok` stays `true` even when
 incomplete (a report, not a failure — exit 0); the sample lists are capped (the
 counts carry the true totals). Encrypted backups set `size_checked: false` and add
-a `note`.
+a `note`. When `CameraRollDomain:Media/PhotoData/Photos.sqlite` is among the
+size-mismatched entries (a truncated Camera Roll database, e.g. 3uTools-made
+backups) the envelope adds a `note` explaining that `photos` may miss assets
+absent from that database and pointing at the command's `uncatalogued`
+reconciliation.
 
 ## Result envelope (every command)
 

@@ -2883,12 +2883,17 @@ fn run_photos(cli: &Cli, password: Option<&str>, format: &str, no_files: bool, s
     });
     if let Some(s) = summary {
         eprintln!(
-            "Extracted {} file(s) ({} as reduced-quality thumbnails, {} missing) to {}/{}",
-            s.extracted, s.thumbnails, s.missing, out.display(), s.dir
+            "Extracted {} file(s) ({} as reduced-quality thumbnails, {} missing, {} reconciled from Manifest.db) to {}/{}",
+            s.extracted, s.thumbnails, s.missing, s.uncatalogued, out.display(), s.dir
         );
         envelope["files"] = serde_json::json!({
-            "dir": s.dir, "extracted": s.extracted, "thumbnails": s.thumbnails, "missing": s.missing
+            "dir": s.dir, "extracted": s.extracted, "thumbnails": s.thumbnails,
+            "missing": s.missing, "uncatalogued": s.uncatalogued
         });
+    } else {
+        // Metadata-only: still count the manifest-reconciled gap, so a truncated
+        // Photos.sqlite is visible even without any file copying.
+        envelope["uncatalogued"] = serde_json::json!(photos::uncatalogued_count(&backup, &items));
     }
     Ok(envelope)
 }
@@ -3082,13 +3087,14 @@ impl Recovery<'_> {
 }
 
 /// Wrap an `extract_*` summary into `RecoverMedia`, logging and yielding `None`
-/// on error (best-effort; the metadata HTML is still written).
+/// on error (best-effort; the metadata HTML is still written). The trailing
+/// count is manifest-reconciled files (only `photos` produces any).
 fn media_or_log(
-    result: std::io::Result<(String, usize, usize, usize)>,
+    result: std::io::Result<(String, usize, usize, usize, usize)>,
     what: &str,
 ) -> Option<recover::RecoverMedia> {
     match result {
-        Ok((dir, extracted, thumbnails, missing)) => Some(recover::RecoverMedia { dir, extracted, thumbnails, missing }),
+        Ok((dir, extracted, thumbnails, missing, uncatalogued)) => Some(recover::RecoverMedia { dir, extracted, thumbnails, missing, uncatalogued }),
         Err(e) => {
             eprintln!("recover: {what} files: {e}");
             None
@@ -3213,7 +3219,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         } else {
             media_or_log(
                 voicemail_audio::extract_audio(&backup, &mut items, out, audio::AudioFormat::Amr)
-                    .map(|s| (s.dir, s.extracted, 0, s.missing)),
+                    .map(|s| (s.dir, s.extracted, 0, s.missing, 0)),
                 "voicemail",
             )
         };
@@ -3225,7 +3231,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         } else {
             media_or_log(
                 voice_memos::extract_voice_memos(&backup, &mut items, out, None)
-                    .map(|s| (s.dir, s.extracted, 0, s.missing)),
+                    .map(|s| (s.dir, s.extracted, 0, s.missing, 0)),
                 "voice-memos",
             )
         };
@@ -3248,7 +3254,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
             None
         } else {
             media_or_log(
-                photos::extract_photos(&backup, &mut items, out).map(|s| (s.dir, s.extracted, s.thumbnails, s.missing)),
+                photos::extract_photos(&backup, &mut items, out).map(|s| (s.dir, s.extracted, s.thumbnails, s.missing, s.uncatalogued)),
                 "photos",
             )
         };
@@ -3268,7 +3274,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
             } else {
                 media_or_log(
                     photos::extract_into(&backup, &mut trashed, out, photos_deleted::DELETED_DIR)
-                        .map(|s| (s.dir, s.extracted, s.thumbnails, s.missing)),
+                        .map(|s| (s.dir, s.extracted, s.thumbnails, s.missing, 0)),
                     "photos-recently-deleted",
                 )
             };
@@ -3288,7 +3294,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
             None
         } else {
             media_or_log(
-                attachments::extract_attachments(&backup, &mut items, out).map(|s| (s.dir, s.extracted, 0, s.missing)),
+                attachments::extract_attachments(&backup, &mut items, out).map(|s| (s.dir, s.extracted, 0, s.missing, 0)),
                 "attachments",
             )
         };
@@ -3302,7 +3308,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
             None
         } else {
             media_or_log(
-                whatsapp::extract_media(&backup, &mut items, out).map(|s| (s.dir, s.extracted, 0, s.missing)),
+                whatsapp::extract_media(&backup, &mut items, out).map(|s| (s.dir, s.extracted, 0, s.missing, 0)),
                 "whatsapp",
             )
         };
@@ -3528,6 +3534,10 @@ fn run_integrity(cli: &Cli, password: Option<&str>) -> Result<serde_json::Value,
     });
     if !r.size_checked {
         envelope["note"] = serde_json::json!("size verification skipped (encrypted backup)");
+    } else if r.photos_db_truncated {
+        envelope["note"] = serde_json::json!(
+            "Photos.sqlite (Camera Roll database) is truncated/inconsistent in this backup — the `photos` export may miss assets that have no row in it. The photos command reconciles Media/DCIM files against Manifest.db and reports them as `uncatalogued`."
+        );
     }
     Ok(envelope)
 }

@@ -15,11 +15,12 @@
 <table class="summary">
 <tr><td>Zařízení</td><td>{{ summary.device_name }} — {{ summary.model }}, iOS {{ summary.ios }}</td></tr>
 <tr><td>Zachráněno</td><td><b>{{ summary.total }}</b> položek — {{ summary.photos }} fotek, {{ summary.videos }} videí</td></tr>
-{% if summary.files_extracted %}<tr><td>Kvalita</td><td>{{ summary.originals }} v plné kvalitě{% if summary.thumbnails > 0 %} · <b>{{ summary.thumbnails }}</b> jako náhled (snížená kvalita){% endif %}</td></tr>{% endif %}
+{% if summary.files_extracted %}<tr><td>Kvalita</td><td>{{ summary.originals }} v plné kvalitě{% if summary.thumbnails > 0 %} · <b>{{ summary.thumbnails }}</b> jako náhled (snížená kvalita){% endif %}{% if summary.uncatalogued > 0 %} · <b>{{ summary.uncatalogued }}</b> doplněno z Manifest.db{% endif %}</td></tr>{% endif %}
 {% if !summary.date_from.is_empty() %}<tr><td>Období</td><td>{{ summary.date_from }} – {{ summary.date_to }}</td></tr>{% endif %}
 <tr><td>Další</td><td>s polohou (GPS) {{ summary.with_gps }} · oblíbené {{ summary.favorites }} · v albech {{ summary.in_albums }}</td></tr>
 </table>
 {% if summary.thumbnails > 0 %}<p class="legend">🔍 <b>náhled</b> = snížená kvalita — originál v plné kvalitě není v této záloze (typicky položky z iCloud sdíleného alba, které se streamují z iCloudu). Pro plnou kvalitu je potřeba iCloud účet nebo zařízení.</p>{% endif %}
+{% if summary.uncatalogued > 0 %}<p class="legend">🧩 <b>z Manifest.db</b> = soubor existuje v záloze, ale chybí v databázi Fotek (Photos.sqlite je poškozená/zkrácená). Doplněno porovnáním s Manifest.db; datum ani další metadata nejsou známá.</p>{% endif %}
 <div class="gallery">
 {% for p in photos %}
 <div class="item{% if p.file_is_thumbnail %} isthumb{% endif %}">
@@ -31,7 +32,7 @@
 {% endif %}
 <div class="cap">
 {% if !p.title.is_empty() %}<b>{{ p.title }}</b><br>{% endif %}
-{{ p.created }}{% if p.favorite %} ★{% endif %}{% if p.hidden %} 🙈{% endif %}{% if p.edited %} ✎{% endif %}{% if p.live_photo %} ◉Live{% endif %}{% if p.trashed %} 🗑{% endif %}{% if p.file_is_thumbnail %} <span class="thumb">🔍 náhled</span>{% endif %}{% if let Some(b) = p.burst_id.as_ref() %} 🔥{{ b }}{% endif %}{% if let Some(lat) = p.latitude %}{% if let Some(lon) = p.longitude %} · {{ lat }}, {{ lon }}{% endif %}{% endif %}
+{{ p.created }}{% if p.favorite %} ★{% endif %}{% if p.hidden %} 🙈{% endif %}{% if p.edited %} ✎{% endif %}{% if p.live_photo %} ◉Live{% endif %}{% if p.trashed %} 🗑{% endif %}{% if p.file_is_thumbnail %} <span class="thumb">🔍 náhled</span>{% endif %}{% if p.uncatalogued %} <span class="thumb">🧩 z Manifest.db</span>{% endif %}{% if let Some(b) = p.burst_id.as_ref() %} 🔥{{ b }}{% endif %}{% if let Some(lat) = p.latitude %}{% if let Some(lon) = p.longitude %} · {{ lat }}, {{ lon }}{% endif %}{% endif %}
 {% if !p.albums.is_empty() %}<br>📁 {% for al in p.albums %}{{ al }}{% if !loop.last %}, {% endif %}{% endfor %}{% endif %}
 </div>
 </div>

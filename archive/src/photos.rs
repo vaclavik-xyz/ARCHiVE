@@ -65,7 +65,18 @@ pub struct Photo {
     /// Shared Album items or iCloud-optimized originals, which keep only a
     /// thumbnail on-device). Always false for full-resolution originals.
     pub file_is_thumbnail: bool,
+    /// True when this entry was recovered by reconciling the export against
+    /// `Manifest.db` rather than read from `Photos.sqlite`: the file exists in
+    /// the backup's `Media/DCIM/` but had no row in (possibly truncated, e.g.
+    /// 3uTools-made) `Photos.sqlite`. Metadata besides the filename/kind is
+    /// unknown; exported under a `manifest_` output-name prefix.
+    pub uncatalogued: bool,
 }
+
+/// Backup-relative prefix of the on-device Camera Roll media folders. Every
+/// file under it is Camera Roll content, so a file here that `Photos.sqlite`
+/// never mentions is a gap the manifest reconciliation must close.
+pub const DCIM_PREFIX: &str = "Media/DCIM/";
 
 /// Last path component of a (possibly `/`-containing) name.
 fn basename(p: &str) -> &str {
@@ -268,6 +279,7 @@ pub fn parse(db_path: &Path) -> rusqlite::Result<Vec<Photo>> {
             source_path,
             file: None,
             file_is_thumbnail: false,
+            uncatalogued: false,
         })
     })?;
     rows.collect()
@@ -284,6 +296,11 @@ pub struct PhotoSummary {
     pub thumbnails: usize,
     /// Assets with no file at all in the backup (no original and no thumbnail).
     pub missing: usize,
+    /// Files recovered by the Manifest.db reconciliation (present under
+    /// `Media/DCIM/` in the manifest but absent from `Photos.sqlite`); counted
+    /// separately from `extracted` and flagged `uncatalogued: true` per item.
+    /// `extracted + thumbnails + missing + uncatalogued == items.len()`.
+    pub uncatalogued: usize,
 }
 
 /// Image file extensions a thumbnail can have (lowercase, no dot).
@@ -327,13 +344,14 @@ fn thumbnail_output_name(n: usize, asset_filename: &str, chosen: &str) -> String
     format!("{n}_{stem}.{ext}")
 }
 
-/// Tally extraction outcomes: full originals, thumbnail fallbacks, and assets
-/// with no file at all.
+/// Tally extraction outcomes: full originals, thumbnail fallbacks, assets with
+/// no file at all, and manifest-reconciled files.
 fn summarize(items: &[Photo], dir: &str) -> PhotoSummary {
     let thumbnails = items.iter().filter(|p| p.file_is_thumbnail).count();
-    let extracted = items.iter().filter(|p| p.file.is_some() && !p.file_is_thumbnail).count();
+    let extracted = items.iter().filter(|p| p.file.is_some() && !p.file_is_thumbnail && !p.uncatalogued).count();
     let missing = items.iter().filter(|p| p.file.is_none()).count();
-    PhotoSummary { dir: dir.to_string(), extracted, thumbnails, missing }
+    let uncatalogued = items.iter().filter(|p| p.uncatalogued).count();
+    PhotoSummary { dir: dir.to_string(), extracted, thumbnails, missing, uncatalogued }
 }
 
 /// Subdirectory (under the export dir) that receives the media files.
@@ -345,13 +363,16 @@ pub(crate) fn output_name(n: usize, filename: &str) -> String {
     format!("{n}_{}", basename(filename))
 }
 
-/// Fetch each asset's file into `<out>/photos/`, filling `file` in place.
+/// Fetch each asset's file into `<out>/photos/`, filling `file` in place, then
+/// reconcile against `Manifest.db` (see [`reconcile_manifest_files`]).
 pub fn extract_photos(
     backup: &archive_core::Backup,
-    items: &mut [Photo],
+    items: &mut Vec<Photo>,
     out: &Path,
 ) -> std::io::Result<PhotoSummary> {
-    extract_into(backup, items, out, PHOTO_DIR)
+    let summary = extract_into(backup, items, out, PHOTO_DIR)?;
+    reconcile_manifest_files(backup, items, out, PHOTO_DIR)?;
+    Ok(summarize(items, &summary.dir))
 }
 
 /// Fetch each asset's file into `<out>/<subdir>/`, filling `file` in place.
@@ -431,6 +452,132 @@ pub fn availability(backup: &archive_core::Backup, items: &[Photo]) -> (usize, u
     (originals, thumbnails, missing)
 }
 
+/// Media extension → `kind` classification for manifest-reconciled files
+/// (lowercase, no dot). `.AAE` edit bundles and anything else are `unknown`.
+fn kind_from_extension(path: &str) -> &'static str {
+    let ext = basename(path).rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "jpg" | "jpeg" | "png" | "heic" | "heif" | "gif" | "tiff" | "tif" | "webp" | "bmp" | "dng" => "image",
+        "mov" | "mp4" | "m4v" | "avi" | "3gp" => "video",
+        _ => "unknown",
+    }
+}
+
+/// Backup-relative paths under `Media/DCIM/` that are NOT in the catalogued
+/// source-path set: files the manifest knows about but `Photos.sqlite` (possibly
+/// truncated, e.g. 3uTools-made backups) has no row for. Sorted for
+/// determinism. Pure — unit-testable without a real backup.
+fn uncatalogued_files(manifest_paths: &[String], catalogued: &std::collections::HashSet<String>) -> Vec<String> {
+    let mut out: Vec<String> = manifest_paths
+        .iter()
+        .filter(|p| p.starts_with(DCIM_PREFIX) && !catalogued.contains(*p))
+        .cloned()
+        .collect();
+    out.sort();
+    out
+}
+
+/// The catalogued source paths — the `Photos.sqlite` view of the Camera Roll.
+fn catalogued_paths(items: &[Photo]) -> std::collections::HashSet<String> {
+    items.iter().map(|p| p.source_path.clone()).filter(|s| !s.is_empty()).collect()
+}
+
+/// The backup's regular files under the Camera Roll media prefix (a manifest
+/// scan; directories/symlinks excluded). Empty on any manifest failure
+/// (best-effort; the reconciliation degrades to a no-op with a stderr note).
+fn dcim_files(backup: &archive_core::Backup) -> Vec<String> {
+    match backup.file_entries() {
+        Ok(entries) => entries
+            .into_iter()
+            .filter(|f| f.domain == "CameraRollDomain" && f.relative_path.starts_with(DCIM_PREFIX))
+            .map(|f| f.relative_path)
+            .collect(),
+        Err(why) => {
+            eprintln!("photos: manifest reconciliation skipped: {why}");
+            Vec::new()
+        }
+    }
+}
+
+/// How many Camera Roll media files the manifest knows about but
+/// `Photos.sqlite` never mentioned (see [`reconcile_manifest_files`]). The cheap
+/// counterpart of the reconciliation for the `--no-files` metadata-only export:
+/// counts the gap without copying anything.
+pub fn uncatalogued_count(backup: &archive_core::Backup, items: &[Photo]) -> usize {
+    let manifest = dcim_files(backup);
+    let catalogued = catalogued_paths(items);
+    uncatalogued_files(&manifest, &catalogued).len()
+}
+
+/// Close the gap between `Photos.sqlite` and `Manifest.db`: files physically
+/// present under `Media/DCIM/` that no parsed asset row referenced (typically on
+/// a truncated/inconsistent `Photos.sqlite`, e.g. 3uTools-made backups) are
+/// fetched into `<subdir>/` under a `manifest_<n>_` output-name prefix and
+/// appended to `items` flagged `uncatalogued: true` — so the export never claims
+/// `missing: 0` while the manifest knows about media the catalogue missed. Their
+/// trash state, dates and dimensions are unknown (they live only in the
+/// unreadable database), so they never enter the Recently Deleted view.
+/// Best-effort: a manifest scan failure skips the whole reconciliation; a single
+/// fetch failure skips that file with a stderr note.
+fn reconcile_manifest_files(
+    backup: &archive_core::Backup,
+    items: &mut Vec<Photo>,
+    out: &Path,
+    subdir: &str,
+) -> std::io::Result<()> {
+    let manifest = dcim_files(backup);
+    let catalogued = catalogued_paths(items);
+    let missing = uncatalogued_files(&manifest, &catalogued);
+    if missing.is_empty() {
+        return Ok(());
+    }
+    eprintln!(
+        "photos: {} DCIM file(s) absent from Photos.sqlite — exporting from Manifest.db",
+        missing.len()
+    );
+    let media_dir = out.join(subdir);
+    std::fs::create_dir_all(&media_dir)?;
+    let base = items.len();
+    let mut n = 0;
+    for path in &missing {
+        n += 1;
+        let name = format!("manifest_{}_{}", base + n, basename(path));
+        let dest = media_dir.join(&name);
+        match backup.fetch("CameraRollDomain", path, &dest) {
+            Ok(Some(_)) => items.push(Photo {
+                filename: basename(path).to_string(),
+                kind: kind_from_extension(path).to_string(),
+                created: String::new(),
+                modified: String::new(),
+                added: String::new(),
+                favorite: false,
+                hidden: false,
+                trashed: false,
+                trashed_date: String::new(),
+                edited: false,
+                live_photo: false,
+                kind_subtype: None,
+                width: 0,
+                height: 0,
+                latitude: None,
+                longitude: None,
+                duration_seconds: None,
+                burst_id: None,
+                original_filename: String::new(),
+                title: String::new(),
+                albums: Vec::new(),
+                source_path: path.clone(),
+                file: Some(format!("{subdir}/{name}")),
+                file_is_thumbnail: false,
+                uncatalogued: true,
+            }),
+            Ok(None) => eprintln!("photo {}: no longer in manifest during reconciliation", path),
+            Err(why) => eprintln!("photo {}: manifest fetch failed: {why}", path),
+        }
+    }
+    Ok(())
+}
+
 /// Fetch an asset's best thumbnail into `thumb_dir` when the full-resolution
 /// original is missing from the backup. Returns the written output filename on
 /// success. Best-effort: a missing thumbnail directory or any list/fetch failure
@@ -486,6 +633,7 @@ mod tests {
             source_path: String::new(),
             file: None,
             file_is_thumbnail: false,
+            uncatalogued: false,
         }
     }
 
@@ -649,11 +797,55 @@ mod tests {
         thumb.file = Some("photos/thumbnails/2_b.jpg".into());
         thumb.file_is_thumbnail = true;
         let missing = make_one("c.jpg"); // file None
-        let s = summarize(&[orig, thumb, missing], "photos");
+        let s = summarize(&[orig.clone(), thumb.clone(), missing.clone()], "photos");
         assert_eq!(s.extracted, 1);
         assert_eq!(s.thumbnails, 1);
         assert_eq!(s.missing, 1);
+        assert_eq!(s.uncatalogued, 0);
         assert_eq!(s.dir, "photos");
+
+        // A manifest-reconciled file counts separately from the originals.
+        let mut manifest = make_one("IMG_0999.MOV");
+        manifest.file = Some("photos/manifest_4_IMG_0999.MOV".into());
+        manifest.uncatalogued = true;
+        let s = summarize(&[orig, thumb, missing, manifest], "photos");
+        assert_eq!(s.extracted, 1);
+        assert_eq!(s.uncatalogued, 1);
+        assert_eq!(s.extracted + s.thumbnails + s.missing + s.uncatalogued, 4);
+    }
+
+    #[test]
+    fn uncatalogued_files_selects_dcim_files_outside_the_catalogue() {
+        let manifest: Vec<String> = [
+            "Media/DCIM/100APPLE/IMG_0001.HEIC", // catalogued
+            "Media/DCIM/117APPLE/IMG_0999.MOV",  // gap
+            "Media/DCIM/117APPLE/IMG_0999.AAE",  // gap (edit bundle)
+            "Media/PhotoData/Thumbnails/V2/DCIM/100APPLE/IMG_0001.HEIC/5005.JPG", // not DCIM media
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let catalogued: std::collections::HashSet<String> =
+            ["Media/DCIM/100APPLE/IMG_0001.HEIC"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(
+            uncatalogued_files(&manifest, &catalogued),
+            vec![
+                "Media/DCIM/117APPLE/IMG_0999.AAE".to_string(),
+                "Media/DCIM/117APPLE/IMG_0999.MOV".to_string(),
+            ]
+        );
+        // Empty manifest / everything catalogued → nothing to reconcile.
+        assert!(uncatalogued_files(&[], &catalogued).is_empty());
+        let all: std::collections::HashSet<String> = manifest.iter().cloned().collect();
+        assert!(uncatalogued_files(&manifest, &all).is_empty());
+    }
+
+    #[test]
+    fn kind_from_extension_classifies_media_and_sidecars() {
+        assert_eq!(kind_from_extension("Media/DCIM/100APPLE/IMG_0001.HEIC"), "image");
+        assert_eq!(kind_from_extension("x/y/img_0002.mov"), "video");
+        assert_eq!(kind_from_extension("Media/DCIM/117APPLE/IMG_0999.AAE"), "unknown");
+        assert_eq!(kind_from_extension("noext"), "unknown");
     }
 
     #[test]
@@ -690,7 +882,7 @@ mod tests {
         let out = scratch.path().join("out");
         let summary = extract_photos(&backup, &mut items, &out).expect("extract");
         assert_eq!(summary.dir, "photos");
-        assert_eq!(summary.extracted + summary.thumbnails + summary.missing, items.len());
+        assert_eq!(summary.extracted + summary.thumbnails + summary.missing + summary.uncatalogued, items.len());
         for v in items.iter().filter_map(|p| p.file.as_ref()) {
             let p = out.join(v);
             assert!(p.is_file(), "linked file should exist: {}", p.display());

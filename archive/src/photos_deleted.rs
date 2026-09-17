@@ -141,6 +141,7 @@ mod tests {
             source_path: String::new(),
             file: None,
             file_is_thumbnail: false,
+            uncatalogued: false,
         }
     }
 

@@ -513,7 +513,7 @@ pub fn photos_csv(items: &[crate::photos::Photo]) -> String {
     wtr.write_record([
         "filename", "kind", "created", "favorite", "trashed", "width", "height",
         "latitude", "longitude", "duration_seconds", "file", "file_is_thumbnail",
-        "hidden", "edited", "live_photo", "modified", "added",
+        "uncatalogued", "hidden", "edited", "live_photo", "modified", "added",
         "original_filename", "title", "burst_id", "albums", "trashed_date",
     ])
     .unwrap();
@@ -531,6 +531,7 @@ pub fn photos_csv(items: &[crate::photos::Photo]) -> String {
             opt_num(p.duration_seconds),
             p.file.clone().unwrap_or_default(),
             p.file_is_thumbnail.to_string(),
+            p.uncatalogued.to_string(),
             p.hidden.to_string(),
             p.edited.to_string(),
             p.live_photo.to_string(),
@@ -565,6 +566,9 @@ pub struct PhotoReportSummary {
     /// Full-resolution originals written vs reduced-quality thumbnail fallbacks.
     pub originals: usize,
     pub thumbnails: usize,
+    /// Files recovered from `Manifest.db` because `Photos.sqlite` had no row for
+    /// them (truncated/inconsistent database, e.g. 3uTools-made backups).
+    pub uncatalogued: usize,
     /// Capture-date range as "D. M. YYYY" (empty when no dated assets).
     pub date_from: String,
     pub date_to: String,
@@ -599,6 +603,7 @@ fn report_summary(items: &[crate::photos::Photo], device: &archive_core::DeviceI
     let videos = items.iter().filter(|p| p.kind == "video").count();
     let thumbnails = items.iter().filter(|p| p.file_is_thumbnail).count();
     let originals = items.iter().filter(|p| p.file.is_some() && !p.file_is_thumbnail).count();
+    let uncatalogued = items.iter().filter(|p| p.uncatalogued).count();
     let mut dated: Vec<&str> = items.iter().map(|p| p.created.as_str()).filter(|s| !s.is_empty()).collect();
     dated.sort_unstable(); // ISO-8601 sorts chronologically
     PhotoReportSummary {
@@ -610,6 +615,7 @@ fn report_summary(items: &[crate::photos::Photo], device: &archive_core::DeviceI
         videos,
         originals,
         thumbnails,
+        uncatalogued,
         date_from: dated.first().map(|s| cz_date(s)).unwrap_or_default(),
         date_to: dated.last().map(|s| cz_date(s)).unwrap_or_default(),
         with_gps: items.iter().filter(|p| p.latitude.is_some() && p.longitude.is_some()).count(),
@@ -1903,6 +1909,7 @@ mod tests {
             source_path: "Media/DCIM/100APPLE/IMG_0001.HEIC".into(),
             file: Some("photos/1_IMG_0001.HEIC".into()),
             file_is_thumbnail: false,
+            uncatalogued: false,
         }
     }
 

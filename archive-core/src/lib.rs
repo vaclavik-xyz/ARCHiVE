@@ -71,6 +71,10 @@ pub struct IntegrityReport {
     pub missing_sample: Vec<String>,
     /// Up to `sample_cap` size-mismatched entries as `"<domain>:<relative_path>"`.
     pub mismatch_sample: Vec<String>,
+    /// Whether `CameraRollDomain:Media/PhotoData/Photos.sqlite` is among the
+    /// size-mismatched entries (a truncated/inconsistent Camera Roll database —
+    /// typical of 3uTools-made backups). Only meaningful when `size_checked`.
+    pub photos_db_truncated: bool,
 }
 
 /// One regular-file entry in a backup's manifest (see [`Backup::file_entries`]).
@@ -366,6 +370,7 @@ impl Backup {
             size_mismatch: 0,
             missing_sample: Vec::new(),
             mismatch_sample: Vec::new(),
+            photos_db_truncated: false,
         };
         for e in entries.iter() {
             // Only regular files have stored content; skip directories/symlinks.
@@ -382,6 +387,11 @@ impl Backup {
                     report.present += 1;
                     if size_checked && md.len() != e.metadata.size {
                         report.size_mismatch += 1;
+                        if e.domain == "CameraRollDomain"
+                            && e.relative_path == "Media/PhotoData/Photos.sqlite"
+                        {
+                            report.photos_db_truncated = true;
+                        }
                         if report.mismatch_sample.len() < sample_cap {
                             report.mismatch_sample.push(format!("{}:{}", e.domain, e.relative_path));
                         }

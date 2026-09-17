@@ -18,6 +18,16 @@ pub struct RecoverMedia {
     pub thumbnails: usize,
     /// Items with no file at all in the backup.
     pub missing: usize,
+    /// Files recovered by the `photos` Manifest.db reconciliation (present under
+    /// `Media/DCIM/` but absent from a truncated `Photos.sqlite`); 0 for every
+    /// other media type and omitted from the JSON when 0.
+    #[serde(skip_serializing_if = "zero")]
+    pub uncatalogued: usize,
+}
+
+/// `skip_serializing_if` helper: 0 → omit the field.
+fn zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// One recovered data type in the package. Serializes to the documented envelope
@@ -72,9 +82,10 @@ pub fn render_index(
     .unwrap()
 }
 
-/// Total media files recovered across every section (originals + thumbnails).
+/// Total media files recovered across every section (originals + thumbnails +
+/// manifest-reconciled files).
 fn media_files(sections: &[RecoverSection]) -> usize {
-    sections.iter().filter_map(|s| s.media.as_ref()).map(|m| m.extracted + m.thumbnails).sum()
+    sections.iter().filter_map(|s| s.media.as_ref()).map(|m| m.extracted + m.thumbnails + m.uncatalogued).sum()
 }
 
 /// The root unified summary as plain markdown (`summary.md`): a customer one-pager
@@ -122,6 +133,9 @@ pub fn render_summary_html(device: &archive_core::DeviceInfo, generated: &str, s
                     let mut f = format!("{} souborů", m.extracted);
                     if m.thumbnails > 0 {
                         f.push_str(&format!(" + {} náhledů", m.thumbnails));
+                    }
+                    if m.uncatalogued > 0 {
+                        f.push_str(&format!(" + {} doplněno z Manifest.db", m.uncatalogued));
                     }
                     if m.missing > 0 {
                         f.push_str(&format!(", {} chybí", m.missing));
@@ -174,7 +188,7 @@ mod tests {
                 label: "Fotky".into(),
                 file: "photos.html".into(),
                 count: 1240,
-                media: Some(RecoverMedia { dir: "photos".into(), extracted: 1236, thumbnails: 2, missing: 2 }),
+                media: Some(RecoverMedia { dir: "photos".into(), extracted: 1236, thumbnails: 2, missing: 2, uncatalogued: 16 }),
             },
         ]
     }
@@ -222,6 +236,9 @@ mod tests {
         assert_eq!(v[1]["files"]["extracted"], 1236);
         assert_eq!(v[1]["files"]["thumbnails"], 2);
         assert_eq!(v[1]["files"]["missing"], 2);
+        // Non-zero uncatalogued count is serialized; zero is omitted for other sections.
+        assert_eq!(v[1]["files"]["uncatalogued"], 16);
+        assert!(v[0].get("files").is_none());
     }
 
     #[test]
@@ -240,8 +257,8 @@ mod tests {
         assert!(md.contains("**Zachráněno:** 2474 položek"));
         assert!(md.contains("- Kontakty — 1234"));
         assert!(md.contains("- Fotky — 1240"));
-        // media files = 1236 + 2 thumbnails
-        assert!(md.contains("Obnovených souborů (média): 1238"));
+        // media files = 1236 + 2 thumbnails + 16 manifest-reconciled
+        assert!(md.contains("Obnovených souborů (média): 1254"));
     }
 
     #[test]
@@ -251,7 +268,7 @@ mod tests {
         let html = render_summary_html(&d, "2026-06-27T12:00:00+00:00", &sections());
         assert!(html.contains("Souhrn zálohy"));
         assert!(html.contains("Kontakty"));
-        assert!(html.contains("1236 souborů + 2 náhledů, 2 chybí"));
+        assert!(html.contains("1236 souborů + 2 náhledů + 16 doplněno z Manifest.db, 2 chybí"));
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>"));
     }
