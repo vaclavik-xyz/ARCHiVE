@@ -517,8 +517,11 @@ pub fn uncatalogued_count(backup: &archive_core::Backup, items: &[Photo]) -> usi
 /// `missing: 0` while the manifest knows about media the catalogue missed. Their
 /// trash state, dates and dimensions are unknown (they live only in the
 /// unreadable database), so they never enter the Recently Deleted view.
-/// Best-effort: a manifest scan failure skips the whole reconciliation; a single
-/// fetch failure skips that file with a stderr note.
+/// Best-effort: a manifest scan failure skips the whole reconciliation; a
+/// single fetch failure appends the item as `missing` (never silently dropped),
+/// with the underlying error on stderr. Such a row is indistinguishable in the
+/// catalog from an ordinary asset whose file is absent from the backup — an
+/// accepted trade-off for honest envelope accounting.
 fn reconcile_manifest_files(
     backup: &archive_core::Backup,
     items: &mut Vec<Photo>,
@@ -537,6 +540,40 @@ fn reconcile_manifest_files(
     );
     let media_dir = out.join(subdir);
     std::fs::create_dir_all(&media_dir)?;
+    // A manifest entry appended as a catalogue item; `file` is `Some` when the
+    // fetch succeeded (flagged `uncatalogued`) and `None` when it failed (the
+    // item then lands in `missing`, so the envelope never claims `missing: 0`
+    // while the manifest knows about an unexported file).
+    let push_item = |items: &mut Vec<Photo>, path: &str, file: Option<String>| {
+        let uncatalogued = file.is_some();
+        items.push(Photo {
+            filename: basename(path).to_string(),
+            kind: kind_from_extension(path).to_string(),
+            created: String::new(),
+            modified: String::new(),
+            added: String::new(),
+            favorite: false,
+            hidden: false,
+            trashed: false,
+            trashed_date: String::new(),
+            edited: false,
+            live_photo: false,
+            kind_subtype: None,
+            width: 0,
+            height: 0,
+            latitude: None,
+            longitude: None,
+            duration_seconds: None,
+            burst_id: None,
+            original_filename: String::new(),
+            title: String::new(),
+            albums: Vec::new(),
+            source_path: path.to_string(),
+            file,
+            file_is_thumbnail: false,
+            uncatalogued,
+        });
+    };
     let base = items.len();
     let mut n = 0;
     for path in &missing {
@@ -544,35 +581,15 @@ fn reconcile_manifest_files(
         let name = format!("manifest_{}_{}", base + n, basename(path));
         let dest = media_dir.join(&name);
         match backup.fetch("CameraRollDomain", path, &dest) {
-            Ok(Some(_)) => items.push(Photo {
-                filename: basename(path).to_string(),
-                kind: kind_from_extension(path).to_string(),
-                created: String::new(),
-                modified: String::new(),
-                added: String::new(),
-                favorite: false,
-                hidden: false,
-                trashed: false,
-                trashed_date: String::new(),
-                edited: false,
-                live_photo: false,
-                kind_subtype: None,
-                width: 0,
-                height: 0,
-                latitude: None,
-                longitude: None,
-                duration_seconds: None,
-                burst_id: None,
-                original_filename: String::new(),
-                title: String::new(),
-                albums: Vec::new(),
-                source_path: path.clone(),
-                file: Some(format!("{subdir}/{name}")),
-                file_is_thumbnail: false,
-                uncatalogued: true,
-            }),
-            Ok(None) => eprintln!("photo {}: no longer in manifest during reconciliation", path),
-            Err(why) => eprintln!("photo {}: manifest fetch failed: {why}", path),
+            Ok(Some(_)) => push_item(items, path, Some(format!("{subdir}/{name}"))),
+            Ok(None) => {
+                eprintln!("photo {}: no longer in manifest during reconciliation — counted as missing", path);
+                push_item(items, path, None);
+            }
+            Err(why) => {
+                eprintln!("photo {}: manifest fetch failed ({why}) — counted as missing", path);
+                push_item(items, path, None);
+            }
         }
     }
     Ok(())
@@ -797,7 +814,10 @@ mod tests {
         thumb.file = Some("photos/thumbnails/2_b.jpg".into());
         thumb.file_is_thumbnail = true;
         let missing = make_one("c.jpg"); // file None
-        let s = summarize(&[orig.clone(), thumb.clone(), missing.clone()], "photos");
+        let orig_c = orig.clone();
+        let thumb_c = thumb.clone();
+        let missing_c = missing.clone();
+        let s = summarize(&[orig_c, thumb_c, missing_c], "photos");
         assert_eq!(s.extracted, 1);
         assert_eq!(s.thumbnails, 1);
         assert_eq!(s.missing, 1);
@@ -808,9 +828,19 @@ mod tests {
         let mut manifest = make_one("IMG_0999.MOV");
         manifest.file = Some("photos/manifest_4_IMG_0999.MOV".into());
         manifest.uncatalogued = true;
-        let s = summarize(&[orig, thumb, missing, manifest], "photos");
+        let s = summarize(&[orig.clone(), thumb.clone(), missing.clone(), manifest], "photos");
         assert_eq!(s.extracted, 1);
         assert_eq!(s.uncatalogued, 1);
+        assert_eq!(s.extracted + s.thumbnails + s.missing + s.uncatalogued, 4);
+
+        // A manifest file whose fetch failed is only `missing` (invariant holds,
+        // `uncatalogued` stays false — it flags files actually recovered).
+        let mut failed = make_one("IMG_0998.MOV");
+        failed.file = None;
+        failed.uncatalogued = false;
+        let s = summarize(&[orig, thumb, missing, failed], "photos");
+        assert_eq!(s.missing, 2);
+        assert_eq!(s.uncatalogued, 0);
         assert_eq!(s.extracted + s.thumbnails + s.missing + s.uncatalogued, 4);
     }
 

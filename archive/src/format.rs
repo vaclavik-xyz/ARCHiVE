@@ -602,7 +602,9 @@ fn report_summary(items: &[crate::photos::Photo], device: &archive_core::DeviceI
     let total = items.len();
     let videos = items.iter().filter(|p| p.kind == "video").count();
     let thumbnails = items.iter().filter(|p| p.file_is_thumbnail).count();
-    let originals = items.iter().filter(|p| p.file.is_some() && !p.file_is_thumbnail).count();
+    // Manifest-reconciled files are excluded here so the HTML "v plné kvalitě"
+    // count matches the envelope's `extracted` and never double-counts them.
+    let originals = items.iter().filter(|p| p.file.is_some() && !p.file_is_thumbnail && !p.uncatalogued).count();
     let uncatalogued = items.iter().filter(|p| p.uncatalogued).count();
     let mut dated: Vec<&str> = items.iter().map(|p| p.created.as_str()).filter(|s| !s.is_empty()).collect();
     dated.sort_unstable(); // ISO-8601 sorts chronologically
@@ -2085,6 +2087,22 @@ mod tests {
         let html = photos_html(&[p], &test_device(), true);
         assert!(html.contains("&#60;script&#62;"));
         assert!(!html.contains("<script>alert"));
+    }
+
+    #[test]
+    fn report_summary_excludes_uncatalogued_from_originals() {
+        let mut p = sample_photo();
+        let mut m = sample_photo();
+        m.filename = "IMG_0999.MOV".into();
+        m.kind = "video".into();
+        m.file = Some("photos/manifest_2_IMG_0999.MOV".into());
+        m.uncatalogued = true;
+        let s = report_summary(&[p, m], &test_device(), true);
+        // The reconciled file counts as `uncatalogued`, never double-counted in
+        // `originals` (which mirrors the envelope's `extracted`).
+        assert_eq!(s.originals, 1);
+        assert_eq!(s.uncatalogued, 1);
+        assert_eq!(s.total, 2);
     }
 
     #[test]
