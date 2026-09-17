@@ -19,6 +19,10 @@ use crate::{AppError, Cli, Command};
 
 /// The wizard page, embedded at compile time from `templates/ui.html`.
 const UI_HTML: &str = include_str!("../templates/ui.html");
+/// Brand favicons (from `docs/brand/favicon.png`, downscaled at build prep).
+const FAVICON_32: &[u8] = include_bytes!("../templates/favicon-32.png");
+const FAVICON_64: &[u8] = include_bytes!("../templates/favicon-64.png");
+const TOUCH_ICON: &[u8] = include_bytes!("../templates/apple-touch-icon.png");
 
 /// State shared between requests: the fixed password (from `--password`, may be
 /// absent) and the last `recover` job.
@@ -27,6 +31,12 @@ struct UiState {
     job: Mutex<UiJob>,
     /// Per-run CSRF token: embedded in the served page, required on every POST.
     token: String,
+    /// Wizard path-field prefill (from `--backup`).
+    backup: Option<String>,
+    /// Set when bound to a non-loopback address: the wizard page (with its
+    /// embedded token) is served only to URLs carrying `?k=<token>`, so the
+    /// link itself is the credential.
+    page_key: Option<String>,
 }
 
 /// Background `recover` job: at most one at a time (the UI starts another only
@@ -50,32 +60,109 @@ impl UiJob {
 /// Launch the wizard: bind `127.0.0.1:<port>`, print the envelope, open the
 /// browser, serve until quit. `password` is the fixed `--password` (the UI can
 /// also send its own per request).
-pub fn run(port: Option<u16>, password: Option<&str>) -> Result<Value, AppError> {
-    let listener = TcpListener::bind(("127.0.0.1", port.unwrap_or(8099)))
-        .map_err(|e| AppError::other(format!("cannot bind 127.0.0.1:{}: {e}", port.unwrap_or(8099))))?;
+pub fn run(
+    port: Option<u16>,
+    host: Option<&str>,
+    password: Option<&str>,
+    backup: Option<&str>,
+) -> Result<Value, AppError> {
+    let bind_host = host.unwrap_or("127.0.0.1");
+    let listener = TcpListener::bind((bind_host, port.unwrap_or(8099))).map_err(|e| {
+        AppError::other(format!(
+            "cannot bind {bind_host}:{}: {e}",
+            port.unwrap_or(8099)
+        ))
+    })?;
     // Report the actual bound port (bind to 0 lets the OS pick a free one).
-    let port = listener.local_addr().map_err(|e| AppError::other(e.to_string()))?.port();
-    let url = format!("http://127.0.0.1:{port}");
-    let envelope = json!({
-        "ok": true, "command": "ui", "url": url, "port": port,
-        "note": "serving the recovery wizard; stop with Ctrl-C or /api/quit"
-    });
-    println!("{envelope}");
-    eprintln!("ARCHiVE UI on {url} — opening a browser…");
-    open_browser(&url);
-
+    let addr = listener
+        .local_addr()
+        .map_err(|e| AppError::other(e.to_string()))?;
+    let port = addr.port();
+    // Classify from the bound socket, not the input string: `0.0.0.0`/`::`
+    // (all interfaces) are not connectable destinations, and `::1` plus its
+    // IPv4-mapped `::ffff:127.x` forms are loopback even though the string
+    // says otherwise.
+    let ip = addr.ip();
+    let is_unspecified = ip.is_unspecified();
+    let is_loopback = match ip {
+        std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback()),
+        std::net::IpAddr::V4(v4) => v4.is_loopback(),
+    };
+    let token = generate_token();
+    // IPv6 literals need brackets in URLs (`http://[::1]:8099`).
+    let host_url = if bind_host.contains(':') {
+        format!("[{bind_host}]")
+    } else {
+        bind_host.to_string()
+    };
     let state = Arc::new(UiState {
         cli_password: password.map(str::to_string),
         job: Mutex::new(UiJob::idle()),
-        token: generate_token(),
+        token: token.clone(),
+        backup: backup.map(str::to_string),
+        // Non-loopback bind: the URL key is the credential (see `UiState`).
+        page_key: (!is_loopback).then(|| token.clone()),
     });
+    let url = match &state.page_key {
+        Some(key) => format!("http://{host_url}:{port}/?k={key}"),
+        None => format!("http://{host_url}:{port}"),
+    };
+    let note = if is_unspecified {
+        // `0.0.0.0`/`::` are not connectable destinations — the printed URL is
+        // not openable anywhere, so tell the operator what to substitute.
+        format!(
+            "bound to all interfaces ({bind_host} is not a connectable address): \
+             open the wizard from another device by replacing {bind_host} with \
+             this computer's IP (or Tailscale address) in the URL — the link's \
+             access key is required; stop with Ctrl-C or POST /api/quit"
+        )
+        .to_string()
+    } else if is_loopback {
+        "serving the recovery wizard; stop with Ctrl-C or /api/quit".to_string()
+    } else {
+        // Plain HTTP: on a real LAN (unlike an encrypted Tailscale/WireGuard
+        // link) a passive sniffer could read the backup password, which is a
+        // long-lived secret — say so instead of only advertising the key gate.
+        "bound to a non-loopback address: the wizard is reachable from other \
+         devices, the URL above carries the access key, and everything — \
+         INCLUDING THE BACKUP PASSWORD — travels unencrypted over plain HTTP, \
+         so use it only over an encrypted network such as Tailscale; stop with \
+         Ctrl-C or POST /api/quit"
+            .to_string()
+    };
+    let envelope = json!({
+        "ok": true, "command": "ui", "url": url, "port": port, "note": note
+    });
+    println!("{envelope}");
+    if is_loopback {
+        eprintln!("ARCHiVE UI on {url} — opening a browser…");
+        open_browser(&url);
+    } else {
+        eprintln!("ARCHiVE UI on {url} — open it on the other device (the URL carries the access key)");
+    }
+    // Bound the server: a read timeout per socket and a cap on concurrent
+    // connections, so a LAN client (or bug) can't pile up threads or hold
+    // sockets open forever.
+    static ACTIVE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     for stream in listener.incoming() {
         let Ok(mut stream) = stream else { continue };
+        const MAX_CONCURRENT: usize = 32;
+        if ACTIVE.load(std::sync::atomic::Ordering::SeqCst) >= MAX_CONCURRENT {
+            let _ = stream.write_all(&respond_json_status(
+                &json!({"ok": false, "error": "server busy", "kind": "other"}),
+                503,
+            ));
+            continue;
+        }
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(30))).ok();
+        stream.set_write_timeout(Some(std::time::Duration::from_secs(30))).ok();
+        ACTIVE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let state = Arc::clone(&state);
         // One thread per request keeps `/api/status` polling responsive while a
         // `recover` runs in its own worker thread.
         std::thread::spawn(move || {
             let _ = handle_connection(&mut stream, &state);
+            ACTIVE.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         });
     }
     Ok(envelope)
@@ -83,6 +170,7 @@ pub fn run(port: Option<u16>, password: Option<&str>) -> Result<Value, AppError>
 
 /// Dispatch one request. Errors are answered as JSON envelopes, never panics.
 fn handle_connection(stream: &mut TcpStream, state: &Arc<UiState>) -> std::io::Result<()> {
+    let peer_addr = stream.peer_addr().map(|a| a.to_string()).unwrap_or_default();
     let Some(request) = read_request(stream)? else {
         return Ok(());
     };
@@ -90,8 +178,25 @@ fn handle_connection(stream: &mut TcpStream, state: &Arc<UiState>) -> std::io::R
 
     let mut quit = false;
     let response = match (method.as_str(), path.as_str()) {
-        ("GET", "/") => respond_html(&UI_HTML.replace("__CSRF_TOKEN__", &state.token)),
+        ("GET", "/") => {
+            // Non-loopback binds serve the page (with its embedded token) only
+            // to URLs carrying the access key — the link is the credential.
+            if page_access_granted(state, &query) {
+                respond_html(&render_page(state))
+            } else {
+                respond_html(LOCKED_PAGE_HTML)
+            }
+        }
         ("GET", "/api/ping") => respond_json(&json!({"ok": true})),
+        ("GET", "/favicon-32.png") => respond_png(FAVICON_32),
+        ("GET", "/favicon-64.png") => respond_png(FAVICON_64),
+        ("GET", "/apple-touch-icon.png") => respond_png(TOUCH_ICON),
+        // Read APIs leak the backup inventory and the last recovery result
+        // (output paths, device identity, per-store counts), so on non-loopback
+        // binds they require the access key (or the token the keyed page holds).
+        ("GET", "/api/inspect") if !read_access_granted(state, &headers, &query) => {
+            respond_json_status(&forbidden(), 403)
+        }
         ("GET", "/api/inspect") => {
             let params = parse_query(&query);
             respond_json(&inspect(&params, state))
@@ -103,6 +208,9 @@ fn handle_connection(stream: &mut TcpStream, state: &Arc<UiState>) -> std::io::R
                 let payload: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
                 respond_json(&start_recover(&payload, state))
             }
+        }
+        ("GET", "/api/status") if !read_access_granted(state, &headers, &query) => {
+            respond_json_status(&forbidden(), 403)
         }
         ("GET", "/api/status") => respond_json(&job_status(state)),
         // Side-effecting routes are POST + token: a cross-origin `<img src>` or
@@ -128,6 +236,7 @@ fn handle_connection(stream: &mut TcpStream, state: &Arc<UiState>) -> std::io::R
     };
     stream.write_all(&response)?;
     stream.flush()?;
+    eprintln!("{} {} from {}", method, path, peer_addr);
     if quit {
         std::process::exit(0);
     }
@@ -138,6 +247,50 @@ fn handle_connection(stream: &mut TcpStream, state: &Arc<UiState>) -> std::io::R
 fn authorized(headers: &HashMap<String, String>, token: &str) -> bool {
     headers.get("x-archive-token").map(|v| v == token).unwrap_or(false)
 }
+
+/// Whether the wizard page may be served: loopback binds always, keyed binds
+/// only with the correct `?k=` access key.
+fn page_access_granted(state: &UiState, query: &str) -> bool {
+    match &state.page_key {
+        None => true,
+        Some(key) => parse_query(query).get("k").map(String::as_str) == Some(key),
+    }
+}
+
+/// Whether a read API call may proceed: loopback binds always, keyed binds with
+/// the access key (`?k=`) or the token the keyed page embeds (sent as
+/// `X-Archive-Token` by the page's own fetches).
+fn read_access_granted(state: &UiState, headers: &HashMap<String, String>, query: &str) -> bool {
+    match &state.page_key {
+        None => true,
+        Some(key) => {
+            authorized(headers, &state.token)
+                || parse_query(query).get("k").map(String::as_str) == Some(key)
+        }
+    }
+}
+
+/// The wizard page with this run's token and (HTML-escaped) path prefill.
+fn render_page(state: &UiState) -> String {
+    UI_HTML
+        .replace("__CSRF_TOKEN__", &state.token)
+        .replace("__BACKUP_PATH__", &html_escape(state.backup.as_deref().unwrap_or("")))
+}
+
+/// Minimal HTML escaping for template substitution (attribute + text safe).
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// Served instead of the wizard when a non-loopback bind is accessed without
+/// the `?k=` access key: no token is embedded, so every API call would 403.
+const LOCKED_PAGE_HTML: &str = r#"<!DOCTYPE html>
+<html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARCHiVE — uzamčeno</title></head>
+<body style="font-family:-apple-system,sans-serif;background:#12161f;color:#e8ebf2;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0">
+<p style="padding:2rem;text-align:center">Chybí přístupový klíč v adrese.<br><br>Otevři odkaz, který vypsal <code style="color:#4f8cff">archive ui</code> (končí na <code style="color:#4f8cff">?k=…</code>).</p>
+</body></html>
+"#;
 
 /// The 403 envelope for a missing/wrong CSRF token.
 fn forbidden() -> Value {
@@ -352,6 +505,7 @@ fn start_recover(payload: &Value, state: &Arc<UiState>) -> Value {
         job.result = None;
         job.index_html = None;
     }
+    crate::progress::reset();
 
     let cli = Cli {
         backup: Some(PathBuf::from(&backup)),
@@ -387,11 +541,18 @@ fn start_recover(payload: &Value, state: &Arc<UiState>) -> Value {
 /// Current job state as JSON for `/api/status`.
 fn job_status(state: &UiState) -> Value {
     let job = state.job.lock().unwrap();
+    let progress = crate::progress::get().map(|p| {
+        json!({
+            "current": p.current, "done": p.done, "total": p.total,
+            "percent": (p.percent() * 100.0).round() / 100.0, "detail": p.detail,
+        })
+    });
     json!({
         "ok": true,
         "running": job.running,
         "result": job.result,
         "index_html": job.index_html.as_ref().map(|p| p.to_string_lossy().into_owned()),
+        "progress": progress,
     })
 }
 
@@ -445,28 +606,36 @@ fn open_anything(candidates: &[(&str, Vec<String>)]) -> Result<(), String> {
 // --- HTTP responses ---------------------------------------------------------
 
 fn respond_html(html: &str) -> Vec<u8> {
-    let mut out = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        html.len()
-    )
-    .into_bytes();
-    out.extend_from_slice(html.as_bytes());
-    out
+    respond_full("text/html; charset=utf-8", html.as_bytes(), 200)
 }
 
 fn respond_json(v: &Value) -> Vec<u8> {
     respond_json_status(v, 200)
 }
 
+fn respond_png(body: &[u8]) -> Vec<u8> {
+    respond_full("image/png", body, 200)
+}
+
 fn respond_json_status(v: &Value, status: u16) -> Vec<u8> {
     let text = v.to_string();
+    respond_full("application/json", text.as_bytes(), status)
+}
+
+/// Shared response builder: always `Connection: close` and `Cache-Control:
+/// no-store` so Safari never serves a stale wizard page (per-run CSRF token
+/// changes on every restart — a cached page would get 403 on every action).
+/// `Referrer-Policy: no-referrer` keeps the keyed URL (`?k=…`) out of other
+/// servers' logs when the operator follows a link from the page; the
+/// frame-deny header is cheap clickjack insurance.
+fn respond_full(content_type: &str, body: &[u8], status: u16) -> Vec<u8> {
     let mut out = format!(
-        "HTTP/1.1 {status} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nConnection: close\r\n\r\n",
         if status == 200 { "OK" } else { "Error" },
-        text.len()
+        body.len()
     )
     .into_bytes();
-    out.extend_from_slice(text.as_bytes());
+    out.extend_from_slice(body);
     out
 }
 
@@ -514,7 +683,7 @@ mod tests {
 
     #[test]
     fn job_status_reports_idle_shape() {
-        let state = UiState { cli_password: None, job: Mutex::new(UiJob::idle()), token: "t".into() };
+        let state = UiState { cli_password: None, job: Mutex::new(UiJob::idle()), token: "t".into(), backup: None, page_key: None };
         let v = job_status(&state);
         assert_eq!(v["ok"], true);
         assert_eq!(v["running"], false);
@@ -524,7 +693,7 @@ mod tests {
 
     #[test]
     fn inspect_requires_backup_path() {
-        let state = UiState { cli_password: None, job: Mutex::new(UiJob::idle()), token: "t".into() };
+        let state = UiState { cli_password: None, job: Mutex::new(UiJob::idle()), token: "t".into(), backup: None, page_key: None };
         let params = HashMap::new();
         let err = inspect(&params, &state);
         assert_eq!(err["ok"], false);
@@ -537,6 +706,8 @@ mod tests {
             cli_password: None,
             job: Mutex::new(UiJob::idle()),
             token: "t".into(),
+            backup: None,
+            page_key: None,
         });
         let err = start_recover(&json!({}), &state);
         assert_eq!(err["ok"], false);
@@ -549,7 +720,7 @@ mod tests {
 
     #[test]
     fn open_last_export_without_job_reports_usage() {
-        let state = UiState { cli_password: None, job: Mutex::new(UiJob::idle()), token: "t".into() };
+        let state = UiState { cli_password: None, job: Mutex::new(UiJob::idle()), token: "t".into(), backup: None, page_key: None };
         let v = open_last_export(&state);
         assert_eq!(v["ok"], false);
         assert_eq!(v["kind"], "usage");
@@ -563,6 +734,65 @@ mod tests {
         assert!(!authorized(&headers, "secret"));
         headers.insert("x-archive-token".into(), "secret".into());
         assert!(authorized(&headers, "secret"));
+    }
+
+    #[test]
+    fn html_escape_neutralizes_injection() {
+        assert_eq!(html_escape(r#"><script>&"#), "&gt;&lt;script&gt;&amp;");
+        assert_eq!(html_escape(r#"x" onmouseover="p"#), "x&quot; onmouseover=&quot;p");
+        assert_eq!(html_escape("plain/path"), "plain/path");
+    }
+
+    #[test]
+    fn render_page_escapes_the_backup_prefill() {
+        let state = UiState {
+            cli_password: None,
+            job: Mutex::new(UiJob::idle()),
+            token: "t".into(),
+            backup: Some(r#"/tmp/x" onclick="y"#.into()),
+            page_key: None,
+        };
+        let page = render_page(&state);
+        // The escaped value must appear; the raw injection must not.
+        assert!(page.contains(r#"value="/tmp/x&quot; onclick=&quot;y""#));
+        assert!(!page.contains(r#"" onclick="y""#));
+        assert!(page.contains("TOKEN = \"t\""));
+    }
+
+    #[test]
+    fn page_gate_requires_the_key_on_keyed_binds() {
+        let open = UiState {
+            cli_password: None,
+            job: Mutex::new(UiJob::idle()),
+            token: "t".into(),
+            backup: None,
+            page_key: None,
+        };
+        assert!(page_access_granted(&open, ""));
+        let keyed = UiState { page_key: Some("k1".into()), ..open };
+        assert!(!page_access_granted(&keyed, ""));
+        assert!(!page_access_granted(&keyed, "k=wrong"));
+        assert!(page_access_granted(&keyed, "k=k1"));
+    }
+
+    #[test]
+    fn read_gate_accepts_key_or_token_on_keyed_binds() {
+        let open = UiState {
+            cli_password: None,
+            job: Mutex::new(UiJob::idle()),
+            token: "t".into(),
+            backup: None,
+            page_key: None,
+        };
+        // Loopback binds: everything allowed.
+        assert!(read_access_granted(&open, &HashMap::new(), ""));
+        let keyed = UiState { page_key: Some("k1".into()), ..open };
+        assert!(!read_access_granted(&keyed, &HashMap::new(), ""));
+        assert!(!read_access_granted(&keyed, &HashMap::new(), "k=wrong"));
+        assert!(read_access_granted(&keyed, &HashMap::new(), "k=k1"));
+        let mut headers = HashMap::new();
+        headers.insert("x-archive-token".into(), "t".into());
+        assert!(read_access_granted(&keyed, &headers, ""));
     }
 
     #[test]

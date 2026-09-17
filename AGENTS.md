@@ -1220,34 +1220,43 @@ at it: `archive --backup <OUT>/<udid> recover`.
 ### `ui` — local recovery wizard (web app)
 
 ```
-archive ui [--port <N>]
+archive ui [--port <N>] [--host <ADDR>] [--backup <DIR>] [--password <PW>]
 ```
 
 Launches a tiny local web app (the recovery wizard) on
 `http://127.0.0.1:<N>` (default 8099) and opens it in the default browser, so a
-non-technical user can inspect and recover a backup without the CLI. Does
-**not** take `--backup` (the path is entered in the UI) and is the second
-command (besides `backup`) without it.
+non-technical user can inspect and recover a backup without the CLI.
+`--backup <DIR>` prefills the wizard's path field (the path is still editable in
+the UI); the flag is optional, making `ui` the second command (besides `backup`)
+that can run without it.
 
 The page walks the user through: enter the backup folder (+ password for an
 encrypted backup) → `inspect` (a table of what the backup contains) →
-"recover all" (`recover` in a background thread; the UI polls its status) →
-open the resulting `index.html`. The output directory defaults to
-`<backup>/../ARCHiVE-export-<timestamp>`; `--password` is a fixed default the
-UI's per-request password overrides. `--port` picks the port. The server binds
-to `127.0.0.1` only and never writes the password anywhere (in-memory only);
-the wizard runs entirely locally — no data leaves the machine.
+"recover all" (`recover` in a background thread; the UI polls its status with a
+determinate percent + ETA) → open the resulting `index.html`. The output
+directory defaults to `<backup>/../ARCHiVE-export-<timestamp>`; `--password` is
+a fixed default the UI's per-request password overrides. `--port` picks the
+port. The password is never written anywhere (in-memory only).
 
-The JSON API (all on localhost): `GET /` (the page), `GET /api/ping`,
-`GET /api/inspect?backup=&password=`, `POST /api/recover`
-(`{"backup", "password", "out"}`), `GET /api/status`, `POST /api/open` (reveals
-the last export's `index.html` — only that recorded path is openable) and
-`POST /api/quit` (stops the server). The side-effecting `/api/open` and
-`/api/quit` are POST-only so a random webpage the user visits cannot fire
-simple GETs at localhost to kill the server or open files. Implemented
-in-process over std `TcpListener` (no extra dependencies); the page is
-embedded from `templates/ui.html`. At most one recovery runs at a time;
-`Ctrl-C` or `/api/quit` stops the tool.
+**Binding and access model:** by default the server binds to `127.0.0.1` (the
+wizard runs entirely locally — no data leaves the machine) and auto-opens the
+browser. With `--host <ADDR>` it binds a non-loopback address (Tailscale, LAN)
+for use from another device; such a bind **puts the wizard on the network**: the
+startup URL carries a per-run access key (`http://<addr>:<port>/?k=<key>` — the
+link is the credential), the page and all read APIs (`/api/status`,
+`/api/inspect`) answer 403 without it, and the envelope `note` states the
+exposure. Loopback binds keep the open, keyless behaviour.
+
+The JSON API: `GET /` (the page; on keyed binds only with `?k=`),
+`GET /api/ping`, `GET /api/inspect?backup=&password=`, `POST /api/recover`
+(`{"backup", "password", "out"}`), `GET /api/status` (carries the live
+`progress` snapshot while a recovery runs), `POST /api/open` (reveals the last
+export's `index.html` — only that recorded path is openable) and `POST
+/api/quit` (stops the server). The side-effecting POSTs require the per-run
+`X-Archive-Token` header (CSRF), which only the page this server itself served
+holds. Implemented in-process over std `TcpListener` (no extra dependencies);
+the page is embedded from `templates/ui.html`. At most one recovery runs at a
+time; `Ctrl-C` or `/api/quit` stops the tool.
 
 stdout: one JSON envelope (`{ok, command: "ui", url, port, note}`) printed
 when the server starts listening, then nothing — progress goes to stderr and

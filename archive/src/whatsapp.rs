@@ -7,6 +7,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
 use crate::datetime::cocoa_any_to_iso;
+use crate::progress;
 use crate::sqlite_util::table_columns;
 
 /// Backup domain of the WhatsApp shared container (DB and media).
@@ -142,6 +143,7 @@ pub fn extract_media(
 ) -> std::io::Result<WaSummary> {
     let media_dir = out.join(WA_DIR);
     std::fs::create_dir_all(&media_dir)?;
+    let n = items.len().max(1);
 
     let mut extracted = 0usize;
     let mut with_media = 0usize;
@@ -149,6 +151,9 @@ pub fn extract_media(
         if item.source_path.is_empty() {
             continue;
         }
+        // Media extraction can be the longest phase — keep the bar moving.
+        progress::fraction((i + 1) as f32 / n as f32);
+        progress::detail(&format!("{}/{}", i + 1, n));
         with_media += 1;
         let name = output_name(i + 1, &item.source_path);
         let dest = media_dir.join(&name);

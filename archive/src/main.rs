@@ -29,6 +29,7 @@ mod package;
 mod pdf;
 mod photos;
 mod photos_deleted;
+mod progress;
 mod ui;
 mod recover;
 mod recover_deleted;
@@ -425,6 +426,13 @@ enum Command {
         /// Port to listen on (default 8099).
         #[arg(long)]
         port: Option<u16>,
+        /// Address to bind (default 127.0.0.1; e.g. a Tailscale IP to serve
+        /// another device on your tailnet).
+        #[arg(long)]
+        host: Option<String>,
+        /// Backup path to prefill in the wizard.
+        #[arg(long)]
+        backup: Option<String>,
     },
 }
 
@@ -536,7 +544,9 @@ fn run() -> Result<serde_json::Value, AppError> {
         Command::Certificates { format } => run_certificates(&cli, password.as_deref(), format),
         Command::VpnCreds { format } => run_vpn_creds(&cli, password.as_deref(), format),
         Command::Recover { no_files } => run_recover(&cli, password.as_deref(), *no_files),
-        Command::Ui { port } => ui::run(*port, password.as_deref()),
+        Command::Ui { port, host, backup } => {
+            ui::run(*port, host.as_deref(), password.as_deref(), backup.as_deref())
+        }
         Command::Backup { full } => run_backup(&cli, password.as_deref(), *full),
         Command::Inspect => run_inspect(&cli, password.as_deref()),
         Command::Integrity => run_integrity(&cli, password.as_deref()),
@@ -3070,6 +3080,8 @@ struct Recovery<'a> {
     out: &'a std::path::Path,
     sections: Vec<recover::RecoverSection>,
     outputs: Vec<String>,
+    /// Total expected sections (present stores), for progress reporting.
+    total: usize,
 }
 
 impl Recovery<'_> {
@@ -3092,6 +3104,8 @@ impl Recovery<'_> {
             count,
             media,
         });
+        // Progress reporting for the `ui` wizard: this section is complete.
+        progress::section_done(label, self.sections.len(), self.total);
         Ok(())
     }
 }
@@ -3166,9 +3180,51 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     let device = backup.device_info();
     std::fs::create_dir_all(out).map_err(|e| AppError::other(e.to_string()))?;
 
-    let mut rec = Recovery { out, sections: Vec::new(), outputs: Vec::new() };
+    let mut rec = Recovery { out, sections: Vec::new(), outputs: Vec::new(), total: 0 };
     // Resolve numbers to contact names once for every section that benefits.
     let cidx = contact_index(&backup);
+    // Count the stores that will actually produce sections (one manifest pass),
+    // so the wizard can show a determinate percent + ETA. Presence mirrors the
+    // loader logic: real-path stores are a set lookup, path-less stores probe
+    // their candidate paths. `photos-recently-deleted` is excluded — it only
+    // runs when trashed assets exist — and `progress::section_done` grows the
+    // total to cover it (and any unknown store) if it does.
+    let present: std::collections::HashSet<String> = backup
+        .file_entries()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|f| format!("{}:{}", f.domain, f.relative_path))
+        .collect();
+    let has = |domain: &str, path: &str| present.contains(&format!("{domain}:{path}"));
+    let any = |cands: &[(&str, &str)]| cands.iter().any(|(d, p)| has(d, p));
+    let total = KNOWN_STORES
+        .iter()
+        .filter(|(name, _, domain, path)| match *name {
+            "photos-recently-deleted" => false,
+            "known-networks" => known_networks::PATHS.iter().any(|p| has(known_networks::DOMAIN, p)),
+            "device-usage" => any(device_usage::CANDIDATES),
+            "interactions" => any(interactions::CANDIDATES),
+            "bluetooth-devices" => {
+                bluetooth::LE_DATABASES.iter().any(|(p, _, _)| has(bluetooth::DOMAIN, p))
+                    || has(bluetooth::DOMAIN, bluetooth::CLASSIC_PLIST)
+            }
+            "significant-locations" => {
+                significant_locations::PATHS.iter().any(|p| has(significant_locations::DOMAIN, p))
+            }
+            "keyboard-lexicon" => any(keyboard_lexicon::SOURCES),
+            "reminders" => present.iter().any(|k| {
+                let (d, p) = k.split_once(':').unwrap_or(("", ""));
+                d == reminders::DOMAIN && p.contains("Data-") && p.ends_with(".sqlite")
+            }),
+            "mail" => present.iter().any(|k| {
+                let (d, p) = k.split_once(':').unwrap_or(("", ""));
+                d == mail::MAIL_DOMAIN && p.ends_with(".emlx")
+            }),
+            _ => has(domain, path),
+        })
+        .count();
+    rec.total = total;
+    progress::begin(total);
 
     if let Some(items) = opt_or_log(load_contacts(&backup), "contacts") {
         rec.add("contacts", "Kontakty", "contacts.html", format::contacts_html(&items), items.len(), None)?;
@@ -3221,6 +3277,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         rec.add("keyboard-lexicon", "Klávesnicová slova", "keyboard-lexicon.html", format::keyboard_lexicon_html(&items), items.len(), None)?;
     }
     if let Some(mut items) = opt_or_log(load_voicemail(&backup), "voicemail") {
+        progress::set("Hlasové zprávy", rec.sections.len(), rec.total);
         if let Some(idx) = &cidx {
             enrich::enrich_voicemail(idx, &mut items);
         }
@@ -3236,6 +3293,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         rec.add("voicemail", "Hlasové zprávy", "voicemail.html", format::voicemail_html(&items), items.len(), media)?;
     }
     if let Some(mut items) = opt_or_log(load_voice_memos(&backup), "voice-memos") {
+        progress::set("Hlasové poznámky", rec.sections.len(), rec.total);
         let media = if no_files {
             None
         } else {
@@ -3260,6 +3318,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         rec.add("notes", "Poznámky", "notes.html", format::notes_html(&items), items.len(), None)?;
     }
     if let Some(mut items) = opt_or_log(load_photos(&backup), "photos") {
+        progress::set("Fotky a videa", rec.sections.len(), rec.total);
         let media = if no_files {
             None
         } else {
@@ -3273,6 +3332,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         // Recently Deleted: a dedicated recovery view (own folder + estimated
         // purge dates). `items` is consumed here as the photos section is done.
         let mut trashed = photos_deleted::filter_trashed(items);
+        progress::set("Smazané fotky", rec.sections.len(), rec.total);
         // These were just extracted into photos/; reset `file` so this section's
         // links and media counts reflect only the recently-deleted/ extraction.
         for t in &mut trashed {
@@ -3300,6 +3360,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         }
     }
     if let Some(mut items) = opt_or_log(load_attachments(&backup), "attachments") {
+        progress::set("Přílohy zpráv", rec.sections.len(), rec.total);
         let media = if no_files {
             None
         } else {
@@ -3311,6 +3372,7 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
         rec.add("attachments", "Přílohy zpráv", "attachments.html", format::attachments_html(&items), items.len(), media)?;
     }
     if let Some(mut items) = opt_or_log(load_whatsapp(&backup), "whatsapp") {
+        progress::set("WhatsApp", rec.sections.len(), rec.total);
         if let Some(idx) = &cidx {
             enrich::enrich_whatsapp(idx, &mut items);
         }
@@ -3336,6 +3398,11 @@ fn run_recover(cli: &Cli, password: Option<&str>, no_files: bool) -> Result<serd
     }
 
     let generated = chrono::Utc::now().to_rfc3339();
+    // The run is done: normalize the progress snapshot to the actual section
+    // count so the wizard's percent reaches exactly 100 even when a
+    // manifest-present store produced no section (present-but-empty stores,
+    // loader skips) — the upfront estimate can only overcount, never undercount.
+    progress::finish(rec.sections.len());
     let index_html = recover::render_index(device, &generated, &rec.sections);
     let index_path = out.join("index.html");
     std::fs::write(&index_path, index_html).map_err(|e| AppError::other(e.to_string()))?;

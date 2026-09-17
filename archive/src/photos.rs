@@ -9,6 +9,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
 use crate::datetime::cocoa_to_iso;
+use crate::progress;
 use crate::sqlite_util::table_columns;
 
 /// One Camera Roll asset (photo or video).
@@ -388,10 +389,13 @@ pub fn extract_into(
     std::fs::create_dir_all(&media_dir)?;
     let thumb_dir = media_dir.join("thumbnails");
 
+    let total = items.len();
     for (i, item) in items.iter_mut().enumerate() {
         if item.source_path.is_empty() {
             continue;
         }
+        progress::fraction((i + 1) as f32 / total as f32);
+        progress::detail(&format!("{}/{}", i + 1, total));
         let name = output_name(i + 1, &item.filename);
         let dest = media_dir.join(&name);
         match backup.fetch("CameraRollDomain", &item.source_path, &dest) {

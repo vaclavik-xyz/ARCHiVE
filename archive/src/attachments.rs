@@ -7,6 +7,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
 use crate::datetime::cocoa_any_to_iso;
+use crate::progress;
 use crate::sqlite_util::table_columns;
 
 /// One Messages (iMessage/SMS) attachment.
@@ -129,11 +130,15 @@ pub fn extract_attachments(
 ) -> std::io::Result<AttachmentSummary> {
     let att_dir = out.join(ATT_DIR);
     std::fs::create_dir_all(&att_dir)?;
+    let n = items.len().max(1);
 
     for (i, item) in items.iter_mut().enumerate() {
         if item.source_path.is_empty() {
             continue;
         }
+        // Media extraction can be the longest phase — keep the bar moving.
+        progress::fraction((i + 1) as f32 / n as f32);
+        progress::detail(&format!("{}/{}", i + 1, n));
         let name = output_name(i + 1, &item.name);
         let dest = att_dir.join(&name);
         // Domain is `MediaDomain` (not HomeDomain): iOS backups hash the file id

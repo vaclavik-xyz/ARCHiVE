@@ -11,3 +11,4 @@
 /.roborev/
 # Claude Code session/worktree scratch
 /.claude/
+__pycache__/
