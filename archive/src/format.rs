@@ -2091,7 +2091,7 @@ mod tests {
 
     #[test]
     fn report_summary_excludes_uncatalogued_from_originals() {
-        let mut p = sample_photo();
+        let p = sample_photo();
         let mut m = sample_photo();
         m.filename = "IMG_0999.MOV".into();
         m.kind = "video".into();
