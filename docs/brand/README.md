@@ -9,6 +9,10 @@ with the ARCHiVE wordmark (lowercase `i`).
 | [Icon](favicon.png) | 1254 × 1254 | PNG favicon or application icon |
 | [Social preview](og.png) | 1731 × 909 | Open Graph / social sharing, approximately 1.91:1 |
 
+`../../assets/icon.png` is a byte-for-byte copy of `favicon.png` at a
+conventional path where tools such as T3 Code discover the project icon;
+`archive/tests/brand_assets.rs` fails when it drifts from the master.
+
 These are PNG raster assets, not SVG masters. The logo and social preview use
 white backgrounds. The selected favicon (variant B, round 2) uses a white
 modular A on a cobalt blue background for small display sizes.
